@@ -125,8 +125,12 @@ def dashboard_logic(name, username):
         # Add suggested pace column using goal_marathon_time and activity type, and move it to the left of 'Planned Distance (mi)'
         def get_suggested_pace(row):
             try:
-                return get_pace_range(row['Activity'], goal_marathon_time)
-            except Exception:
+                result = get_pace_range(row['Activity'], goal_marathon_time)
+                # Debug output for diagnosis
+                st.write(f"Activity: {row['Activity']} | Goal: {goal_marathon_time} | Pace: {result}")
+                return result
+            except Exception as e:
+                st.write(f"Error in get_pace_range for Activity: {row['Activity']}, Goal: {goal_marathon_time}, Error: {e}")
                 return ""
         # Insert 'Suggested Pace' to the left of 'Planned Distance (mi)'
         insert_idx = comparison.columns.get_loc('Planned Distance (mi)')
