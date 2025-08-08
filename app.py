@@ -224,7 +224,8 @@ def load_run_plan(plan_path, start_date):
     plan_df['Calendar Date'] = [d.date() for d in plan_dates]
     plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
     # Overwrite the Day column so it matches the Calendar Date
-    weekday_map = {0: 'M', 1: 'T', 2: 'W', 3: 'Th', 4: 'F', 5: 'Sa', 6: 'Su'}
+    # Python: Monday=0, Sunday=6
+    weekday_map = {0: 'M', 1: 'Tu', 2: 'W', 3: 'Th', 4: 'F', 5: 'Sa', 6: 'Su'}
     plan_df['Day'] = [weekday_map[d.weekday()] for d in plan_dates]
 
     def expand_activity(plan):
