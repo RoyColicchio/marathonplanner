@@ -63,7 +63,9 @@ else:
 def setup_screen():
     """Show setup screen for new users or those who haven't completed setup"""
     st.title("🏃‍♂️ Marathon Planner Setup")
-    st.write("Let's get you set up with your training plan!")
+    
+    user_name = st.session_state.get("user_name", "User")
+    st.write(f"Hi {user_name}! Let's get you set up with your training plan.")
     
     with st.form("setup_form"):
         st.subheader("Training Plan Setup")
@@ -80,7 +82,7 @@ def setup_screen():
         # Goal time input
         goal_time_input = st.text_input("Enter your marathon goal time (hh:mm:ss)", value="3:30:00", placeholder="3:30:00")
         
-        submitted = st.form_submit_button("Start My Training Plan", use_container_width=True)
+        submitted = st.form_submit_button("Connect Strava & Start Training Plan", use_container_width=True)
         
         if submitted:
             # Validate inputs
@@ -91,7 +93,7 @@ def setup_screen():
                 st.error("Please enter a goal time")
                 return False
             
-            # Save user settings
+            # Save user settings first
             user_email = st.session_state["user_email"]
             user_name = st.session_state.get("user_name", "User")
             
@@ -106,18 +108,111 @@ def setup_screen():
                 "name": user_name,
                 "start_date": str(start_date_input),
                 "plan": selected_plan_file,
-                "goal_time": goal_time_input.strip()
+                "goal_time": goal_time_input.strip(),
+                "strava_connected": False  # Will be set to True after Strava OAuth
             }
             
             all_settings[user_email] = user_settings
             with open(settings_path, "w") as f:
                 json.dump(all_settings, f, indent=2)
             
+            # Redirect to Strava OAuth
             st.session_state["setup_complete"] = True
-            st.success("Setup complete! Loading your dashboard...")
+            st.session_state["need_strava_auth"] = True
+            st.success("Settings saved! Now let's connect your Strava account...")
             st.rerun()
     
     return False
+
+def strava_oauth_screen():
+    """Show Strava OAuth screen"""
+    st.title("🚴‍♂️ Connect Your Strava Account")
+    
+    user_name = st.session_state.get("user_name", "User")
+    st.write(f"Hi {user_name}! To see your actual running data, we need to connect your Strava account.")
+    
+    st.info("We'll only access your activity data (runs, distance, pace) to compare with your training plan.")
+    
+    # Strava OAuth parameters
+    strava_client_id = "171563"  # Your Strava app client ID
+    redirect_uri = "https://marathonplanner.streamlit.app/"
+    scope = "read,activity:read_all"
+    
+    # Generate Strava OAuth URL
+    strava_auth_url = f"https://www.strava.com/oauth/authorize?client_id={strava_client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope}&state={st.session_state['user_email']}"
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(f'<a href="{strava_auth_url}" target="_self"><button style="background-color: #FC4C02; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; width: 100%;">Connect Strava Account</button></a>', unsafe_allow_html=True)
+    
+    # Check for authorization code in URL params
+    query_params = st.query_params
+    if "code" in query_params:
+        auth_code = query_params["code"]
+        st.write("Authorization received! Processing...")
+        
+        # Exchange code for access token
+        token_url = "https://www.strava.com/api/v3/oauth/token"
+        data = {
+            "client_id": strava_client_id,
+            "client_secret": "db5b605f66158bcf80d1ddda5a6a2739e66899dd",  # Your Strava app secret
+            "code": auth_code,
+            "grant_type": "authorization_code"
+        }
+        
+        response = requests.post(token_url, data=data)
+        if response.status_code == 200:
+            token_data = response.json()
+            
+            # Save user's Strava tokens
+            user_email = st.session_state["user_email"]
+            settings_path = Path("user_settings.json")
+            
+            with open(settings_path, "r") as f:
+                all_settings = json.load(f)
+            
+            user_settings = all_settings.get(user_email, {})
+            user_settings["strava_access_token"] = token_data["access_token"]
+            user_settings["strava_refresh_token"] = token_data["refresh_token"]
+            user_settings["strava_expires_at"] = token_data["expires_at"]
+            user_settings["strava_connected"] = True
+            
+            all_settings[user_email] = user_settings
+            with open(settings_path, "w") as f:
+                json.dump(all_settings, f, indent=2)
+            
+            st.success("Strava connected successfully!")
+            st.session_state["strava_connected"] = True
+            if "need_strava_auth" in st.session_state:
+                del st.session_state["need_strava_auth"]
+            
+            # Clear query params and redirect
+            st.query_params.clear()
+            st.rerun()
+        else:
+            st.error(f"Failed to connect Strava: {response.text}")
+    
+    # Option to skip Strava connection
+    st.markdown("---")
+    if st.button("Skip Strava Connection (Demo Mode)"):
+        # Mark as skipped but allow dashboard access
+        user_email = st.session_state["user_email"]
+        settings_path = Path("user_settings.json")
+        
+        with open(settings_path, "r") as f:
+            all_settings = json.load(f)
+        
+        user_settings = all_settings.get(user_email, {})
+        user_settings["strava_connected"] = False
+        user_settings["demo_mode"] = True
+        
+        all_settings[user_email] = user_settings
+        with open(settings_path, "w") as f:
+            json.dump(all_settings, f, indent=2)
+        
+        if "need_strava_auth" in st.session_state:
+            del st.session_state["need_strava_auth"]
+        st.rerun()
 
 def dashboard_logic(name, username):
     st.title("🏃‍♂️ Marathon Training Dashboard")
@@ -170,7 +265,7 @@ def dashboard_logic(name, username):
         st.error(f"Invalid start date: {start_date}. Error: {e}")
         st.stop()
     try:
-        activities = get_activities()
+        activities = get_activities(username)
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
         # Add suggested pace column using goal_marathon_time and activity type, and move it to the left of 'Planned Distance (mi)'
         # Convert goal_marathon_time to seconds once
@@ -212,26 +307,83 @@ def dashboard_logic(name, username):
     except Exception as e:
         st.error(f"Error showing plan: {e}")
 
-def refresh_access_token():
-    refresh_token = tokens["refresh_token"]
-    response = requests.post(
-        url="https://www.strava.com/api/v3/oauth/token",
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-        },
-    )
-    new_tokens = response.json()
-    with open("tokens.json", "w") as f:
-        json.dump(new_tokens, f)
-    return new_tokens["access_token"]
+# --- Per-user Strava functions ---
+def get_user_strava_token(user_email):
+    """Get user's Strava access token, refreshing if necessary"""
+    settings_path = Path("user_settings.json")
+    if not settings_path.exists():
+        return None
+    
+    with open(settings_path, "r") as f:
+        all_settings = json.load(f)
+    
+    user_settings = all_settings.get(user_email, {})
+    if not user_settings.get("strava_connected"):
+        return None
+    
+    access_token = user_settings.get("strava_access_token")
+    expires_at = user_settings.get("strava_expires_at", 0)
+    
+    # Check if token is expired
+    if time.time() > expires_at:
+        # Refresh the token
+        refresh_token = user_settings.get("strava_refresh_token")
+        if not refresh_token:
+            return None
+        
+        response = requests.post(
+            url="https://www.strava.com/api/v3/oauth/token",
+            data={
+                "client_id": "171563",
+                "client_secret": "db5b605f66158bcf80d1ddda5a6a2739e66899dd",
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+        )
+        
+        if response.status_code == 200:
+            new_tokens = response.json()
+            
+            # Update user settings with new tokens
+            user_settings["strava_access_token"] = new_tokens["access_token"]
+            user_settings["strava_refresh_token"] = new_tokens["refresh_token"]
+            user_settings["strava_expires_at"] = new_tokens["expires_at"]
+            
+            all_settings[user_email] = user_settings
+            with open(settings_path, "w") as f:
+                json.dump(all_settings, f, indent=2)
+            
+            return new_tokens["access_token"]
+        else:
+            return None
+    
+    return access_token
 
-def get_activities():
+def get_activities(user_email):
+    """Get activities for specific user"""
+    settings_path = Path("user_settings.json")
+    with open(settings_path, "r") as f:
+        all_settings = json.load(f)
+    
+    user_settings = all_settings.get(user_email, {})
+    
+    # If in demo mode, return sample data
+    if user_settings.get("demo_mode"):
+        return []  # Empty activities for demo mode
+    
+    access_token = get_user_strava_token(user_email)
+    if not access_token:
+        st.error("Strava connection lost. Please reconnect your Strava account.")
+        return []
+    
     headers = {"Authorization": f"Bearer {access_token}"}
     r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers)
-    return r.json()
+    
+    if r.status_code == 200:
+        return r.json()
+    else:
+        st.error(f"Failed to fetch Strava activities: {r.status_code}")
+        return []
 
 def display_weekly_mileage(activities):
     df = pd.DataFrame(activities)
@@ -412,45 +564,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Load client_id and client_secret
-with open("secrets.json") as f:
-    secrets = json.load(f)
-
-client_id = secrets["client_id"]
-client_secret = secrets["client_secret"]
-
-# Load tokens
-with open("tokens.json") as f:
-    tokens = json.load(f)
-
-def refresh_access_token():
-    refresh_token = tokens["refresh_token"]
-    response = requests.post(
-        url="https://www.strava.com/api/v3/oauth/token",
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-        },
-    )
-    new_tokens = response.json()
-    with open("tokens.json", "w") as f:
-        json.dump(new_tokens, f)
-    return new_tokens["access_token"]
-
-# Check if token is expired
-if time.time() > tokens["expires_at"]:
-    access_token = refresh_access_token()
-else:
-    access_token = tokens["access_token"]
-
-# Fetch activities
-def get_activities():
-    headers = {"Authorization": f"Bearer {access_token}"}
-    r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers)
-    return r.json()
-
 
 # Display weekly mileage
 def display_weekly_mileage(activities):
@@ -629,6 +742,7 @@ if user_email:
     # Check if user has completed setup
     settings_path = Path("user_settings.json")
     setup_complete = False
+    strava_connected = False
     
     if settings_path.exists():
         with open(settings_path, "r") as f:
@@ -639,6 +753,8 @@ if user_email:
             user_settings.get("plan") and 
             user_settings.get("goal_time")):
             setup_complete = True
+        # Check if Strava is connected
+        strava_connected = user_settings.get("strava_connected", False) or user_settings.get("demo_mode", False)
     
     # Override with session state if setup was just completed
     if st.session_state.get("setup_complete"):
@@ -646,6 +762,8 @@ if user_email:
     
     if not setup_complete:
         setup_screen()
+    elif st.session_state.get("need_strava_auth") or (setup_complete and not strava_connected):
+        strava_oauth_screen()
     else:
         dashboard_logic(user_name, user_email)
 
