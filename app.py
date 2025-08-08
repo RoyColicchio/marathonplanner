@@ -95,7 +95,7 @@ if authentication_status:
         if start_date_input:
             if st.sidebar.button("Continue to Dashboard"):
                 st.session_state['set_start_date'] = str(start_date_input)
-                st.experimental_rerun()
+                st.rerun()
         # On rerun, check if we need to set the start date
         if 'set_start_date' in st.session_state:
             user_settings["start_date"] = st.session_state['set_start_date']
