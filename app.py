@@ -139,15 +139,25 @@ def strava_oauth_screen():
     
     # Strava OAuth parameters
     strava_client_id = "171563"  # Your Strava app client ID
-    redirect_uri = "https://marathonplanner.streamlit.app/"
+    redirect_uri = "https://marathonplanner.streamlit.app"  # Remove trailing slash
     scope = "read,activity:read_all"
     
     # Generate Strava OAuth URL
     strava_auth_url = f"https://www.strava.com/oauth/authorize?client_id={strava_client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope}&state={st.session_state['user_email']}"
     
+    st.write("**Debug Info:**")
+    st.write(f"Redirect URI: `{redirect_uri}`")
+    st.write(f"Client ID: `{strava_client_id}`")
+    st.write("Make sure this redirect URI matches exactly what's configured in your Strava app settings.")
+    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(f'<a href="{strava_auth_url}" target="_self"><button style="background-color: #FC4C02; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; width: 100%;">Connect Strava Account</button></a>', unsafe_allow_html=True)
+    
+    # Add manual link as fallback
+    st.markdown("---")
+    st.write("**Alternative**: If the button doesn't work, copy and paste this URL:")
+    st.code(strava_auth_url, language=None)
     
     # Check for authorization code in URL params
     query_params = st.query_params
