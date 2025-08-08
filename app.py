@@ -201,8 +201,15 @@ from datetime import datetime, timedelta
 # Resolve Google OAuth credentials from Streamlit Secrets or env vars
 google_client_id = st.secrets.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID")
 google_client_secret = st.secrets.get("google_client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
+
+# Debug: Show what we found
+st.write(f"DEBUG: Found client_id: {bool(google_client_id)}")
+st.write(f"DEBUG: Found client_secret: {bool(google_client_secret)}")
+
 if not google_client_id or not google_client_secret:
     st.error("Missing Google OAuth credentials. Set google_client_id and google_client_secret in Streamlit Cloud Secrets or .streamlit/secrets.toml (or env vars GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).")
+    st.write("**This is likely why you're seeing a blank page - missing OAuth credentials.**")
+    st.write("Please check your Streamlit Cloud secrets or create a .streamlit/secrets.toml file.")
     st.stop()
 
 # --- Google OAuth2 Authentication ---
