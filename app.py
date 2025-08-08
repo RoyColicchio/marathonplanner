@@ -3,30 +3,7 @@ st.set_page_config(
     page_title="Marathon Planner",
     page_icon="🏃",
     layout="wide",
-    def google_login():
-    """Handle Google OAuth login."""
-    st.title("Marathon Training Dashboard")
-    st.markdown("### Sign in with your Google account to get started")
-    
-    oauth2 = get_google_oauth_component()
-    
-    # Use the correct app URL for redirect
-    redirect_uri = "https://marathonplanner.streamlit.app/"
-    
-    result = oauth2.authorize_button(
-        name="Continue with Google",
-        icon="https://developers.google.com/identity/images/g-logo.png",
-        redirect_uri=redirect_uri,
-        scope="openid email profile",
-        key="google_oauth",
-        use_container_width=True
-    )rect app URL for redirect
-    redirect_uri = "https://marathonplanner.streamlit.app/"
-    
-    result = oauth2.authorize_button(
-        name="Continue with Google",
-        icon="https://developers.google.com/identity/images/g-logo.png",
-        redirect_uri=redirect_uri,sidebar_state="collapsed"
+    initial_sidebar_state="collapsed"
 )
 
 # Simple, clean styling that doesn't interfere with functionality
