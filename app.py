@@ -348,10 +348,24 @@ if authentication_status:
     import datetime
     if isinstance(start_date, str) and start_date not in ("", "NaT", None):
         try:
-            start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-            st.sidebar.write(f"[DEBUG] Parsed start_date to datetime.date: {start_date} (type: {type(start_date)})")
+            start_date_parsed = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+            st.sidebar.write(f"[DEBUG] Parsed start_date to datetime.date: {start_date_parsed} (type: {type(start_date_parsed)})")
+            start_date = start_date_parsed
         except Exception as e:
             st.sidebar.write(f"[DEBUG] Failed to parse start_date: {e}")
+    st.sidebar.write(f"[DEBUG] Final start_date before dashboard: {start_date} (type: {type(start_date)})")
+    st.sidebar.write(f"[DEBUG] load_run_plan received start_date: {start_date} (type: {type(start_date)})")
+    # Guard: start_date must be valid
+    if not start_date or start_date in ["", None, "NaT"]:
+        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.stop()
+    try:
+        st.sidebar.write(f"[DEBUG] pd.to_datetime input: {start_date} (type: {type(start_date)})")
+        start = pd.to_datetime(start_date)
+        st.sidebar.write(f"[DEBUG] pd.to_datetime output: {start} (type: {type(start)})")
+    except Exception as e:
+        st.error(f"Invalid start date: {start_date}. Error: {e}")
+        st.stop()
     try:
         activities = get_activities()
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
