@@ -131,12 +131,12 @@ def dashboard_logic(name, username):
         # Insert 'Suggested Pace' to the left of 'Planned Distance (mi)'
         insert_idx = comparison.columns.get_loc('Planned Distance (mi)')
         comparison.insert(insert_idx, 'Suggested Pace', comparison.apply(get_suggested_pace, axis=1))
-        st.subheader("\ud83d\udcc5 Plan vs. Actual")
+        st.subheader("📅 Plan vs. Actual")
         columns_to_hide = ["Calendar Date", "Calendar Date Str"]
         display_df = comparison.drop(columns=columns_to_hide)
         AgGrid(display_df, theme="streamlit", fit_columns_on_grid_load=True)
         rec, expl = make_recommendation(activities, plan_choice, start_date)
-        st.subheader("\ud83d\udca1 Recommendation")
+        st.subheader("💡 Recommendation")
         st.write(rec)
         with st.expander("Show details"):
             st.text(expl)
