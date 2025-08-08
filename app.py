@@ -216,18 +216,18 @@ def load_run_plan(plan_path, start_date):
     if not start_date or start_date in ["", None, "NaT"]:
         st.error("No valid start date set. Please select a start date in the sidebar.")
         st.stop()
-
-    # --- Always start the plan on the selected start_date ---
-    # The first plan date is always the user-selected start_date
-    first_date = pd.to_datetime(start_date)
-    plan_dates = [first_date + pd.Timedelta(days=i) for i in range(len(plan_df))]
-    plan_df['Calendar Date'] = [d.date() for d in plan_dates]
+    try:
+        start = pd.to_datetime(start_date)
+    except Exception as e:
+        st.error(f"Invalid start date: {start_date}. Error: {e}")
+        st.stop()
+    plan_dates = [start + timedelta(days=i) for i in range(len(plan_df))]
+    plan_df['Calendar Date'] = [pd.to_datetime(d).date() for d in plan_dates]
     plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
-    # Overwrite the Day column so it matches the Calendar Date
-    # Python: Monday=0, Sunday=6
-    weekday_map = {0: 'M', 1: 'Tu', 2: 'W', 3: 'Th', 4: 'F', 5: 'Sa', 6: 'Su'}
+    # Always overwrite the Day column so it matches the Calendar Date
+    weekday_map = {0: 'F', 1: 'Sa', 2: 'Su', 3: 'M', 4: 'Tu', 5: 'W', 6: 'Th'}
+    # 2025-08-08 is a Friday, so 0 should be 'F', 1 'Sa', 2 'Su', etc.
     plan_df['Day'] = [weekday_map[d.weekday()] for d in plan_dates]
-
     def expand_activity(plan):
         mapping = {
             'GA': 'General Aerobic',
