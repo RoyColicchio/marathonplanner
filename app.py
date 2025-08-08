@@ -7,11 +7,19 @@ from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from pace_utils import marathon_pace_seconds, get_pace_range
 import requests
 import time
+import os
+
+# Resolve Google OAuth credentials from Streamlit Secrets or env vars
+google_client_id = st.secrets.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID")
+google_client_secret = st.secrets.get("google_client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
+if not google_client_id or not google_client_secret:
+    st.error("Missing Google OAuth credentials. Set google_client_id and google_client_secret in Streamlit Cloud Secrets or .streamlit/secrets.toml (or env vars GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).")
+    st.stop()
 
 # --- Google OAuth2 Authentication ---
 oauth2 = OAuth2Component(
-    client_id=st.secrets["google_client_id"],
-    client_secret=st.secrets["google_client_secret"],
+    client_id=google_client_id,
+    client_secret=google_client_secret,
     authorize_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
     token_endpoint="https://oauth2.googleapis.com/token",
     redirect_uri="https://marathonplanner.streamlit.app/",
