@@ -43,7 +43,7 @@ if not st.session_state['guest']:
                 st.session_state['guest'] = True
                 st.session_state['name'] = 'Guest'
                 st.session_state['username'] = 'guest'
-                st.experimental_rerun()
+                st.rerun()
 else:
     authentication_status = True
     name = st.session_state.get('name', 'Guest')
@@ -104,7 +104,7 @@ if authentication_status:
                 with open(settings_path, "w") as f:
                     json.dump(all_settings, f, indent=2)
             del st.session_state['set_start_date']
-            st.experimental_rerun()
+            st.rerun()
         st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
         st.stop()
 
