@@ -42,7 +42,8 @@ if "user_email" not in st.session_state:
             if response.status_code == 200:
                 user_info = response.json()
                 st.session_state["user_email"] = user_info["email"]
-                st.success(f"Logged in as {user_info['email']}")
+                st.session_state["user_name"] = user_info.get("given_name", user_info.get("name", "User"))
+                st.success(f"Logged in as {st.session_state['user_name']}")
                 st.rerun()
             else:
                 st.error("Failed to get user information from Google")
@@ -57,67 +58,101 @@ if "user_email" not in st.session_state:
             del st.session_state["user_email"]
         st.stop()
 else:
-    st.success(f"Logged in as {st.session_state['user_email']}")
+    st.success(f"Welcome back, {st.session_state.get('user_name', 'User')}!")
+
+def setup_screen():
+    """Show setup screen for new users or those who haven't completed setup"""
+    st.title("🏃‍♂️ Marathon Planner Setup")
+    st.write("Let's get you set up with your training plan!")
+    
+    with st.form("setup_form"):
+        st.subheader("Training Plan Setup")
+        
+        # Plan selection dropdown with friendly name
+        plan_options = {"run_plan.csv": "Pfitz 18/55"}
+        plan_labels = list(plan_options.values())
+        plan_label = st.selectbox("Select your training plan", plan_labels, index=0)
+        selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
+        
+        # Start date selection
+        start_date_input = st.date_input("Select your plan start date")
+        
+        # Goal time input
+        goal_time_input = st.text_input("Enter your marathon goal time (hh:mm:ss)", value="3:30:00", placeholder="3:30:00")
+        
+        submitted = st.form_submit_button("Start My Training Plan", use_container_width=True)
+        
+        if submitted:
+            # Validate inputs
+            if not start_date_input:
+                st.error("Please select a start date")
+                return False
+            if not goal_time_input or goal_time_input.strip() == "":
+                st.error("Please enter a goal time")
+                return False
+            
+            # Save user settings
+            user_email = st.session_state["user_email"]
+            user_name = st.session_state.get("user_name", "User")
+            
+            settings_path = Path("user_settings.json")
+            if settings_path.exists():
+                with open(settings_path, "r") as f:
+                    all_settings = json.load(f)
+            else:
+                all_settings = {}
+            
+            user_settings = {
+                "name": user_name,
+                "start_date": str(start_date_input),
+                "plan": selected_plan_file,
+                "goal_time": goal_time_input.strip()
+            }
+            
+            all_settings[user_email] = user_settings
+            with open(settings_path, "w") as f:
+                json.dump(all_settings, f, indent=2)
+            
+            st.session_state["setup_complete"] = True
+            st.success("Setup complete! Loading your dashboard...")
+            st.rerun()
+    
+    return False
 
 def dashboard_logic(name, username):
+    st.title("🏃‍♂️ Marathon Training Dashboard")
     st.write(f"Welcome, {name}!")
-    # Load or initialize user settings
+    
+    # Load user settings (they should exist since setup is complete)
     settings_path = Path("user_settings.json")
     if settings_path.exists():
         with open(settings_path, "r") as f:
             all_settings = json.load(f)
     else:
-        all_settings = {}
-    user_settings = all_settings.get(username, {
-        "name": name,
-        "start_date": "",
-        "plan": "run_plan.csv",
-        "goal_time": "3:30:00"
-    })
-
-
-
-    # --- Plan selection dropdown with friendly name ---
-    plan_options = {"run_plan.csv": "Pfitz 18/55"}
-    plan_files = list(plan_options.keys())
-    plan_labels = list(plan_options.values())
-    # Find current plan label
-    current_plan_file = user_settings.get("plan", "run_plan.csv")
-    current_plan_label = plan_options.get(current_plan_file, current_plan_file)
-    plan_label = st.selectbox("Select plan", plan_labels, index=plan_labels.index(current_plan_label) if current_plan_label in plan_labels else 0)
-    # Map label back to filename
-    selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
-    user_settings["plan"] = selected_plan_file
-
-    # (Plan preview removed as requested)
-
-    # --- Prompt for start date and goal time if not set ---
-    if not user_settings.get("start_date") or not user_settings.get("goal_time"):
-        st.sidebar.header("Setup")
-        start_date_input = st.sidebar.date_input("Select your plan start date")
-        goal_time_input = st.sidebar.text_input("Enter your marathon goal time (hh:mm:ss)", value=user_settings.get("goal_time", "3:30:00"))
-        if st.sidebar.button("Continue to Dashboard"):
-            user_settings["start_date"] = str(start_date_input)
-            user_settings["goal_time"] = goal_time_input
-            all_settings[username] = user_settings
-            with open(settings_path, "w") as f:
-                json.dump(all_settings, f, indent=2)
-            st.session_state['start_date_set'] = True
-            st.rerun()
-        if st.session_state.get('start_date_set'):
-            del st.session_state['start_date_set']
-        else:
-            st.sidebar.info("Please select a start date, enter your goal time, and click 'Continue to Dashboard' to view your plan.")
-            st.stop()
-
-    # --- Always show dashboard after start_date is set ---
+        st.error("Setup data not found. Please refresh the page.")
+        st.stop()
+    
+    user_settings = all_settings.get(username, {})
+    if not user_settings:
+        st.error("User settings not found. Please refresh the page.")
+        st.stop()
+    
+    # Get user settings
     plan_choice = user_settings["plan"]
     start_date = user_settings["start_date"]
     goal_marathon_time = user_settings["goal_time"]
-    # Guard: if start_date is empty, stop and prompt user
-    if not start_date or start_date in ["", None, "NaT"]:
-        st.error("No valid start date set. Please select a start date in the sidebar.")
-        st.stop()
+    
+    # Show current settings in sidebar
+    with st.sidebar:
+        st.header("Your Settings")
+        st.write(f"**Plan:** Pfitz 18/55")
+        st.write(f"**Start Date:** {start_date}")
+        st.write(f"**Goal Time:** {goal_marathon_time}")
+        if st.button("Update Settings"):
+            # Clear setup completion to show setup screen again
+            if "setup_complete" in st.session_state:
+                del st.session_state["setup_complete"]
+            st.rerun()
     # If start_date is a string, parse it to datetime.date
     if isinstance(start_date, str) and start_date not in ("", "NaT", None):
         try:
@@ -588,8 +623,31 @@ login_placeholder = st.empty()
 
 # Use Google OAuth user info for dashboard
 user_email = st.session_state.get("user_email")
+user_name = st.session_state.get("user_name", "User")
+
 if user_email:
-    dashboard_logic(user_email, user_email)
+    # Check if user has completed setup
+    settings_path = Path("user_settings.json")
+    setup_complete = False
+    
+    if settings_path.exists():
+        with open(settings_path, "r") as f:
+            all_settings = json.load(f)
+        user_settings = all_settings.get(user_email, {})
+        # Check if all required settings exist
+        if (user_settings.get("start_date") and 
+            user_settings.get("plan") and 
+            user_settings.get("goal_time")):
+            setup_complete = True
+    
+    # Override with session state if setup was just completed
+    if st.session_state.get("setup_complete"):
+        setup_complete = True
+    
+    if not setup_complete:
+        setup_screen()
+    else:
+        dashboard_logic(user_name, user_email)
 
 
 
