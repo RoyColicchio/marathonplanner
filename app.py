@@ -92,21 +92,22 @@ if authentication_status:
     if not user_settings.get("start_date"):
         st.sidebar.header("Setup")
         start_date_input = st.sidebar.date_input("Select your plan start date")
-        if start_date_input:
-            if st.sidebar.button("Continue to Dashboard"):
-                st.session_state['set_start_date'] = str(start_date_input)
-                st.rerun()
-        # On rerun, check if we need to set the start date
-        if 'set_start_date' in st.session_state:
-            user_settings["start_date"] = st.session_state['set_start_date']
+        if st.sidebar.button("Continue to Dashboard"):
+            # Always set start_date in user_settings and persist if not guest
+            user_settings["start_date"] = str(start_date_input)
             if username != 'guest':
                 all_settings[username] = user_settings
                 with open(settings_path, "w") as f:
                     json.dump(all_settings, f, indent=2)
-            del st.session_state['set_start_date']
+            st.session_state['start_date_set'] = True
             st.rerun()
-        st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
-        st.stop()
+        # On rerun, check if we just set the start date
+        if st.session_state.get('start_date_set'):
+            del st.session_state['start_date_set']
+            # user_settings already updated, continue to dashboard
+        else:
+            st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
+            st.stop()
 
 PACE_MAPPING = [
     {"type": "Long Run", "keywords": ["Long Run", "LR"], "delta": (45, 90)},
