@@ -304,46 +304,32 @@ def show_dashboard():
         training_plan_setup()
 
 def generate_training_plan(start_date):
-    """Loads the training plan from run_plan.csv."""
+    """Loads the training plan from run_plan.csv and adjusts dates."""
     try:
         # Load the plan using the first row as the header
         plan_df = pd.read_csv("run_plan.csv", header=0)
-        plan_df.columns = [col.strip() for col in plan_df.columns] # clean up column names
+        plan_df.columns = [col.strip() for col in plan_df.columns]
 
-        # Select relevant columns and rename them
-        plan_df = plan_df[['Date', 'Day', 'Plan']].copy()
-        plan_df.rename(columns={'Plan': 'Activity'}, inplace=True)
-
-        # Drop rows where 'Date' is NaN, which are usually separator rows
-        plan_df.dropna(subset=['Date'], inplace=True)
+        # We only need the 'Plan' (Activity) column.
+        # Drop rows that are separators or don't have an activity
+        plan_df.dropna(subset=['Plan'], inplace=True)
+        plan_df = plan_df[plan_df['Plan'].str.strip() != '']
         
-        # Reset index
-        plan_df.reset_index(drop=True, inplace=True)
+        # We only need the 'Plan' column, which we'll rename to 'Activity'
+        activities = plan_df['Plan'].copy().reset_index(drop=True)
+        
+        # Create a new DataFrame
+        num_days = len(activities)
+        dates = [start_date + timedelta(days=i) for i in range(num_days)]
+        days_of_week = [date.strftime("%A") for date in dates]
+        
+        new_plan_df = pd.DataFrame({
+            'Date': dates,
+            'Day': days_of_week,
+            'Activity': activities
+        })
 
-        # The date in the CSV is like '9-Dec'. We need to determine the correct year.
-        # We'll assume the plan starts in the year of the user-provided start_date
-        # and handle the year change if the plan crosses into the next year.
-        current_year = start_date.year
-        last_month = 0
-        dates = []
-        for index, row in plan_df.iterrows():
-            try:
-                # Parse month and day
-                dt = datetime.strptime(row['Date'], '%d-%b')
-                if dt.month < last_month:
-                    current_year += 1
-                last_month = dt.month
-                
-                # Set the year and create the full date
-                dates.append(dt.replace(year=current_year).date())
-            except ValueError:
-                # If date format is wrong, append None and handle later
-                dates.append(None)
-
-        plan_df['Date'] = dates
-        plan_df.dropna(subset=['Date'], inplace=True)
-
-        return plan_df
+        return new_plan_df
 
     except FileNotFoundError:
         st.error("`run_plan.csv` not found. Please make sure it's in the root directory.")
