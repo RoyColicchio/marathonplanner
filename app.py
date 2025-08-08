@@ -120,7 +120,10 @@ def dashboard_logic(name, username):
         activities = get_activities()
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
         st.subheader("📅 Plan vs. Actual")
-        AgGrid(comparison, theme="streamlit", fit_columns_on_grid_load=True)
+        # Hide first two columns in dashboard
+        columns_to_hide = ["Calendar Date", "Calendar Date Str"]
+        display_df = comparison.drop(columns=columns_to_hide)
+        AgGrid(display_df, theme="streamlit", fit_columns_on_grid_load=True)
         rec, expl = make_recommendation(activities, plan_choice, start_date)
         st.subheader("💡 Recommendation")
         st.write(rec)
