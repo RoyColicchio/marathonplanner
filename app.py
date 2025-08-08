@@ -72,12 +72,15 @@ def dashboard_logic(name, username):
     selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
     user_settings["plan"] = selected_plan_file
 
-    # --- Prompt for start date if not set ---
-    if not user_settings.get("start_date"):
+
+    # --- Prompt for start date and goal time if not set ---
+    if not user_settings.get("start_date") or not user_settings.get("goal_time"):
         st.sidebar.header("Setup")
         start_date_input = st.sidebar.date_input("Select your plan start date")
+        goal_time_input = st.sidebar.text_input("Enter your marathon goal time (hh:mm:ss)", value=user_settings.get("goal_time", "3:30:00"))
         if st.sidebar.button("Continue to Dashboard"):
             user_settings["start_date"] = str(start_date_input)
+            user_settings["goal_time"] = goal_time_input
             if username == 'guest':
                 st.session_state['guest_settings'] = user_settings
             else:
@@ -89,7 +92,7 @@ def dashboard_logic(name, username):
         if st.session_state.get('start_date_set'):
             del st.session_state['start_date_set']
         else:
-            st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
+            st.sidebar.info("Please select a start date, enter your goal time, and click 'Continue to Dashboard' to view your plan.")
             st.stop()
 
     # --- Always show dashboard after start_date is set ---
@@ -119,8 +122,14 @@ def dashboard_logic(name, username):
     try:
         activities = get_activities()
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
+        # Add suggested pace column
+        def get_suggested_pace(row):
+            try:
+                return get_pace_range(row['Activity'], goal_marathon_time)
+            except Exception:
+                return ""
+        comparison['Suggested Pace'] = comparison.apply(get_suggested_pace, axis=1)
         st.subheader("📅 Plan vs. Actual")
-        # Hide first two columns in dashboard
         columns_to_hide = ["Calendar Date", "Calendar Date Str"]
         display_df = comparison.drop(columns=columns_to_hide)
         AgGrid(display_df, theme="streamlit", fit_columns_on_grid_load=True)
