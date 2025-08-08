@@ -62,12 +62,15 @@ if authentication_status:
     else:
         all_settings = {}
     if username == 'guest':
-        user_settings = {
-            "name": name,
-            "start_date": "",
-            "plan": "run_plan.csv",
-            "goal_time": "3:30:00"
-        }
+        # For guest, persist settings in st.session_state
+        if 'guest_settings' not in st.session_state:
+            st.session_state['guest_settings'] = {
+                "name": name,
+                "start_date": "",
+                "plan": "run_plan.csv",
+                "goal_time": "3:30:00"
+            }
+        user_settings = st.session_state['guest_settings']
     else:
         user_settings = all_settings.get(username, {
             "name": name,
@@ -97,7 +100,9 @@ if authentication_status:
             # Always set start_date in user_settings and persist if not guest
             user_settings["start_date"] = str(start_date_input)
             st.sidebar.write(f"[DEBUG] Saved start_date: {user_settings['start_date']} (type: {type(user_settings['start_date'])})")
-            if username != 'guest':
+            if username == 'guest':
+                st.session_state['guest_settings'] = user_settings
+            else:
                 all_settings[username] = user_settings
                 with open(settings_path, "w") as f:
                     json.dump(all_settings, f, indent=2)
