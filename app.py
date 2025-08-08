@@ -123,11 +123,20 @@ def dashboard_logic(name, username):
         activities = get_activities()
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
         # Add suggested pace column using goal_marathon_time and activity type, and move it to the left of 'Planned Distance (mi)'
+        # Convert goal_marathon_time to seconds once
+        try:
+            gmp_sec = marathon_pace_seconds(goal_marathon_time)
+        except Exception as e:
+            st.write(f"Error parsing goal marathon time '{goal_marathon_time}': {e}")
+            gmp_sec = None
+
         def get_suggested_pace(row):
             try:
-                result = get_pace_range(row['Activity'], goal_marathon_time)
+                if gmp_sec is None:
+                    return ""
+                result = get_pace_range(row['Activity'], gmp_sec)
                 # Debug output for diagnosis
-                st.write(f"Activity: {row['Activity']} | Goal: {goal_marathon_time} | Pace: {result}")
+                st.write(f"Activity: {row['Activity']} | Goal: {goal_marathon_time} | GMP_sec: {gmp_sec} | Pace: {result}")
                 return result
             except Exception as e:
                 st.write(f"Error in get_pace_range for Activity: {row['Activity']}, Goal: {goal_marathon_time}, Error: {e}")
