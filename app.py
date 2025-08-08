@@ -44,6 +44,7 @@ if guest_clicked:
     login_placeholder.empty()
 
 
+
 if authentication_status:
     st.write(f"Welcome, {name}!")
     # Load or initialize user settings
@@ -79,6 +80,20 @@ if authentication_status:
     # Map label back to filename
     selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
     user_settings["plan"] = selected_plan_file
+
+    # --- Prompt for start date if not set ---
+    if not user_settings.get("start_date"):
+        st.sidebar.header("Setup")
+        start_date_input = st.sidebar.date_input("Select your plan start date")
+        if start_date_input:
+            user_settings["start_date"] = str(start_date_input)
+            if username != 'guest':
+                all_settings[username] = user_settings
+                with open(settings_path, "w") as f:
+                    json.dump(all_settings, f, indent=2)
+            st.experimental_rerun()
+        st.sidebar.info("Please select a start date to view your plan.")
+        st.stop()
 
 PACE_MAPPING = [
     {"type": "Long Run", "keywords": ["Long Run", "LR"], "delta": (45, 90)},
