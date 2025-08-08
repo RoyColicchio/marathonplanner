@@ -1,5 +1,6 @@
 
 
+
 import streamlit as st
 import streamlit_authenticator as stauth
 import yaml
@@ -26,8 +27,9 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-# --- Login or Guest ---
-
+"""
+LOGIN AND DASHBOARD LOGIC
+"""
 # --- Guest mode persistence ---
 if 'guest' not in st.session_state:
     st.session_state['guest'] = False
@@ -57,9 +59,7 @@ else:
     username = st.session_state.get('username', 'guest')
     login_placeholder.empty()
 
-
-
-if authentication_status:
+def dashboard_logic(name, username):
     st.write(f"Welcome, {name}!")
     # Load or initialize user settings
     settings_path = Path("user_settings.json")
@@ -134,10 +134,9 @@ if authentication_status:
         st.stop()
     st.sidebar.write(f"[DEBUG] load_run_plan received start_date: {start_date} (type: {type(start_date)})")
     # If start_date is a string, parse it to datetime.date
-    import datetime
     if isinstance(start_date, str) and start_date not in ("", "NaT", None):
         try:
-            start_date_parsed = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+            start_date_parsed = datetime.strptime(start_date, "%Y-%m-%d").date()
             st.sidebar.write(f"[DEBUG] Parsed start_date to datetime.date: {start_date_parsed} (type: {type(start_date_parsed)})")
             start_date = start_date_parsed
         except Exception as e:
@@ -167,6 +166,14 @@ if authentication_status:
         display_weekly_mileage(activities)
     except Exception as e:
         st.error(f"Error showing plan: {e}")
+
+if authentication_status:
+    dashboard_logic(name, username)
+else:
+    if authentication_status is False:
+        st.error('Username/password is incorrect')
+    elif authentication_status is None:
+        st.warning('Please enter your username and password')
 
 PACE_MAPPING = [
     {"type": "Long Run", "keywords": ["Long Run", "LR"], "delta": (45, 90)},
