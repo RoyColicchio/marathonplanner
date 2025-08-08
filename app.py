@@ -1,10 +1,54 @@
+
 import streamlit as st
 st.set_page_config(layout="wide")
-# --- Pace Mapping Table ---
-import streamlit as st
+import streamlit_authenticator as stauth
+import yaml
+import json
+from pathlib import Path
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
-
 from pace_utils import marathon_pace_seconds, get_pace_range
+
+# --- Authentication ---
+with open('config.yaml') as file:
+    config = yaml.safe_load(file)
+
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days'],
+    config['preauthorized']
+)
+
+name, authentication_status, username = authenticator.login('Login', 'main')
+
+if authentication_status:
+    st.write(f"Welcome, {name}!")
+    # Load or initialize user settings
+    settings_path = Path("user_settings.json")
+    if settings_path.exists():
+        with open(settings_path, "r") as f:
+            all_settings = json.load(f)
+    else:
+        all_settings = {}
+    user_settings = all_settings.get(username, {
+        "name": name,
+        "start_date": "",
+        "plan": "run_plan.csv",
+        "goal_time": "3:30:00"
+    })
+
+    # --- Plan selection dropdown with friendly name ---
+    plan_options = {"run_plan.csv": "Pfitz 18/55"}
+    plan_files = list(plan_options.keys())
+    plan_labels = list(plan_options.values())
+    # Find current plan label
+    current_plan_file = user_settings.get("plan", "run_plan.csv")
+    current_plan_label = plan_options.get(current_plan_file, current_plan_file)
+    plan_label = st.selectbox("Select plan", plan_labels, index=plan_labels.index(current_plan_label) if current_plan_label in plan_labels else 0)
+    # Map label back to filename
+    selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
+    user_settings["plan"] = selected_plan_file
 
 PACE_MAPPING = [
     {"type": "Long Run", "keywords": ["Long Run", "LR"], "delta": (45, 90)},
@@ -223,166 +267,103 @@ def make_recommendation(activities, plan_path, start_date):
     return rec, expl
 
 # Streamlit UI
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
-    html, body, [class*='css']  {
-        font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif !important;
-        font-size: 17px;
-        background: #111217;
-    }
-    .ag-theme-alpine {
-        font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif !important;
-        font-size: 17px !important;
-    }
-    .ag-header-cell-label {
-        font-weight: 600 !important;
-        font-size: 16px !important;
-    }
-    .ag-cell {
-        font-size: 17px !important;
-        line-height: 1.5 !important;
-    }
-    /* Remove Streamlit default padding and set container to full width */
-    .main .block-container {
-        padding-left: 0rem !important;
-        padding-right: 0rem !important;
-        max-width: 100vw !important;
-        width: 100vw !important;
-    }
-    /* Make AgGrid table stretch full width */
-    .ag-root-wrapper, .ag-root, .ag-center-cols-clipper, .ag-center-cols-container {
-        width: 100vw !important;
-        min-width: 100vw !important;
-        max-width: 100vw !important;
-    }
-    .st-aggrid {
-        width: 100vw !important;
-        min-width: 100vw !important;
-        max-width: 100vw !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-if 'user_name' not in st.session_state:
-    st.session_state['user_name'] = ''
-user_name = st.sidebar.text_input(
-    "Your Name",
-    value=st.session_state['user_name'],
-    help="Enter your name to personalize the dashboard."
-)
-if user_name != st.session_state['user_name']:
-    st.session_state['user_name'] = user_name
-display_name = user_name.strip() if user_name.strip() else "Your"
-st.markdown(f"""
-    <h1 style='text-align: center; font-size: 2.7rem; font-weight: 700; margin-bottom: 1.5rem;'>
-        {display_name}'s Marathon Plan
-    </h1>
-""", unsafe_allow_html=True)
 
 
-
-
-# UI for plan selection and start date
-st.sidebar.header("Plan Settings")
-plan_files = ["run_plan.csv"]
-plan_labels = ["Pfitz 12/70"]
-plan_choice = st.sidebar.selectbox("Select a plan", plan_files, format_func=lambda x: plan_labels[plan_files.index(x)])
-default_start = pd.Timestamp.today().strftime('%Y-%m-%d')
-start_date = st.sidebar.date_input("Select plan start date", value=pd.to_datetime(default_start))
-goal_marathon_time = st.sidebar.text_input(
-    "Goal Marathon Time (hh:mm:ss)",
-    value="3:30:00",
-    help="Enter your marathon goal time in hh:mm:ss format. Used to calculate suggested paces."
-)
 
 
 # --- Always show plan and recommendations automatically ---
-try:
-    activities = get_activities()
-    comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
-    # Calculate GMP pace in seconds
-    gmp_sec = marathon_pace_seconds(goal_marathon_time)
-    # Add suggested pace range column
-    comparison["Suggested Pace Range"] = comparison["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
-    # Find today's row index
-    today_str = pd.Timestamp.today().strftime('%Y-%m-%d')
-    if today_str in comparison['Calendar Date Str'].values:
-        today_idx = comparison[comparison['Calendar Date Str'] == today_str].index[0]
-    else:
-        today_idx = 0
-
-    st.subheader("Your Plan")
-    # Prepare main_df for AgGrid
-    main_cols = ["Calendar MM/DD", "Day", "Activity", "Suggested Pace Range", "Planned Distance (mi)", "Actual Distance (mi)", "Diff (mi)", "Hit?"]
-    main_cols = [c for c in main_cols if c in comparison.columns]
-    main_df = comparison[main_cols].reset_index(drop=True)
-    # Custom cellStyle JS for zebra striping and bolding today's row
-    # Use Calendar MM/DD for bolding since that's the visible column
-    today_mmdd = pd.Timestamp.today().strftime('%m/%d')
-    bold_today_zebra_js = JsCode('''
-    function(params) {
-        const todayStr = '%s';
-        const isToday = params.data && params.data['Calendar MM/DD'] === todayStr;
-        let style = {};
-        if (params.node.rowIndex %% 2 === 0) {
-            style.backgroundColor = '#f7f7f7';
-            style.color = '#222';
-        }
-        if (isToday) {
-            style.backgroundColor = '#ffe066';
-            style.fontWeight = 'bold';
-        }
-        return style;
-    }
-    ''' % today_mmdd)
-    default_col_width = 160
-    gb = GridOptionsBuilder.from_dataframe(main_df)
-    gb.configure_default_column(resizable=True, filter=True, sortable=True, cellStyle={"fontSize": "16px"})
-    gb.configure_grid_options(domLayout='normal')
-    for col in main_cols:
-        if col == "Activity":
-            gb.configure_column(col, headerClass="ag-header-bold", cellStyle=bold_today_zebra_js, width=350, wrapText=True, autoHeight=True)
+if authentication_status:
+    plan_choice = user_settings["plan"]
+    start_date = user_settings["start_date"]
+    goal_marathon_time = user_settings["goal_time"]
+    try:
+        activities = get_activities()
+        comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
+        # Calculate GMP pace in seconds
+        gmp_sec = marathon_pace_seconds(goal_marathon_time)
+        # Add suggested pace range column
+        comparison["Suggested Pace Range"] = comparison["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
+        # Find today's row index
+        today_str = pd.Timestamp.today().strftime('%Y-%m-%d')
+        if today_str in comparison['Calendar Date Str'].values:
+            today_idx = comparison[comparison['Calendar Date Str'] == today_str].index[0]
         else:
-            gb.configure_column(col, headerClass="ag-header-bold", cellStyle=bold_today_zebra_js, width=default_col_width)
-    grid_options = gb.build()
-    # Add onGridReady to scroll to today's row
-    scroll_to_today_js = f'''
-    function onGridReady(params) {{
-        let rowIndex = null;
-        params.api.forEachNode((node) => {{
-            if (node.data['Calendar Date Str'] === '{today_str}') {{
-                rowIndex = node.rowIndex;
+            today_idx = 0
+
+        st.subheader("Your Plan")
+        # Prepare main_df for AgGrid
+        main_cols = ["Calendar MM/DD", "Day", "Activity", "Suggested Pace Range", "Planned Distance (mi)", "Actual Distance (mi)", "Diff (mi)", "Hit?"]
+        main_cols = [c for c in main_cols if c in comparison.columns]
+        main_df = comparison[main_cols].reset_index(drop=True)
+        # Custom cellStyle JS for zebra striping and bolding today's row
+        # Use Calendar MM/DD for bolding since that's the visible column
+        today_mmdd = pd.Timestamp.today().strftime('%m/%d')
+        bold_today_zebra_js = JsCode('''
+        function(params) {
+            const todayStr = '%s';
+            const isToday = params.data && params.data['Calendar MM/DD'] === todayStr;
+            let style = {};
+            if (params.node.rowIndex %% 2 === 0) {
+                style.backgroundColor = '#f7f7f7';
+                style.color = '#222';
+            }
+            if (isToday) {
+                style.backgroundColor = '#ffe066';
+                style.fontWeight = 'bold';
+            }
+            return style;
+        }
+        ''' % today_mmdd)
+        default_col_width = 160
+        gb = GridOptionsBuilder.from_dataframe(main_df)
+        gb.configure_default_column(resizable=True, filter=True, sortable=True, cellStyle={"fontSize": "16px"})
+        gb.configure_grid_options(domLayout='normal')
+        for col in main_cols:
+            if col == "Activity":
+                gb.configure_column(col, headerClass="ag-header-bold", cellStyle=bold_today_zebra_js, width=350, wrapText=True, autoHeight=True)
+            else:
+                gb.configure_column(col, headerClass="ag-header-bold", cellStyle=bold_today_zebra_js, width=default_col_width)
+        grid_options = gb.build()
+        # Add onGridReady to scroll to today's row
+        scroll_to_today_js = f'''
+        function onGridReady(params) {{
+            let rowIndex = null;
+            params.api.forEachNode((node) => {{
+                if (node.data['Calendar Date Str'] === '{today_str}') {{
+                    rowIndex = node.rowIndex;
+                }}
+            }});
+            if (rowIndex !== null) {{
+                params.api.ensureIndexVisible(rowIndex, 'middle');
             }}
-        }});
-        if (rowIndex !== null) {{
-            params.api.ensureIndexVisible(rowIndex, 'middle');
         }}
-    }}
-    '''
-    grid_options['onGridReady'] = scroll_to_today_js
-    grid_return = AgGrid(
-        main_df,
-        gridOptions=grid_options,
-        height=750,
-        theme="alpine",
-        allow_unsafe_jscode=True,
-        reload_data=True,
-        update_mode="NO_UPDATE",
-        fit_columns_on_grid_load=False,
-        use_container_width=True
-    )
+        '''
+        grid_options['onGridReady'] = scroll_to_today_js
+        grid_return = AgGrid(
+            main_df,
+            gridOptions=grid_options,
+            height=750,
+            theme="alpine",
+            allow_unsafe_jscode=True,
+            reload_data=True,
+            update_mode="NO_UPDATE",
+            fit_columns_on_grid_load=False,
+            use_container_width=True
+        )
 
-    # Full details in expander
-    with st.expander("Show all plan columns"):
-        st.dataframe(comparison, use_container_width=True, height=600)
+        # Full details in expander
+        with st.expander("Show all plan columns"):
+            st.dataframe(comparison, use_container_width=True, height=600)
 
-    rec, expl = make_recommendation(activities, plan_choice, start_date)
-    st.subheader("📝 Recommendation for Today")
-    st.write(rec)
-    with st.expander("Show logic and last 7 days summary"):
-        st.text(expl)
-except Exception as e:
-    st.error(f"Error showing plan: {e}")
+        rec, expl = make_recommendation(activities, plan_choice, start_date)
+        st.subheader("📝 Recommendation for Today")
+        st.write(rec)
+        with st.expander("Show logic and last 7 days summary"):
+            st.text(expl)
+    except Exception as e:
+        st.error(f"Error showing plan: {e}")
+else:
+    if authentication_status is False:
+        st.error('Username/password is incorrect')
+    elif authentication_status is None:
+        st.warning('Please enter your username and password')

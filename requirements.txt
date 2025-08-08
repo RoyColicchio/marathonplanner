@@ -3,3 +3,4 @@ streamlit
 requests
 pandas
 streamlit-aggrid
+streamlit-authenticator
