@@ -74,8 +74,17 @@ def dashboard_logic(name, username):
     user_settings["plan"] = selected_plan_file
 
     # --- Plan preview table before dashboard loads ---
-    # Show a preview table of the plan with suggested pace column
-    plan_preview_df = load_run_plan(selected_plan_file, datetime.today().date())
+    # Use the user's selected start date if available, else today
+    preview_start_date = user_settings.get("start_date")
+    if not preview_start_date or preview_start_date in ["", None, "NaT"]:
+        preview_start_date = datetime.today().date()
+    else:
+        if isinstance(preview_start_date, str):
+            try:
+                preview_start_date = datetime.strptime(preview_start_date, "%Y-%m-%d").date()
+            except Exception:
+                preview_start_date = datetime.today().date()
+    plan_preview_df = load_run_plan(selected_plan_file, preview_start_date)
     goal_marathon_time = user_settings.get("goal_time", "3:30:00")
     try:
         gmp_sec = marathon_pace_seconds(goal_marathon_time)
@@ -90,7 +99,8 @@ def dashboard_logic(name, username):
             return ""
     insert_idx = plan_preview_df.columns.get_loc('Planned Distance (mi)')
     plan_preview_df.insert(insert_idx, 'Suggested Pace', plan_preview_df.apply(get_suggested_pace_preview, axis=1))
-    preview_cols = [col for col in plan_preview_df.columns if col not in ["Calendar Date", "Calendar Date Str"]]
+    # Show all columns except Calendar Date Str (keep Calendar Date for clarity)
+    preview_cols = [col for col in plan_preview_df.columns if col != "Calendar Date Str"]
     st.markdown("#### Plan Preview")
     AgGrid(plan_preview_df[preview_cols].head(10), theme="streamlit", fit_columns_on_grid_load=True)
 
@@ -155,12 +165,8 @@ def dashboard_logic(name, username):
             try:
                 if gmp_sec is None:
                     return ""
-                result = get_pace_range(row['Activity'], gmp_sec)
-                # Debug output for diagnosis
-                st.write(f"Activity: {row['Activity']} | Goal: {goal_marathon_time} | GMP_sec: {gmp_sec} | Pace: {result}")
-                return result
-            except Exception as e:
-                st.write(f"Error in get_pace_range for Activity: {row['Activity']}, Goal: {goal_marathon_time}, Error: {e}")
+                return get_pace_range(row['Activity'], gmp_sec)
+            except Exception:
                 return ""
         # Insert 'Suggested Pace' to the left of 'Planned Distance (mi)'
         insert_idx = comparison.columns.get_loc('Planned Distance (mi)')
