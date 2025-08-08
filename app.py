@@ -199,6 +199,13 @@ def display_weekly_mileage(activities):
     st.dataframe(weekly_miles, use_container_width=True)
 
 def load_run_plan(plan_path, start_date):
+    # Debug: print the first 7 computed dates and days
+    debug_rows = []
+    for i in range(min(7, len(plan_df))):
+        debug_rows.append((plan_df['Calendar Date'].iloc[i], plan_df['Day'].iloc[i]))
+    print("DEBUG: First 7 Calendar Dates and Days:")
+    for d, day in debug_rows:
+        print(f"  {d} => {day}")
     plan_df = pd.read_csv(plan_path)
     plan_df.columns = plan_df.columns.str.strip()
     if 'Date' not in plan_df.columns:
