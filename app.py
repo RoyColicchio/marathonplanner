@@ -8,8 +8,7 @@ from pathlib import Path
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from pace_utils import marathon_pace_seconds, get_pace_range
 
-authenticator = stauth.Authenticate(
-# --- Authentication ---
+ # --- Authentication ---
 with open('config.yaml') as file:
     config = yaml.safe_load(file)
 
