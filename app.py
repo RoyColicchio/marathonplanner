@@ -187,6 +187,7 @@ st.markdown("""
 
 from streamlit_oauth import OAuth2Component
 import json
+import hashlib
 from pathlib import Path
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from pace_utils import marathon_pace_seconds, get_pace_range
@@ -196,7 +197,6 @@ import os
 import pandas as pd
 import re
 from datetime import datetime, timedelta
-import os
 
 # Resolve Google OAuth credentials from Streamlit Secrets or env vars
 google_client_id = st.secrets.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID")
@@ -700,44 +700,45 @@ def display_weekly_mileage(activities):
     st.dataframe(weekly_miles, use_container_width=True)
 
 def load_run_plan(plan_path, start_date):
-    # Debug: print the first 7 computed dates and days
-    debug_rows = []
-    for i in range(min(7, len(plan_df))):
-        debug_rows.append((plan_df['Calendar Date'].iloc[i], plan_df['Day'].iloc[i]))
-    print("DEBUG: First 7 Calendar Dates and Days:")
-    for d, day in debug_rows:
-        print(f"  {d} => {day}")
     plan_df = pd.read_csv(plan_path)
     plan_df.columns = plan_df.columns.str.strip()
     if 'Date' not in plan_df.columns:
         st.write('Plan CSV columns:', plan_df.columns.tolist())
         raise KeyError("'Date' column not found in run_plan.csv. Check the CSV header row.")
-    import re
+    
     plan_df = plan_df[plan_df['Date'].notnull() & plan_df['Plan'].notnull()]
     plan_df['Date'] = plan_df['Date'].astype(str)
+    
     def extract_miles(plan):
         match = re.search(r'(\d+(?:\.\d+)?)', str(plan))
         return float(match.group(1)) if match else 0.0
+    
     plan_df['Planned Distance (mi)'] = plan_df['Plan'].apply(extract_miles)
     plan_df = plan_df.reset_index(drop=True)
+    
     # Guard: start_date must be valid
     if not start_date or start_date in ["", None, "NaT"]:
-        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.error("No valid start date set. Please select a start date.")
         st.stop()
+    
     try:
         start = pd.to_datetime(start_date)
     except Exception as e:
         st.error(f"Invalid start date: {start_date}. Error: {e}")
         st.stop()
+    
     plan_dates = [start + timedelta(days=i) for i in range(len(plan_df))]
     plan_df['Calendar Date'] = [pd.to_datetime(d).date() for d in plan_dates]
     plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
+    
     # Remove any existing Day column from CSV
     if 'Day' in plan_df.columns:
         plan_df = plan_df.drop(columns=['Day'])
+    
     # Always compute the Day column from the Calendar Date
     weekday_map = {0: 'M', 1: 'Tu', 2: 'W', 3: 'Th', 4: 'F', 5: 'Sa', 6: 'Su'}
-    plan_df['Day'] = [weekday_map[d.weekday()] for d in plan_df['Calendar Date']]
+    plan_df['Day'] = plan_df['Calendar Date'].apply(lambda d: weekday_map[d.weekday()])
+    
     def expand_activity(plan):
         mapping = {
             'GA': 'General Aerobic',
@@ -753,6 +754,7 @@ def load_run_plan(plan_path, start_date):
         for abbr, full in mapping.items():
             s = s.replace(abbr, full)
         return s
+    
     plan_df['Activity'] = plan_df['Plan'].apply(expand_activity)
     return plan_df[['Calendar Date', 'Calendar Date Str', 'Date', 'Day', 'Activity', 'Planned Distance (mi)']]
 
