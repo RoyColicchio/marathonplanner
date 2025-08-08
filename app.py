@@ -162,12 +162,28 @@ def strava_oauth_screen():
     
     # Check if we have too many attempts (to avoid the challenge error)
     attempt_count = st.session_state.get("strava_attempts", 0)
-    if attempt_count >= 3:
-        st.warning("⚠️ Too many connection attempts. Please wait a few minutes before trying again, or use Demo Mode.")
-        st.write("Strava has rate limits to prevent abuse. You can:")
-        st.write("1. **Wait 5-10 minutes** and try again")
-        st.write("2. **Use Demo Mode** to see how the app works")
-        st.write("3. **Clear your browser cache** for marathonplanner.streamlit.app")
+    last_attempt_time = st.session_state.get("last_strava_attempt", 0)
+    current_time = time.time()
+    
+    # Reset attempts if enough time has passed (15 minutes)
+    if current_time - last_attempt_time > 900:  # 15 minutes
+        st.session_state["strava_attempts"] = 0
+        attempt_count = 0
+    
+    if attempt_count >= 2:  # Reduced threshold to be more conservative
+        remaining_time = 900 - (current_time - last_attempt_time)
+        minutes_left = int(remaining_time / 60)
+        
+        st.error("🚫 Strava Rate Limit Reached")
+        st.write(f"Too many connection attempts detected. Strava has temporarily blocked OAuth requests.")
+        st.write(f"**Wait time:** {minutes_left} minutes remaining")
+        st.info("💡 **Recommendation:** Use Demo Mode to explore the app while waiting, or try connecting later.")
+        
+        # Show a progress bar for the wait time
+        if remaining_time > 0:
+            progress = (900 - remaining_time) / 900
+            st.progress(progress)
+            st.write(f"Rate limit will reset in {minutes_left} minutes")
     else:
         st.write("**Debug Info:**")
         st.write(f"Redirect URI: `{redirect_uri}`")
@@ -182,19 +198,25 @@ def strava_oauth_screen():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             if st.button("🚴‍♂️ Connect Strava Account", type="primary", use_container_width=True):
-                # Increment attempt counter
+                # Record attempt time and increment counter
                 st.session_state["strava_attempts"] = attempt_count + 1
-                # Redirect to Strava
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={strava_auth_url}">', unsafe_allow_html=True)
-                st.rerun()
+                st.session_state["last_strava_attempt"] = current_time
+                
+                # Use a more direct redirect approach
+                st.write("🔄 Redirecting to Strava...")
+                st.markdown(f'<meta http-equiv="refresh" content="2; url={strava_auth_url}">', unsafe_allow_html=True)
+                
+                # Add a manual fallback
+                st.write("If you're not redirected automatically, [click here to connect Strava]({})".format(strava_auth_url))
         
         # Add manual link as fallback
         st.markdown("---")
-        st.write("**Alternative**: If the button doesn't work, copy and paste this URL in a new tab:")
+        st.write("**Alternative**: Copy and paste this URL in a **new private/incognito window**:")
         st.code(strava_auth_url, language=None)
+        st.write("💡 Using a private window can help avoid rate limit issues.")
     
     # Check for authorization code in URL params
-    if "code" in query_params and attempt_count < 3:
+    if "code" in query_params and attempt_count < 2:  # Updated to match new threshold
         auth_code = query_params["code"]
         received_state = query_params.get("state", "")
         
@@ -253,9 +275,11 @@ def strava_oauth_screen():
     
     # Option to skip Strava connection
     st.markdown("---")
+    st.write("### Alternative Options:")
+    
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Skip Strava Connection (Demo Mode)", use_container_width=True):
+        if st.button("📊 Skip Strava Connection (Demo Mode)", use_container_width=True):
             # Mark as skipped but allow dashboard access
             user_email = st.session_state["user_email"]
             settings_path = Path("user_settings.json")
@@ -276,14 +300,22 @@ def strava_oauth_screen():
             # Clear attempt counter
             if "strava_attempts" in st.session_state:
                 del st.session_state["strava_attempts"]
+            if "last_strava_attempt" in st.session_state:
+                del st.session_state["last_strava_attempt"]
+            st.success("🎉 Demo mode activated! Redirecting to dashboard...")
+            time.sleep(1)
             st.rerun()
     
     with col2:
-        if st.button("🔄 Reset & Try Again", use_container_width=True):
-            # Clear attempt counter and try again
+        if st.button("🔄 Clear Rate Limit & Try Again", use_container_width=True):
+            # Force clear attempt counter and timestamps
             if "strava_attempts" in st.session_state:
                 del st.session_state["strava_attempts"]
+            if "last_strava_attempt" in st.session_state:
+                del st.session_state["last_strava_attempt"]
             st.query_params.clear()
+            st.success("Rate limit cleared! You can try connecting again.")
+            time.sleep(2)
             st.rerun()
 
 def dashboard_logic(name, username):
