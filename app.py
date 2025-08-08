@@ -344,6 +344,7 @@ if authentication_status:
     start_date = user_settings["start_date"]
     goal_marathon_time = user_settings["goal_time"]
     st.sidebar.write(f"[DEBUG] Loaded start_date for dashboard: {start_date} (type: {type(start_date)})")
+    st.sidebar.write(f"[DEBUG] load_run_plan received start_date: {start_date} (type: {type(start_date)})")
     # If start_date is a string, parse it to datetime.date
     import datetime
     if isinstance(start_date, str) and start_date not in ("", "NaT", None):
@@ -353,8 +354,7 @@ if authentication_status:
             start_date = start_date_parsed
         except Exception as e:
             st.sidebar.write(f"[DEBUG] Failed to parse start_date: {e}")
-    st.sidebar.write(f"[DEBUG] Final start_date before dashboard: {start_date} (type: {type(start_date)})")
-    st.sidebar.write(f"[DEBUG] load_run_plan received start_date: {start_date} (type: {type(start_date)})")
+    st.sidebar.write(f"[DEBUG] Final start_date in load_run_plan: {start_date} (type: {type(start_date)})")
     # Guard: start_date must be valid
     if not start_date or start_date in ["", None, "NaT"]:
         st.error("No valid start date set. Please select a start date in the sidebar.")
