@@ -1,9 +1,5 @@
-
-
-
-st.set_page_config(layout="wide")
-
 import streamlit as st
+st.set_page_config(layout="wide")
 from streamlit_oauth import OAuth2Component
 import json
 from pathlib import Path
@@ -11,11 +7,7 @@ from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from pace_utils import marathon_pace_seconds, get_pace_range
 import requests
 import time
-import streamlit as st
-from streamlit_oauth import OAuth2Component
-import json
-from pathlib import Path
-from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+
 # --- Google OAuth2 Authentication ---
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_client_id"],
