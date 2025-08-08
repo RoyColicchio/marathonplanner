@@ -310,15 +310,24 @@ def generate_training_plan(start_date):
         plan_df = pd.read_csv("run_plan.csv", header=0)
         plan_df.columns = [col.strip() for col in plan_df.columns]
 
-        # We only need the 'Plan' (Activity) column.
         # Drop rows that are separators or don't have an activity
         plan_df.dropna(subset=['Plan'], inplace=True)
         plan_df = plan_df[plan_df['Plan'].str.strip() != '']
         
-        # We only need the 'Plan' column, which we'll rename to 'Activity'
         activities = plan_df['Plan'].copy().reset_index(drop=True)
         
-        # Create a new DataFrame
+        activity_map = {
+            "GA": "General Aerobic",
+            "Rec": "Recovery",
+            "MLR": "Medium-Long Run",
+            "LR": "Long Run",
+            "SP": "Sprints",
+            "V8": "VO₂Max",
+            "LT": "Lactate Threshold",
+            "HMP": "Half Marathon Pace",
+            "MP": "Marathon Pace"
+        }
+        
         num_days = len(activities)
         dates = [start_date + timedelta(days=i) for i in range(num_days)]
         days_of_week = [date.strftime("%A") for date in dates]
@@ -326,7 +335,8 @@ def generate_training_plan(start_date):
         new_plan_df = pd.DataFrame({
             'Date': dates,
             'Day': days_of_week,
-            'Activity': activities
+            'Activity_Abbr': activities,
+            'Activity': activities.map(activity_map).fillna(activities)
         })
 
         return new_plan_df
@@ -377,7 +387,7 @@ def show_training_plan_table(settings):
 
     # Calculate suggested pace
     gmp_sec = marathon_pace_seconds(goal_time)
-    merged_df["Suggested Pace"] = merged_df["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
+    merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
 
     # Reorder and format columns
     merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
