@@ -22,11 +22,16 @@ oauth2 = OAuth2Component(
     client_secret=google_client_secret,
     authorize_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
     token_endpoint="https://oauth2.googleapis.com/token",
+    refresh_token_endpoint="https://oauth2.googleapis.com/token",
+    revoke_token_endpoint="https://oauth2.googleapis.com/revoke"
+)
+
+result = oauth2.authorize_button(
+    "Login with Google", 
+    key="google",
     redirect_uri="https://marathonplanner.streamlit.app/",
     scope="openid email profile"
 )
-
-result = oauth2.authorize_button("Login with Google", key="google")
 if result and "token" in result:
     user_info = oauth2.get_user_info(result["token"]["access_token"], "https://openidconnect.googleapis.com/v1/userinfo")
     st.session_state["user_email"] = user_info["email"]
