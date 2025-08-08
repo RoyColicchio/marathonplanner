@@ -260,56 +260,24 @@ def training_plan_setup():
     col1, col2 = st.columns(2)
     
     with col1:
+        start_date = st.date_input(
+            "Start Date", 
+            value=datetime.strptime(settings.get("start_date", str(datetime.now().date())), "%Y-%m-%d").date(),
+            help="The start date of your training plan"
+        )
+        
+    with col2:
         goal_time = st.text_input(
             "Goal Marathon Time (HH:MM:SS)", 
             value=settings.get("goal_time", "4:00:00"),
             help="Your target marathon finish time"
         )
-        
-        current_weekly_miles = st.number_input(
-            "Current Weekly Miles", 
-            min_value=0.0, 
-            max_value=150.0, 
-            value=float(settings.get("current_weekly_miles", 30.0)), 
-            step=5.0,
-            help="Your current weekly mileage"
-        )
-        
-        experience_level = st.selectbox(
-            "Experience Level",
-            ["Beginner", "Intermediate", "Advanced"],
-            index=["Beginner", "Intermediate", "Advanced"].index(settings.get("experience_level", "Intermediate"))
-        )
-    
-    with col2:
-        race_date = st.date_input(
-            "Race Date", 
-            value=datetime.strptime(settings.get("race_date", "2024-12-01"), "%Y-%m-%d").date() if settings.get("race_date") else datetime.now().date() + timedelta(days=120),
-            help="Your marathon race date"
-        )
-        
-        training_days = st.multiselect(
-            "Training Days",
-            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-            default=settings.get("training_days", ["Tuesday", "Thursday", "Saturday", "Sunday"]),
-            help="Days you prefer to train"
-        )
-        
-        long_run_day = st.selectbox(
-            "Long Run Day",
-            ["Saturday", "Sunday"],
-            index=0 if settings.get("long_run_day", "Sunday") == "Saturday" else 1
-        )
     
     if st.button("Save Training Plan", use_container_width=True):
         new_settings = {
             **settings,
+            "start_date": start_date.strftime("%Y-%m-%d"),
             "goal_time": goal_time,
-            "current_weekly_miles": current_weekly_miles,
-            "experience_level": experience_level,
-            "race_date": race_date.strftime("%Y-%m-%d"),
-            "training_days": training_days,
-            "long_run_day": long_run_day
         }
         save_user_settings(user_hash, new_settings)
         st.success("Training plan saved!")
@@ -317,198 +285,235 @@ def training_plan_setup():
     
     return settings
 
-def calculate_training_paces(goal_time):
-    """Calculate training paces based on goal time."""
-    try:
-        # Parse goal time
-        time_parts = goal_time.split(":")
-        if len(time_parts) == 3:
-            hours, minutes, seconds = map(int, time_parts)
-            goal_seconds = hours * 3600 + minutes * 60 + seconds
-        else:
-            st.error("Invalid time format. Use HH:MM:SS")
-            return None
+def show_dashboard():
+    """Display the main dashboard."""
+    user_hash = get_user_hash(st.session_state.current_user["email"])
+    settings = load_user_settings(user_hash)
+    
+    if not settings.get("goal_time") or not settings.get("start_date"):
+        st.info("Please complete your training plan setup first.")
+        return training_plan_setup()
+
+    # Tabs for different sections
+    tab1, tab2 = st.tabs(["Training Plan", "Settings"])
+    
+    with tab1:
+        show_training_plan_table(settings)
+    
+    with tab2:
+        training_plan_setup()
+
+def generate_training_plan(start_date, goal_time):
+    """Generates a 16-week marathon training plan."""
+    plan = []
+    # A very basic placeholder plan.
+    # In a real app, this would be a more sophisticated logic.
+    for i in range(16 * 7):
+        date = start_date + timedelta(days=i)
+        day_of_week = date.strftime("%A")
         
-        goal_pace_seconds = goal_seconds / 26.2  # seconds per mile
+        activity = "Rest"
+        if day_of_week == "Tuesday":
+            activity = "Easy Run"
+        elif day_of_week == "Thursday":
+            activity = "Tempo Run"
+        elif day_of_week == "Saturday":
+            activity = "Easy Run"
+        elif day_of_week == "Sunday":
+            activity = "Long Run"
+
+        plan.append({
+            "Date": date,
+            "Day": day_of_week,
+            "Activity": activity,
+        })
+    return pd.DataFrame(plan)
+
+def show_training_plan_table(settings):
+    """Display the training plan in a table."""
+    st.header("Your Training Plan")
+
+    start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
+    goal_time = settings["goal_time"]
+    
+    # Generate plan
+    plan_df = generate_training_plan(start_date, goal_time)
+    
+    # Get Strava data
+    if not strava_connect():
+        st.warning("Connect to Strava to see your actual performance.")
+        activities = []
+    else:
+        activities = get_strava_activities()
+
+    runs = [a for a in activities if a.get("type") == "Run"]
+    
+    if runs:
+        strava_df = pd.DataFrame([{
+            "Date": datetime.strptime(run.get("start_date_local", "").split("T")[0], "%Y-%m-%d").date(),
+            "Actual Miles": round(run.get("distance", 0) * 0.000621371, 2),
+            "Actual Pace": f"{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) // 60)}:{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) % 60):02d}" if run.get('distance', 0) > 0 else "N/A"
+        } for run in runs])
         
-        paces = {
-            "Marathon Pace": goal_pace_seconds,
-            "Easy Run": goal_pace_seconds + 60,  # 1 minute slower per mile
-            "Long Run": goal_pace_seconds + 30,  # 30 seconds slower per mile
-            "Tempo Run": goal_pace_seconds - 20, # 20 seconds faster per mile
-            "Interval": goal_pace_seconds - 40,  # 40 seconds faster per mile
-        }
-        
-        # Convert back to pace format (MM:SS per mile)
-        pace_formatted = {}
-        for pace_type, seconds in paces.items():
-            minutes = int(seconds // 60)
-            secs = int(seconds % 60)
-            pace_formatted[pace_type] = f"{minutes}:{secs:02d}"
-        
-        return pace_formatted
-        
-    except Exception as e:
-        st.error(f"Error calculating paces: {e}")
-        return None
+        # Merge plan with strava data
+        plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
+        merged_df = pd.merge(plan_df, strava_df, on="Date", how="left")
+    else:
+        merged_df = plan_df
+        merged_df["Actual Miles"] = None
+        merged_df["Actual Pace"] = None
+
+    # Calculate suggested pace
+    gmp_sec = marathon_pace_seconds(goal_time)
+    merged_df["Suggested Pace"] = merged_df["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
+
+    # Reorder and format columns
+    merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
+    merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%Y-%m-%d')
+
+    # Display table
+    st.dataframe(merged_df.fillna(""), height=600)
 
 def show_dashboard():
     """Display the main dashboard."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
     
-    if not settings.get("goal_time"):
+    if not settings.get("goal_time") or not settings.get("start_date"):
         st.info("Please complete your training plan setup first.")
         return training_plan_setup()
-    
-    # Calculate days to race
-    try:
-        race_date = datetime.strptime(settings["race_date"], "%Y-%m-%d").date()
-        days_to_race = (race_date - datetime.now().date()).days
-    except:
-        days_to_race = 0
-    
-    # Header metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Days to Race", days_to_race)
-    with col2:
-        st.metric("Goal Time", settings.get("goal_time", "N/A"))
-    with col3:
-        st.metric("Weekly Miles", settings.get("current_weekly_miles", "N/A"))
-    with col4:
-        st.metric("Experience", settings.get("experience_level", "N/A"))
-    
-    # Training paces
-    st.header("Training Paces")
-    paces = calculate_training_paces(settings["goal_time"])
-    if paces:
-        cols = st.columns(len(paces))
-        for i, (pace_type, pace) in enumerate(paces.items()):
-            with cols[i]:
-                st.metric(pace_type, f"{pace}/mile")
-    
+
     # Tabs for different sections
-    tab1, tab2, tab3 = st.tabs(["Weekly Plan", "Activity History", "Settings"])
+    tab1, tab2 = st.tabs(["Training Plan", "Settings"])
     
     with tab1:
-        show_weekly_plan(settings)
+        show_training_plan_table(settings)
     
     with tab2:
-        show_activity_history()
-    
-    with tab3:
         training_plan_setup()
 
-def show_weekly_plan(settings):
-    """Display weekly training plan."""
-    st.subheader("This Week's Training")
-    
-    training_days = settings.get("training_days", [])
-    if not training_days:
-        st.info("No training days configured. Please update your settings.")
-        return
-    
-    # Simple weekly plan based on experience level
-    experience = settings.get("experience_level", "Intermediate")
-    
-    if experience == "Beginner":
-        weekly_plan = {
-            "Monday": "Rest or Cross-training",
-            "Tuesday": "Easy Run (3-4 miles)",
-            "Wednesday": "Rest",
-            "Thursday": "Easy Run (3-4 miles)",
-            "Friday": "Rest",
-            "Saturday": "Easy Run (2-3 miles)",
-            "Sunday": "Long Run (6-12 miles)"
-        }
-    elif experience == "Advanced":
-        weekly_plan = {
-            "Monday": "Easy Run (6-8 miles)",
-            "Tuesday": "Tempo Run (5-8 miles with tempo)",
-            "Wednesday": "Easy Run (4-6 miles)",
-            "Thursday": "Intervals (6-8 miles with speedwork)",
-            "Friday": "Rest or Easy (3-4 miles)",
-            "Saturday": "Easy Run (4-6 miles)",
-            "Sunday": "Long Run (12-20 miles)"
-        }
-    else:  # Intermediate
-        weekly_plan = {
-            "Monday": "Rest or Cross-training",
-            "Tuesday": "Easy Run (4-6 miles)",
-            "Wednesday": "Tempo Run (5-7 miles)",
-            "Thursday": "Easy Run (3-5 miles)",
-            "Friday": "Rest",
-            "Saturday": "Easy Run (3-4 miles)",
-            "Sunday": "Long Run (8-16 miles)"
-        }
-    
-    for day, workout in weekly_plan.items():
-        with st.container():
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                st.write(f"**{day}**")
-            with col2:
-                if day in training_days:
-                    st.write(workout)
-                else:
-                    st.write("Rest Day")
+def show_training_plan_table(settings):
+    """Display the training plan in a table."""
+    st.header("Your Training Plan")
 
-def show_activity_history():
-    """Display Strava activity history."""
-    st.subheader("Recent Activities")
+    start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
+    goal_time = settings["goal_time"]
     
+    # Generate plan
+    plan_df = generate_training_plan(start_date, goal_time)
+    
+    # Get Strava data
     if not strava_connect():
-        return
-    
-    activities = get_strava_activities()
-    
-    if not activities:
-        st.info("No recent activities found.")
-        return
-    
-    # Filter for runs only
+        st.warning("Connect to Strava to see your actual performance.")
+        activities = []
+    else:
+        activities = get_strava_activities()
+
     runs = [a for a in activities if a.get("type") == "Run"]
     
-    if not runs:
-        st.info("No recent runs found.")
-        return
+    if runs:
+        strava_df = pd.DataFrame([{
+            "Date": datetime.strptime(run.get("start_date_local", "").split("T")[0], "%Y-%m-%d").date(),
+            "Actual Miles": round(run.get("distance", 0) * 0.000621371, 2),
+            "Actual Pace": f"{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) // 60)}:{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) % 60):02d}" if run.get('distance', 0) > 0 else "N/A"
+        } for run in runs])
+        
+        # Merge plan with strava data
+        plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
+        merged_df = pd.merge(plan_df, strava_df, on="Date", how="left")
+    else:
+        merged_df = plan_df
+        merged_df["Actual Miles"] = None
+        merged_df["Actual Pace"] = None
+
+    # Calculate suggested pace
+    gmp_sec = marathon_pace_seconds(goal_time)
+    merged_df["Suggested Pace"] = merged_df["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
+
+    # Reorder and format columns
+    merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
+    merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%Y-%m-%d')
+
+    # Display table
+    st.dataframe(merged_df.fillna(""), height=600)
+def show_training_plan_table(settings):
+    """Display the training plan in a table."""
+    st.header("Your Training Plan")
+
+    start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
+    goal_time = settings["goal_time"]
     
-    # Create DataFrame
-    df_data = []
-    for run in runs[:10]:  # Show last 10 runs
-        df_data.append({
-            "Date": run.get("start_date_local", "").split("T")[0],
-            "Name": run.get("name", ""),
-            "Distance (miles)": round(run.get("distance", 0) * 0.000621371, 2),
-            "Time": str(timedelta(seconds=run.get("moving_time", 0))),
-            "Pace (min/mile)": f"{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) // 60)}:{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) % 60):02d}" if run.get('distance', 0) > 0 else "N/A"
+    # Generate plan
+    plan_df = generate_training_plan(start_date, goal_time)
+    
+    # Get Strava data
+    if not strava_connect():
+        st.warning("Connect to Strava to see your actual performance.")
+        activities = []
+    else:
+        activities = get_strava_activities()
+
+    runs = [a for a in activities if a.get("type") == "Run"]
+    
+    if runs:
+        strava_df = pd.DataFrame([{
+            "Date": datetime.strptime(run.get("start_date_local", "").split("T")[0], "%Y-%m-%d").date(),
+            "Actual Miles": round(run.get("distance", 0) * 0.000621371, 2),
+            "Actual Pace": f"{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) // 60)}:{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) % 60):02d}" if run.get('distance', 0) > 0 else "N/A"
+        } for run in runs])
+        
+        # Merge plan with strava data
+        plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
+        merged_df = pd.merge(plan_df, strava_df, on="Date", how="left")
+    else:
+        merged_df = plan_df
+        merged_df["Actual Miles"] = None
+        merged_df["Actual Pace"] = None
+
+    # Calculate suggested pace
+    gmp_sec = marathon_pace_seconds(goal_time)
+    merged_df["Suggested Pace"] = merged_df["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
+
+    # Reorder and format columns
+    merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
+    merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%Y-%m-%d')
+
+    # Display table
+    st.dataframe(merged_df.fillna(""), height=600)
+
+def generate_training_plan(start_date, goal_time):
+    """Generates a 16-week marathon training plan."""
+    plan = []
+    # A very basic placeholder plan.
+    # In a real app, this would be a more sophisticated logic.
+    for i in range(16 * 7):
+        date = start_date + timedelta(days=i)
+        day_of_week = date.strftime("%A")
+        
+        activity = "Rest"
+        if day_of_week == "Tuesday":
+            activity = "Easy Run"
+        elif day_of_week == "Thursday":
+            activity = "Tempo Run"
+        elif day_of_week == "Saturday":
+            activity = "Easy Run"
+        elif day_of_week == "Sunday":
+            activity = "Long Run"
+
+        plan.append({
+            "Date": date,
+            "Day": day_of_week,
+            "Activity": activity,
         })
-    
-    df = pd.DataFrame(df_data)
-    
-    # Display with AgGrid
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_pagination(paginationPageSize=10)
-    gb.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=False)
-    gridOptions = gb.build()
-    
-    AgGrid(df, gridOptions=gridOptions, enable_enterprise_modules=True)
+    return pd.DataFrame(plan)
 
 def main():
     """Main application logic."""
-    # Debug info
-    st.write("🔍 Debug: App started")
-    st.write(f"🔍 Debug: Current user: {bool(st.session_state.current_user)}")
-    
     # Check if user is logged in
     if not st.session_state.current_user:
-        st.write("🔍 Debug: Showing login page")
         google_login()
         return
     
-    st.write("🔍 Debug: User logged in, showing dashboard")
     # Show header
     show_header()
     
