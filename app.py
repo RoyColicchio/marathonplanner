@@ -1,36 +1,39 @@
 
 
 
+st.set_page_config(layout="wide")
+authenticator = stauth.Authenticate(
+
 import streamlit as st
-import streamlit_authenticator as stauth
-import yaml
+from streamlit_oauth import OAuth2Component
 import json
 from pathlib import Path
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from pace_utils import marathon_pace_seconds, get_pace_range
 import requests
 import time
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-
-st.set_page_config(layout="wide")
-
- # --- Authentication ---
-with open('config.yaml') as file:
-    config = yaml.safe_load(file)
-
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
+import streamlit as st
+from streamlit_oauth import OAuth2Component
+import json
+from pathlib import Path
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+# --- Google OAuth2 Authentication ---
+oauth2 = OAuth2Component(
+    client_id=st.secrets["google_client_id"],
+    client_secret=st.secrets["google_client_secret"],
+    authorize_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
+    token_endpoint="https://oauth2.googleapis.com/token",
+    redirect_uri="https://marathonplanner.streamlit.app/",
+    scope="openid email profile"
 )
 
-
-# --- Guest mode persistence ---
-if 'guest' not in st.session_state:
-    st.session_state['guest'] = False
+result = oauth2.authorize_button("Login with Google", key="google")
+if result and "token" in result:
+    user_info = oauth2.get_user_info(result["token"]["access_token"], "https://openidconnect.googleapis.com/v1/userinfo")
+    st.session_state["user_email"] = user_info["email"]
+    st.success(f"Logged in as {user_info['email']}")
+else:
+    st.stop()
 
 def dashboard_logic(name, username):
     st.write(f"Welcome, {name}!")
@@ -41,23 +44,12 @@ def dashboard_logic(name, username):
             all_settings = json.load(f)
     else:
         all_settings = {}
-    if username == 'guest':
-        # For guest, persist settings in st.session_state
-        if 'guest_settings' not in st.session_state:
-            st.session_state['guest_settings'] = {
-                "name": name,
-                "start_date": "",
-                "plan": "run_plan.csv",
-                "goal_time": "3:30:00"
-            }
-        user_settings = st.session_state['guest_settings']
-    else:
-        user_settings = all_settings.get(username, {
-            "name": name,
-            "start_date": "",
-            "plan": "run_plan.csv",
-            "goal_time": "3:30:00"
-        })
+    user_settings = all_settings.get(username, {
+        "name": name,
+        "start_date": "",
+        "plan": "run_plan.csv",
+        "goal_time": "3:30:00"
+    })
 
 
 
@@ -83,12 +75,9 @@ def dashboard_logic(name, username):
         if st.sidebar.button("Continue to Dashboard"):
             user_settings["start_date"] = str(start_date_input)
             user_settings["goal_time"] = goal_time_input
-            if username == 'guest':
-                st.session_state['guest_settings'] = user_settings
-            else:
-                all_settings[username] = user_settings
-                with open(settings_path, "w") as f:
-                    json.dump(all_settings, f, indent=2)
+            all_settings[username] = user_settings
+            with open(settings_path, "w") as f:
+                json.dump(all_settings, f, indent=2)
             st.session_state['start_date_set'] = True
             st.rerun()
         if st.session_state.get('start_date_set'):
@@ -345,8 +334,6 @@ def make_recommendation(activities, plan_path, start_date):
 
 # --- Guest mode persistence ---
 
-if 'guest' not in st.session_state:
-    st.session_state['guest'] = False
 
 def parse_time_to_seconds(timestr):
     parts = [int(p) for p in timestr.strip().split(":")]
@@ -574,37 +561,11 @@ def make_recommendation(activities, plan_path, start_date):
 
 # Streamlit UI
 login_placeholder = st.empty()
-if not st.session_state['guest']:
-    with login_placeholder.container():
-        col1, col2 = st.columns([2,1])
-        with col1:
-            login_result = authenticator.login('main')
-            if isinstance(login_result, tuple) and len(login_result) == 2:
-                name, authentication_status = login_result
-                username = name
-            else:
-                name = None
-                authentication_status = None
-                username = None
-        with col2:
-            if st.button('Continue as Guest'):
-                st.session_state['guest'] = True
-                st.session_state['name'] = 'Guest'
-                st.session_state['username'] = 'guest'
-                st.rerun()
-else:
-    authentication_status = True
-    name = st.session_state.get('name', 'Guest')
-    username = st.session_state.get('username', 'guest')
-    login_placeholder.empty()
 
-if authentication_status:
-    dashboard_logic(name, username)
-else:
-    if authentication_status is False:
-        st.error('Username/password is incorrect')
-    elif authentication_status is None:
-        st.warning('Please enter your username and password')
+# Use Google OAuth user info for dashboard
+user_email = st.session_state.get("user_email")
+if user_email:
+    dashboard_logic(user_email, user_email)
 
 
 

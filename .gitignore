@@ -1,3 +1,6 @@
 venv/
 __pycache__/
 *.pyc
+
+# Never commit Streamlit secrets
+.streamlit/secrets.toml
