@@ -224,10 +224,10 @@ def load_run_plan(plan_path, start_date):
     plan_dates = [start + timedelta(days=i) for i in range(len(plan_df))]
     plan_df['Calendar Date'] = [pd.to_datetime(d).date() for d in plan_dates]
     plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
-    # Always overwrite the Day column so it matches the Calendar Date
-    # Standard Python weekday mapping: 0=Monday, 1=Tuesday, ..., 6=Sunday
+    # Always compute the Day column from the Calendar Date
     weekday_map = {0: 'M', 1: 'Tu', 2: 'W', 3: 'Th', 4: 'F', 5: 'Sa', 6: 'Su'}
-    plan_df['Day'] = [weekday_map[d.weekday()] for d in plan_dates]
+    computed_days = [weekday_map[d.weekday()] for d in plan_df['Calendar Date']]
+    plan_df['Day'] = computed_days
     def expand_activity(plan):
         mapping = {
             'GA': 'General Aerobic',
@@ -244,6 +244,7 @@ def load_run_plan(plan_path, start_date):
             s = s.replace(abbr, full)
         return s
     plan_df['Activity'] = plan_df['Plan'].apply(expand_activity)
+    # Return the correct Day column (not the CSV's)
     return plan_df[['Calendar Date', 'Calendar Date Str', 'Date', 'Day', 'Activity', 'Planned Distance (mi)']]
 
 def compare_plan_vs_actual(activities, plan_path, start_date):
