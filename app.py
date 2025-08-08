@@ -116,6 +116,51 @@ if authentication_status:
             st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
             st.stop()
 
+    # --- Always show dashboard after start_date is set ---
+    plan_choice = user_settings["plan"]
+    start_date = user_settings["start_date"]
+    goal_marathon_time = user_settings["goal_time"]
+    st.sidebar.write(f"[DEBUG] Loaded start_date for dashboard: {start_date} (type: {type(start_date)})")
+    # Guard: if start_date is empty, stop and prompt user
+    if not start_date or start_date in ["", None, "NaT"]:
+        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.stop()
+    st.sidebar.write(f"[DEBUG] load_run_plan received start_date: {start_date} (type: {type(start_date)})")
+    # If start_date is a string, parse it to datetime.date
+    import datetime
+    if isinstance(start_date, str) and start_date not in ("", "NaT", None):
+        try:
+            start_date_parsed = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+            st.sidebar.write(f"[DEBUG] Parsed start_date to datetime.date: {start_date_parsed} (type: {type(start_date_parsed)})")
+            start_date = start_date_parsed
+        except Exception as e:
+            st.sidebar.write(f"[DEBUG] Failed to parse start_date: {e}")
+    st.sidebar.write(f"[DEBUG] Final start_date in load_run_plan: {start_date} (type: {type(start_date)})")
+    # Guard: start_date must be valid
+    if not start_date or start_date in ["", None, "NaT"]:
+        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.stop()
+    try:
+        st.sidebar.write(f"[DEBUG] pd.to_datetime input: {start_date} (type: {type(start_date)})")
+        start = pd.to_datetime(start_date)
+        st.sidebar.write(f"[DEBUG] pd.to_datetime output: {start} (type: {type(start)})")
+    except Exception as e:
+        st.error(f"Invalid start date: {start_date}. Error: {e}")
+        st.stop()
+    try:
+        activities = get_activities()
+        comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
+        st.subheader("📅 Plan vs. Actual")
+        AgGrid(comparison, theme="streamlit", fit_columns_on_grid_load=True)
+        rec, expl = make_recommendation(activities, plan_choice, start_date)
+        st.subheader("💡 Recommendation")
+        st.write(rec)
+        with st.expander("Show details"):
+            st.text(expl)
+        display_weekly_mileage(activities)
+    except Exception as e:
+        st.error(f"Error showing plan: {e}")
+
 PACE_MAPPING = [
     {"type": "Long Run", "keywords": ["Long Run", "LR"], "delta": (45, 90)},
     {"type": "Medium-Long Run", "keywords": ["Medium-Long Run", "MLR"], "delta": (30, 75)},
