@@ -2,7 +2,6 @@
 
 
 st.set_page_config(layout="wide")
-authenticator = stauth.Authenticate(
 
 import streamlit as st
 from streamlit_oauth import OAuth2Component
