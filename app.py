@@ -26,21 +26,38 @@ oauth2 = OAuth2Component(
     revoke_token_endpoint="https://oauth2.googleapis.com/revoke"
 )
 
-result = oauth2.authorize_button(
-    "Login with Google", 
-    key="google",
-    redirect_uri="https://marathonplanner.streamlit.app/",
-    scope="openid email profile"
-)
-if result and "token" in result:
-    # Get user info directly from Google's userinfo endpoint
-    headers = {"Authorization": f"Bearer {result['token']['access_token']}"}
-    response = requests.get("https://openidconnect.googleapis.com/v1/userinfo", headers=headers)
-    user_info = response.json()
-    st.session_state["user_email"] = user_info["email"]
-    st.success(f"Logged in as {user_info['email']}")
+# Check if user is already logged in
+if "user_email" not in st.session_state:
+    try:
+        result = oauth2.authorize_button(
+            "Login with Google", 
+            key="google_auth",
+            redirect_uri="https://marathonplanner.streamlit.app/",
+            scope="openid email profile"
+        )
+        if result and "token" in result:
+            # Get user info directly from Google's userinfo endpoint
+            headers = {"Authorization": f"Bearer {result['token']['access_token']}"}
+            response = requests.get("https://openidconnect.googleapis.com/v1/userinfo", headers=headers)
+            if response.status_code == 200:
+                user_info = response.json()
+                st.session_state["user_email"] = user_info["email"]
+                st.success(f"Logged in as {user_info['email']}")
+                st.rerun()
+            else:
+                st.error("Failed to get user information from Google")
+                st.stop()
+        else:
+            st.info("Please click 'Login with Google' to continue")
+            st.stop()
+    except Exception as e:
+        st.error("Authentication error occurred. Please try refreshing the page.")
+        # Clear any stale session state
+        if "user_email" in st.session_state:
+            del st.session_state["user_email"]
+        st.stop()
 else:
-    st.stop()
+    st.success(f"Logged in as {st.session_state['user_email']}")
 
 def dashboard_logic(name, username):
     st.write(f"Welcome, {name}!")
