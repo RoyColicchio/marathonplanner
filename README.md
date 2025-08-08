@@ -1,3 +1,3 @@
-# Strava Weekly Mileage Dashboard
+# Marathon Planner
 
-A Streamlit app to visualize your weekly running mileage using the Strava API.
+A Streamlit app to visualize your marathon plan.
