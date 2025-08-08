@@ -59,6 +59,7 @@ def dashboard_logic(name, username):
             "goal_time": "3:30:00"
         })
 
+
     # --- Plan selection dropdown with friendly name ---
     plan_options = {"run_plan.csv": "Pfitz 18/55"}
     plan_files = list(plan_options.keys())
@@ -69,6 +70,65 @@ def dashboard_logic(name, username):
     plan_label = st.selectbox("Select plan", plan_labels, index=plan_labels.index(current_plan_label) if current_plan_label in plan_labels else 0)
     # Map label back to filename
     selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
+    user_settings["plan"] = selected_plan_file
+
+    # --- Prompt for start date if not set ---
+    if not user_settings.get("start_date"):
+        st.sidebar.header("Setup")
+        start_date_input = st.sidebar.date_input("Select your plan start date")
+        if st.sidebar.button("Continue to Dashboard"):
+            user_settings["start_date"] = str(start_date_input)
+            if username == 'guest':
+                st.session_state['guest_settings'] = user_settings
+            else:
+                all_settings[username] = user_settings
+                with open(settings_path, "w") as f:
+                    json.dump(all_settings, f, indent=2)
+            st.session_state['start_date_set'] = True
+            st.rerun()
+        if st.session_state.get('start_date_set'):
+            del st.session_state['start_date_set']
+        else:
+            st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
+            st.stop()
+
+    # --- Always show dashboard after start_date is set ---
+    plan_choice = user_settings["plan"]
+    start_date = user_settings["start_date"]
+    goal_marathon_time = user_settings["goal_time"]
+    # Guard: if start_date is empty, stop and prompt user
+    if not start_date or start_date in ["", None, "NaT"]:
+        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.stop()
+    # If start_date is a string, parse it to datetime.date
+    if isinstance(start_date, str) and start_date not in ("", "NaT", None):
+        try:
+            start_date_parsed = datetime.strptime(start_date, "%Y-%m-%d").date()
+            start_date = start_date_parsed
+        except Exception as e:
+            pass
+    # Guard: start_date must be valid
+    if not start_date or start_date in ["", None, "NaT"]:
+        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.stop()
+    try:
+        start = pd.to_datetime(start_date)
+    except Exception as e:
+        st.error(f"Invalid start date: {start_date}. Error: {e}")
+        st.stop()
+    try:
+        activities = get_activities()
+        comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
+        st.subheader("📅 Plan vs. Actual")
+        AgGrid(comparison, theme="streamlit", fit_columns_on_grid_load=True)
+        rec, expl = make_recommendation(activities, plan_choice, start_date)
+        st.subheader("💡 Recommendation")
+        st.write(rec)
+        with st.expander("Show details"):
+            st.text(expl)
+        display_weekly_mileage(activities)
+    except Exception as e:
+        st.error(f"Error showing plan: {e}")
 
 # --- Helper functions ---
 
