@@ -94,12 +94,17 @@ if authentication_status:
         start_date_input = st.sidebar.date_input("Select your plan start date")
         if start_date_input:
             if st.sidebar.button("Continue to Dashboard"):
-                user_settings["start_date"] = str(start_date_input)
-                if username != 'guest':
-                    all_settings[username] = user_settings
-                    with open(settings_path, "w") as f:
-                        json.dump(all_settings, f, indent=2)
+                st.session_state['set_start_date'] = str(start_date_input)
                 st.experimental_rerun()
+        # On rerun, check if we need to set the start date
+        if 'set_start_date' in st.session_state:
+            user_settings["start_date"] = st.session_state['set_start_date']
+            if username != 'guest':
+                all_settings[username] = user_settings
+                with open(settings_path, "w") as f:
+                    json.dump(all_settings, f, indent=2)
+            del st.session_state['set_start_date']
+            st.experimental_rerun()
         st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
         st.stop()
 
