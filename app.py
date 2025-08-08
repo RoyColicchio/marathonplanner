@@ -1,5 +1,190 @@
 import streamlit as st
-st.set_page_config(layout="wide")
+st.set_page_config(
+    page_title="Marathon Planner",
+    page_icon="🏃",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Modern CSS styling
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    * {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Modern card styling */
+    .stApp > div:first-child {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+    }
+    
+    .main {
+        background: #ffffff;
+        border-radius: 12px;
+        margin: 1rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    /* Headers */
+    h1 {
+        font-weight: 700;
+        font-size: 2.5rem;
+        color: #1a1a1a;
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.02em;
+    }
+    
+    h2 {
+        font-weight: 600;
+        font-size: 1.75rem;
+        color: #374151;
+        margin-bottom: 1rem;
+        margin-top: 2rem;
+    }
+    
+    h3 {
+        font-weight: 600;
+        font-size: 1.25rem;
+        color: #374151;
+        margin-bottom: 0.75rem;
+    }
+    
+    /* Text styling */
+    p, .stMarkdown {
+        color: #6b7280;
+        font-size: 1rem;
+        line-height: 1.6;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        font-size: 1rem;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Form styling */
+    .stSelectbox > div > div {
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+    }
+    
+    .stTextInput > div > div > input {
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        padding: 0.75rem;
+    }
+    
+    .stDateInput > div > div > input {
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        padding: 0.75rem;
+    }
+    
+    /* Info boxes */
+    .stInfo {
+        background: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    .stSuccess {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    .stError {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    .stWarning {
+        background: #fffbeb;
+        border: 1px solid #fed7aa;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background: #f9fafb;
+        border-right: 1px solid #e5e7eb;
+    }
+    
+    /* Modern metrics */
+    div[data-testid="metric-container"] {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    /* Code blocks */
+    .stCode {
+        background: #f3f4f6;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+    }
+    
+    /* Progress bar */
+    .stProgress .css-pxxe24 {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 4px;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        padding: 0.5rem 0;
+        border-bottom: 2px solid transparent;
+        color: #6b7280;
+        font-weight: 500;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #374151;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: #667eea;
+        border-bottom-color: #667eea;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 from streamlit_oauth import OAuth2Component
 import json
 from pathlib import Path
@@ -53,40 +238,40 @@ if "user_email" not in st.session_state:
                 st.error("Failed to get user information from Google")
                 st.stop()
         else:
-            st.info("Please click 'Login with Google' to continue")
+            st.info("Please sign in with Google to continue")
             st.stop()
     except Exception as e:
-        st.error("Authentication error occurred. Please try refreshing the page.")
+        st.error("Authentication error. Please refresh the page to try again.")
         # Clear any stale session state
         if "user_email" in st.session_state:
             del st.session_state["user_email"]
         st.stop()
 else:
-    st.success(f"Welcome back, {st.session_state.get('user_name', 'User')}!")
+    st.success(f"Welcome back, {st.session_state.get('user_name', 'User')}")
 
 def setup_screen():
     """Show setup screen for new users or those who haven't completed setup"""
-    st.title("🏃‍♂️ Marathon Planner Setup")
+    st.title("Marathon Training Planner")
     
     user_name = st.session_state.get("user_name", "User")
-    st.write(f"Hi {user_name}! Let's get you set up with your training plan.")
+    st.write(f"Hi {user_name}, let's set up your training plan.")
     
     with st.form("setup_form"):
-        st.subheader("Training Plan Setup")
+        st.subheader("Training Configuration")
         
         # Plan selection dropdown with friendly name
-        plan_options = {"run_plan.csv": "Pfitz 18/55"}
+        plan_options = {"run_plan.csv": "Pfitzinger 18 Week / 55 Miles"}
         plan_labels = list(plan_options.values())
-        plan_label = st.selectbox("Select your training plan", plan_labels, index=0)
+        plan_label = st.selectbox("Training Plan", plan_labels, index=0, help="Choose your marathon training program")
         selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
         
         # Start date selection
-        start_date_input = st.date_input("Select your plan start date")
+        start_date_input = st.date_input("Plan Start Date", help="When do you want to begin training?")
         
         # Goal time input
-        goal_time_input = st.text_input("Enter your marathon goal time (hh:mm:ss)", value="3:30:00", placeholder="3:30:00")
+        goal_time_input = st.text_input("Goal Marathon Time", value="3:30:00", placeholder="3:30:00", help="Format: hh:mm:ss")
         
-        submitted = st.form_submit_button("Connect Strava & Start Training Plan", use_container_width=True)
+        submitted = st.form_submit_button("Continue to Strava Connection", use_container_width=True, type="primary")
         
         if submitted:
             # Validate inputs
@@ -123,27 +308,27 @@ def setup_screen():
             # Redirect to Strava OAuth
             st.session_state["setup_complete"] = True
             st.session_state["need_strava_auth"] = True
-            st.success("Settings saved! Now let's connect your Strava account...")
+            st.success("Settings saved successfully")
             st.rerun()
     
     return False
 
 def strava_oauth_screen():
     """Show Strava OAuth screen"""
-    st.title("🚴‍♂️ Connect Your Strava Account")
+    st.title("Connect Strava")
     
     user_name = st.session_state.get("user_name", "User")
-    st.write(f"Hi {user_name}! To see your actual running data, we need to connect your Strava account.")
+    st.write(f"Hi {user_name}, connect your Strava account to track your actual runs against your training plan.")
     
-    st.info("We'll only access your activity data (runs, distance, pace) to compare with your training plan.")
+    st.info("We only access your activity data (runs, distance, pace) for training analysis.")
     
     # Check for errors first
     query_params = st.query_params
     if "error" in query_params:
         error_msg = query_params.get("error", "Unknown error")
-        st.error(f"Strava OAuth error: {error_msg}")
+        st.error(f"Connection failed: {error_msg}")
         if error_msg == "access_denied":
-            st.write("You denied access to your Strava account. You can try connecting again or use demo mode.")
+            st.write("Access was denied. You can try connecting again or continue in demo mode.")
         st.markdown("---")
     
     # Strava OAuth parameters
@@ -174,55 +359,69 @@ def strava_oauth_screen():
         remaining_time = 900 - (current_time - last_attempt_time)
         minutes_left = int(remaining_time / 60)
         
-        st.error("🚫 Strava Rate Limit Reached")
-        st.write(f"Too many connection attempts detected. Strava has temporarily blocked OAuth requests.")
-        st.write(f"**Wait time:** {minutes_left} minutes remaining")
-        st.info("💡 **Recommendation:** Use Demo Mode to explore the app while waiting, or try connecting later.")
+        st.error("Rate Limit Reached")
+        st.write("Too many connection attempts. Please wait before trying again.")
+        st.write(f"**Time remaining:** {minutes_left} minutes")
+        st.info("Recommendation: Use Demo Mode while waiting, or try connecting later.")
         
         # Show a progress bar for the wait time
         if remaining_time > 0:
             progress = (900 - remaining_time) / 900
             st.progress(progress)
-            st.write(f"Rate limit will reset in {minutes_left} minutes")
-    else:
-        st.write("**Debug Info:**")
-        st.write(f"Redirect URI: `{redirect_uri}`")
+            st.write(f"Rate limit resets in {minutes_left} minutes")
+            
+        # Buttons for demo mode and admin reset
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Use Demo Mode"):
+                st.session_state["demo_mode"] = True
+                st.session_state["page"] = "dashboard"
+                st.rerun()
+                
+        with col2:
+            if st.button("Reset Rate Limit (Admin)"):
+                st.session_state["strava_attempts"] = 0
+                st.session_state["last_strava_attempt"] = 0
+                st.rerun()
+        
+        return  # Don't show the OAuth section when rate limited
+    
+    # Show OAuth section when not rate limited
+    with st.expander("Debug Info"):
+        st.code(f"Redirect URI: {redirect_uri}", language="text")
+        st.write("Make sure this exactly matches your Strava app's Authorization Callback Domain.")
+        st.write("In your Strava app settings, the callback domain should be: marathonplanner.streamlit.app")
+        st.write(f"Attempt count: {attempt_count}")
         st.write(f"Client ID: `{strava_client_id}`")
         st.write(f"State: `{state}`")
-        st.write(f"Attempts: {attempt_count}/3")
         
-        # Check current URL params
         if query_params:
-            st.write(f"**Current URL params:** {dict(query_params)}")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🚴‍♂️ Connect Strava Account", type="primary", use_container_width=True):
-                # Record attempt time and increment counter
-                st.session_state["strava_attempts"] = attempt_count + 1
-                st.session_state["last_strava_attempt"] = current_time
-                
-                # Use a more direct redirect approach
-                st.write("🔄 Redirecting to Strava...")
-                st.markdown(f'<meta http-equiv="refresh" content="2; url={strava_auth_url}">', unsafe_allow_html=True)
-                
-                # Add a manual fallback
-                st.write("If you're not redirected automatically, [click here to connect Strava]({})".format(strava_auth_url))
-        
-        # Add manual link as fallback
-        st.markdown("---")
-        st.write("**Alternative**: Copy and paste this URL in a **new private/incognito window**:")
-        st.code(strava_auth_url, language=None)
-        st.write("💡 Using a private window can help avoid rate limit issues.")
+            st.write(f"Current URL params: {dict(query_params)}")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Connect Strava", type="primary"):
+            # Track the attempt
+            st.session_state["strava_attempts"] = attempt_count + 1
+            st.session_state["last_strava_attempt"] = time.time()
+            
+            # Redirect to Strava OAuth
+            st.markdown(f'<meta http-equiv="refresh" content="0; url={strava_auth_url}">', unsafe_allow_html=True)
+            st.write("Redirecting to Strava...")
+    
+    with col2:
+        if st.button("Use Demo Mode"):
+            st.session_state["demo_mode"] = True
+            st.session_state["page"] = "dashboard"
+            st.rerun()
     
     # Check for authorization code in URL params
     if "code" in query_params and attempt_count < 2:  # Updated to match new threshold
         auth_code = query_params["code"]
         received_state = query_params.get("state", "")
         
-        st.write("✅ Authorization received! Processing...")
-        st.write(f"Code: {auth_code[:10]}...")
-        st.write(f"State: {received_state}")
+        st.success("Authorization received! Processing...")
         
         # Exchange code for access token
         token_url = "https://www.strava.com/api/v3/oauth/token"
@@ -255,7 +454,7 @@ def strava_oauth_screen():
                 with open(settings_path, "w") as f:
                     json.dump(all_settings, f, indent=2)
                 
-                st.success("🎉 Strava connected successfully!")
+                st.success("Strava connected successfully!")
                 st.session_state["strava_connected"] = True
                 if "need_strava_auth" in st.session_state:
                     del st.session_state["need_strava_auth"]
@@ -269,17 +468,15 @@ def strava_oauth_screen():
                 st.rerun()
             else:
                 st.error(f"Failed to connect Strava: HTTP {response.status_code}")
-                st.write(f"Response: {response.text}")
         except Exception as e:
             st.error(f"Error connecting to Strava: {str(e)}")
     
     # Option to skip Strava connection
     st.markdown("---")
-    st.write("### Alternative Options:")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📊 Skip Strava Connection (Demo Mode)", use_container_width=True):
+        if st.button("Skip Strava Connection (Demo Mode)", use_container_width=True):
             # Mark as skipped but allow dashboard access
             user_email = st.session_state["user_email"]
             settings_path = Path("user_settings.json")
@@ -302,12 +499,12 @@ def strava_oauth_screen():
                 del st.session_state["strava_attempts"]
             if "last_strava_attempt" in st.session_state:
                 del st.session_state["last_strava_attempt"]
-            st.success("🎉 Demo mode activated! Redirecting to dashboard...")
+            st.success("Demo mode activated! Redirecting to dashboard...")
             time.sleep(1)
             st.rerun()
     
     with col2:
-        if st.button("🔄 Clear Rate Limit & Try Again", use_container_width=True):
+        if st.button("Clear Rate Limit & Try Again", use_container_width=True):
             # Force clear attempt counter and timestamps
             if "strava_attempts" in st.session_state:
                 del st.session_state["strava_attempts"]
@@ -319,7 +516,7 @@ def strava_oauth_screen():
             st.rerun()
 
 def dashboard_logic(name, username):
-    st.title("🏃‍♂️ Marathon Training Dashboard")
+    st.title("Marathon Training Dashboard")
     st.write(f"Welcome, {name}!")
     
     # Load user settings (they should exist since setup is complete)
@@ -403,7 +600,7 @@ def dashboard_logic(name, username):
         grid_options = gb.build()
         AgGrid(display_df, gridOptions=grid_options, theme="streamlit", fit_columns_on_grid_load=True)
         rec, expl = make_recommendation(activities, plan_choice, start_date)
-        st.subheader("💡 Recommendation")
+        st.subheader("Recommendation")
         st.write(rec)
         with st.expander("Show details"):
             st.text(expl)
@@ -499,7 +696,7 @@ def display_weekly_mileage(activities):
     weekly_miles = df.groupby(['year', 'week'])['distance_mi'].sum().reset_index()
     weekly_miles = weekly_miles.sort_values(['year', 'week'], ascending=False)
 
-    st.subheader("📈 Weekly Mileage")
+    st.subheader("Weekly Mileage")
     st.dataframe(weekly_miles, use_container_width=True)
 
 def load_run_plan(plan_path, start_date):
@@ -680,7 +877,7 @@ def display_weekly_mileage(activities):
     weekly_miles = df.groupby(['year', 'week'])['distance_mi'].sum().reset_index()
     weekly_miles = weekly_miles.sort_values(['year', 'week'], ascending=False)
 
-    st.subheader("📈 Weekly Mileage")
+    st.subheader("Weekly Mileage")
     st.dataframe(weekly_miles, use_container_width=True)
 
 # Load run plan from CSV
