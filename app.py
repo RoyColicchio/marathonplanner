@@ -27,37 +27,10 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-"""
-LOGIN AND DASHBOARD LOGIC
-"""
+
 # --- Guest mode persistence ---
 if 'guest' not in st.session_state:
     st.session_state['guest'] = False
-
-login_placeholder = st.empty()
-if not st.session_state['guest']:
-    with login_placeholder.container():
-        col1, col2 = st.columns([2,1])
-        with col1:
-            login_result = authenticator.login('main')
-            if isinstance(login_result, tuple) and len(login_result) == 2:
-                name, authentication_status = login_result
-                username = name
-            else:
-                name = None
-                authentication_status = None
-                username = None
-        with col2:
-            if st.button('Continue as Guest'):
-                st.session_state['guest'] = True
-                st.session_state['name'] = 'Guest'
-                st.session_state['username'] = 'guest'
-                st.rerun()
-else:
-    authentication_status = True
-    name = st.session_state.get('name', 'Guest')
-    username = st.session_state.get('username', 'guest')
-    login_placeholder.empty()
 
 def dashboard_logic(name, username):
     st.write(f"Welcome, {name}!")
@@ -166,6 +139,31 @@ def dashboard_logic(name, username):
         display_weekly_mileage(activities)
     except Exception as e:
         st.error(f"Error showing plan: {e}")
+
+login_placeholder = st.empty()
+if not st.session_state['guest']:
+    with login_placeholder.container():
+        col1, col2 = st.columns([2,1])
+        with col1:
+            login_result = authenticator.login('main')
+            if isinstance(login_result, tuple) and len(login_result) == 2:
+                name, authentication_status = login_result
+                username = name
+            else:
+                name = None
+                authentication_status = None
+                username = None
+        with col2:
+            if st.button('Continue as Guest'):
+                st.session_state['guest'] = True
+                st.session_state['name'] = 'Guest'
+                st.session_state['username'] = 'guest'
+                st.rerun()
+else:
+    authentication_status = True
+    name = st.session_state.get('name', 'Guest')
+    username = st.session_state.get('username', 'guest')
+    login_placeholder.empty()
 
 if authentication_status:
     dashboard_logic(name, username)
