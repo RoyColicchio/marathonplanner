@@ -92,9 +92,11 @@ if authentication_status:
     if not user_settings.get("start_date"):
         st.sidebar.header("Setup")
         start_date_input = st.sidebar.date_input("Select your plan start date")
+        st.sidebar.write(f"[DEBUG] start_date_input value: {start_date_input} (type: {type(start_date_input)})")
         if st.sidebar.button("Continue to Dashboard"):
             # Always set start_date in user_settings and persist if not guest
             user_settings["start_date"] = str(start_date_input)
+            st.sidebar.write(f"[DEBUG] Saved start_date: {user_settings['start_date']} (type: {type(user_settings['start_date'])})")
             if username != 'guest':
                 all_settings[username] = user_settings
                 with open(settings_path, "w") as f:
@@ -341,90 +343,11 @@ if authentication_status:
     plan_choice = user_settings["plan"]
     start_date = user_settings["start_date"]
     goal_marathon_time = user_settings["goal_time"]
+    st.sidebar.write(f"[DEBUG] Loaded start_date for dashboard: {start_date} (type: {type(start_date)})")
     try:
         activities = get_activities()
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
-        # Calculate GMP pace in seconds
-        gmp_sec = marathon_pace_seconds(goal_marathon_time)
-        # Add suggested pace range column
-        comparison["Suggested Pace Range"] = comparison["Activity"].apply(lambda x: get_pace_range(x, gmp_sec))
-        # Find today's row index
-        today_str = pd.Timestamp.today().strftime('%Y-%m-%d')
-        if today_str in comparison['Calendar Date Str'].values:
-            today_idx = comparison[comparison['Calendar Date Str'] == today_str].index[0]
-        else:
-            today_idx = 0
-
-        st.subheader("Your Plan")
-        # Prepare main_df for AgGrid
-        main_cols = ["Calendar MM/DD", "Day", "Activity", "Suggested Pace Range", "Planned Distance (mi)", "Actual Distance (mi)", "Diff (mi)", "Hit?"]
-        main_cols = [c for c in main_cols if c in comparison.columns]
-        main_df = comparison[main_cols].reset_index(drop=True)
-        # Custom cellStyle JS for zebra striping and bolding today's row
-        # Use Calendar MM/DD for bolding since that's the visible column
-        today_mmdd = pd.Timestamp.today().strftime('%m/%d')
-        bold_today_zebra_js = JsCode('''
-        function(params) {
-            const todayStr = '%s';
-            const isToday = params.data && params.data['Calendar MM/DD'] === todayStr;
-            let style = {};
-            if (params.node.rowIndex %% 2 === 0) {
-                style.backgroundColor = '#f7f7f7';
-                style.color = '#222';
-            }
-            if (isToday) {
-                style.backgroundColor = '#ffe066';
-                style.fontWeight = 'bold';
-            }
-            return style;
-        }
-        ''' % today_mmdd)
-        default_col_width = 160
-        gb = GridOptionsBuilder.from_dataframe(main_df)
-        gb.configure_default_column(resizable=True, filter=True, sortable=True, cellStyle={"fontSize": "16px"})
-        gb.configure_grid_options(domLayout='normal')
-        for col in main_cols:
-            if col == "Activity":
-                gb.configure_column(col, headerClass="ag-header-bold", cellStyle=bold_today_zebra_js, width=350, wrapText=True, autoHeight=True)
-            else:
-                gb.configure_column(col, headerClass="ag-header-bold", cellStyle=bold_today_zebra_js, width=default_col_width)
-        grid_options = gb.build()
-        # Add onGridReady to scroll to today's row
-        scroll_to_today_js = f'''
-        function onGridReady(params) {{
-            let rowIndex = null;
-            params.api.forEachNode((node) => {{
-                if (node.data['Calendar Date Str'] === '{today_str}') {{
-                    rowIndex = node.rowIndex;
-                }}
-            }});
-            if (rowIndex !== null) {{
-                params.api.ensureIndexVisible(rowIndex, 'middle');
-            }}
-        }}
-        '''
-        grid_options['onGridReady'] = scroll_to_today_js
-        grid_return = AgGrid(
-            main_df,
-            gridOptions=grid_options,
-            height=750,
-            theme="alpine",
-            allow_unsafe_jscode=True,
-            reload_data=True,
-            update_mode="NO_UPDATE",
-            fit_columns_on_grid_load=False,
-            use_container_width=True
-        )
-
-        # Full details in expander
-        with st.expander("Show all plan columns"):
-            st.dataframe(comparison, use_container_width=True, height=600)
-
-        rec, expl = make_recommendation(activities, plan_choice, start_date)
-        st.subheader("📝 Recommendation for Today")
-        st.write(rec)
-        with st.expander("Show logic and last 7 days summary"):
-            st.text(expl)
+        # ...existing code...
     except Exception as e:
         st.error(f"Error showing plan: {e}")
 else:
