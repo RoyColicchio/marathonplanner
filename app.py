@@ -450,7 +450,19 @@ def load_run_plan(plan_path, start_date):
         plan_dates.append(start + timedelta(days=i))
     plan_df['Calendar Date'] = [pd.to_datetime(d).date() for d in plan_dates]
     plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
-    # Expand abbreviations in Activity
+    # Remove any existing Day column from CSV
+    if 'Day' in plan_df.columns:
+        plan_df = plan_df.drop(columns=['Day'])
+    # Always compute the Day column from the Calendar Date
+    weekday_map = {0: 'M', 1: 'Tu', 2: 'W', 3: 'Th', 4: 'F', 5: 'Sa', 6: 'Su'}
+    plan_df['Day'] = [weekday_map[d.weekday()] for d in plan_df['Calendar Date']]
+    # Debug: print the first 7 computed dates and days
+    debug_rows = []
+    for i in range(min(7, len(plan_df))):
+        debug_rows.append((plan_df['Calendar Date'].iloc[i], plan_df['Day'].iloc[i]))
+    print("DEBUG: First 7 Calendar Dates and Days:")
+    for d, day in debug_rows:
+        print(f"  {d} => {day}")
     def expand_activity(plan):
         mapping = {
             'GA': 'General Aerobic',
