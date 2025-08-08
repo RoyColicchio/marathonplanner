@@ -306,8 +306,8 @@ def show_dashboard():
 def generate_training_plan(start_date):
     """Loads the training plan from run_plan.csv."""
     try:
-        # Load the plan, skipping the first row and using the second as the header
-        plan_df = pd.read_csv("run_plan.csv", header=1)
+        # Load the plan using the first row as the header
+        plan_df = pd.read_csv("run_plan.csv", header=0)
         plan_df.columns = [col.strip() for col in plan_df.columns] # clean up column names
 
         # Select relevant columns and rename them
