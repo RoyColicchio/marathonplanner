@@ -60,6 +60,7 @@ def dashboard_logic(name, username):
         })
 
 
+
     # --- Plan selection dropdown with friendly name ---
     plan_options = {"run_plan.csv": "Pfitz 18/55"}
     plan_files = list(plan_options.keys())
@@ -72,6 +73,26 @@ def dashboard_logic(name, username):
     selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
     user_settings["plan"] = selected_plan_file
 
+    # --- Plan preview table before dashboard loads ---
+    # Show a preview table of the plan with suggested pace column
+    plan_preview_df = load_run_plan(selected_plan_file, datetime.today().date())
+    goal_marathon_time = user_settings.get("goal_time", "3:30:00")
+    try:
+        gmp_sec = marathon_pace_seconds(goal_marathon_time)
+    except Exception:
+        gmp_sec = None
+    def get_suggested_pace_preview(row):
+        try:
+            if gmp_sec is None:
+                return ""
+            return get_pace_range(row['Activity'], gmp_sec)
+        except Exception:
+            return ""
+    insert_idx = plan_preview_df.columns.get_loc('Planned Distance (mi)')
+    plan_preview_df.insert(insert_idx, 'Suggested Pace', plan_preview_df.apply(get_suggested_pace_preview, axis=1))
+    preview_cols = [col for col in plan_preview_df.columns if col not in ["Calendar Date", "Calendar Date Str"]]
+    st.markdown("#### Plan Preview")
+    AgGrid(plan_preview_df[preview_cols].head(10), theme="streamlit", fit_columns_on_grid_load=True)
 
     # --- Prompt for start date and goal time if not set ---
     if not user_settings.get("start_date") or not user_settings.get("goal_time"):
