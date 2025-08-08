@@ -160,7 +160,7 @@ def dashboard_logic(name, username):
         st.write(rec)
         with st.expander("Show details"):
             st.text(expl)
-        display_weekly_mileage(activities)
+        # Weekly mileage section removed as requested
     except Exception as e:
         st.error(f"Error showing plan: {e}")
 
