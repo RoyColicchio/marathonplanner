@@ -33,7 +33,10 @@ result = oauth2.authorize_button(
     scope="openid email profile"
 )
 if result and "token" in result:
-    user_info = oauth2.get_user_info(result["token"]["access_token"], "https://openidconnect.googleapis.com/v1/userinfo")
+    # Get user info directly from Google's userinfo endpoint
+    headers = {"Authorization": f"Bearer {result['token']['access_token']}"}
+    response = requests.get("https://openidconnect.googleapis.com/v1/userinfo", headers=headers)
+    user_info = response.json()
     st.session_state["user_email"] = user_info["email"]
     st.success(f"Logged in as {user_info['email']}")
 else:
