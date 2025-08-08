@@ -150,9 +150,22 @@ def strava_oauth_screen():
     st.write(f"Client ID: `{strava_client_id}`")
     st.write("Make sure this redirect URI matches exactly what's configured in your Strava app settings.")
     
+    # Check if user is already on Strava login page
+    current_url = st.query_params
+    if current_url:
+        st.write(f"**Current URL params:** {dict(current_url)}")
+    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(f'<a href="{strava_auth_url}" target="_self"><button style="background-color: #FC4C02; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; width: 100%;">Connect Strava Account</button></a>', unsafe_allow_html=True)
+        if st.button("🚴‍♂️ Connect Strava Account", type="primary", use_container_width=True):
+            # Use JavaScript to redirect
+            st.markdown(f"""
+            <script>
+                window.open('{strava_auth_url}', '_self');
+            </script>
+            """, unsafe_allow_html=True)
+            # Also provide direct navigation
+            st.markdown(f'<meta http-equiv="refresh" content="0; url={strava_auth_url}">', unsafe_allow_html=True)
     
     # Add manual link as fallback
     st.markdown("---")
