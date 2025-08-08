@@ -122,38 +122,27 @@ def dashboard_logic(name, username):
     try:
         activities = get_activities()
         comparison = compare_plan_vs_actual(activities, plan_choice, start_date)
-        # Add suggested pace column
+        # Add suggested pace column using goal_marathon_time and activity type, and move it to the left of 'Planned Distance (mi)'
         def get_suggested_pace(row):
             try:
                 return get_pace_range(row['Activity'], goal_marathon_time)
             except Exception:
                 return ""
-        comparison['Suggested Pace'] = comparison.apply(get_suggested_pace, axis=1)
-        st.subheader("📅 Plan vs. Actual")
+        # Insert 'Suggested Pace' to the left of 'Planned Distance (mi)'
+        insert_idx = comparison.columns.get_loc('Planned Distance (mi)')
+        comparison.insert(insert_idx, 'Suggested Pace', comparison.apply(get_suggested_pace, axis=1))
+        st.subheader("\ud83d\udcc5 Plan vs. Actual")
         columns_to_hide = ["Calendar Date", "Calendar Date Str"]
         display_df = comparison.drop(columns=columns_to_hide)
         AgGrid(display_df, theme="streamlit", fit_columns_on_grid_load=True)
         rec, expl = make_recommendation(activities, plan_choice, start_date)
-        st.subheader("💡 Recommendation")
+        st.subheader("\ud83d\udca1 Recommendation")
         st.write(rec)
         with st.expander("Show details"):
             st.text(expl)
         display_weekly_mileage(activities)
     except Exception as e:
         st.error(f"Error showing plan: {e}")
-
-# --- Helper functions ---
-
-def parse_time_to_seconds(timestr):
-    parts = [int(p) for p in timestr.strip().split(":")]
-    if len(parts) == 3:
-        h, m, s = parts
-    elif len(parts) == 2:
-        h, m = 0, parts[0]
-        s = parts[1]
-    else:
-        raise ValueError("Invalid time format")
-    return h * 3600 + m * 60 + s
 
 def refresh_access_token():
     refresh_token = tokens["refresh_token"]
@@ -208,17 +197,7 @@ def load_run_plan(plan_path, start_date):
     if not start_date or start_date in ["", None, "NaT"]:
         st.error("No valid start date set. Please select a start date in the sidebar.")
         st.stop()
-    try:
-        start = pd.to_datetime(start_date)
-    except Exception as e:
-        st.error(f"Invalid start date: {start_date}. Error: {e}")
-        st.stop()
-    plan_dates = []
-    for i, row in plan_df.iterrows():
-        plan_dates.append(start + timedelta(days=i))
-    plan_df['Calendar Date'] = [pd.to_datetime(d).date() for d in plan_dates]
-    plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
-    # Expand abbreviations in Activity
+
     def expand_activity(plan):
         mapping = {
             'GA': 'General Aerobic',
@@ -228,7 +207,7 @@ def load_run_plan(plan_path, start_date):
             'HMP': 'Half Marathon Pace',
             'Rec': 'Recovery',
             'MLR': 'Medium-Long Run',
-            'LR': 'Long Run',
+            'LR': 'Long Run'
         }
         s = str(plan)
         for abbr, full in mapping.items():
@@ -442,7 +421,7 @@ def load_run_plan(plan_path, start_date):
             'HMP': 'Half Marathon Pace',
             'Rec': 'Recovery',
             'MLR': 'Medium-Long Run',
-            'LR': 'Long Run',
+            'LR': 'Long Run'
         }
         s = str(plan)
         for abbr, full in mapping.items():
