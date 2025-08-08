@@ -211,12 +211,29 @@ def load_run_plan(plan_path, start_date):
         match = re.search(r'(\d+(?:\.\d+)?)', str(plan))
         return float(match.group(1)) if match else 0.0
     plan_df['Planned Distance (mi)'] = plan_df['Plan'].apply(extract_miles)
-    # Assign actual calendar dates based on user-selected start date
     plan_df = plan_df.reset_index(drop=True)
     # Guard: start_date must be valid
     if not start_date or start_date in ["", None, "NaT"]:
         st.error("No valid start date set. Please select a start date in the sidebar.")
         st.stop()
+
+    # --- Align the first plan day with the correct weekday ---
+    # Find the weekday of the first row in the plan (e.g., 'M', 'T', ...)
+    plan_day_map = {'M': 0, 'T': 1, 'W': 2, 'Th': 3, 'F': 4, 'Sa': 5, 'Su': 6}
+    # Handle both 'Th' and 'T' for Thursday/Tuesday
+    first_plan_day = str(plan_df.iloc[0]['Day'])
+    # If 'Day' is a string like 'Th', 'T', etc.
+    # If not, fallback to start_date's weekday
+    plan_weekday = plan_day_map.get(first_plan_day, pd.to_datetime(start_date).weekday())
+    # User's selected start_date weekday
+    user_weekday = pd.to_datetime(start_date).weekday()
+    # Calculate offset to align plan's first day with selected start_date
+    offset_days = (plan_weekday - user_weekday) % 7
+    # The first plan date should be start_date + offset_days
+    first_date = pd.to_datetime(start_date) + pd.Timedelta(days=offset_days)
+    plan_dates = [first_date + pd.Timedelta(days=i) for i in range(len(plan_df))]
+    plan_df['Calendar Date'] = [d.date() for d in plan_dates]
+    plan_df['Calendar Date Str'] = plan_df['Calendar Date'].astype(str)
 
     def expand_activity(plan):
         mapping = {
