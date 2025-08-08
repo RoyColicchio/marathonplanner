@@ -73,36 +73,7 @@ def dashboard_logic(name, username):
     selected_plan_file = [k for k, v in plan_options.items() if v == plan_label][0]
     user_settings["plan"] = selected_plan_file
 
-    # --- Plan preview table before dashboard loads ---
-    # Use the user's selected start date if available, else today
-    preview_start_date = user_settings.get("start_date")
-    if not preview_start_date or preview_start_date in ["", None, "NaT"]:
-        preview_start_date = datetime.today().date()
-    else:
-        if isinstance(preview_start_date, str):
-            try:
-                preview_start_date = datetime.strptime(preview_start_date, "%Y-%m-%d").date()
-            except Exception:
-                preview_start_date = datetime.today().date()
-    plan_preview_df = load_run_plan(selected_plan_file, preview_start_date)
-    goal_marathon_time = user_settings.get("goal_time", "3:30:00")
-    try:
-        gmp_sec = marathon_pace_seconds(goal_marathon_time)
-    except Exception:
-        gmp_sec = None
-    def get_suggested_pace_preview(row):
-        try:
-            if gmp_sec is None:
-                return ""
-            return get_pace_range(row['Activity'], gmp_sec)
-        except Exception:
-            return ""
-    insert_idx = plan_preview_df.columns.get_loc('Planned Distance (mi)')
-    plan_preview_df.insert(insert_idx, 'Suggested Pace', plan_preview_df.apply(get_suggested_pace_preview, axis=1))
-    # Show all columns except Calendar Date Str (keep Calendar Date for clarity)
-    preview_cols = [col for col in plan_preview_df.columns if col != "Calendar Date Str"]
-    st.markdown("#### Plan Preview")
-    AgGrid(plan_preview_df[preview_cols].head(10), theme="streamlit", fit_columns_on_grid_load=True)
+    # (Plan preview removed as requested)
 
     # --- Prompt for start date and goal time if not set ---
     if not user_settings.get("start_date") or not user_settings.get("goal_time"):
@@ -172,9 +143,18 @@ def dashboard_logic(name, username):
         insert_idx = comparison.columns.get_loc('Planned Distance (mi)')
         comparison.insert(insert_idx, 'Suggested Pace', comparison.apply(get_suggested_pace, axis=1))
         st.subheader("📅 Plan vs. Actual")
-        columns_to_hide = ["Calendar Date", "Calendar Date Str"]
-        display_df = comparison.drop(columns=columns_to_hide)
-        AgGrid(display_df, theme="streamlit", fit_columns_on_grid_load=True)
+        columns_to_hide = ["Calendar Date", "Calendar Date Str", "Hit?"]
+        display_df = comparison.drop(columns=[col for col in columns_to_hide if col in comparison.columns])
+        # Shrink the width of the rightmost 4 columns (Planned Distance, Actual Distance, Diff, Suggested Pace)
+        gb = GridOptionsBuilder.from_dataframe(display_df)
+        # Set default min/max width for all columns
+        gb.configure_default_column(minWidth=80, maxWidth=300)
+        # Find the rightmost 4 columns
+        rightmost_cols = display_df.columns[-4:]
+        for col in rightmost_cols:
+            gb.configure_column(col, minWidth=70, maxWidth=120, width=90)
+        grid_options = gb.build()
+        AgGrid(display_df, gridOptions=grid_options, theme="streamlit", fit_columns_on_grid_load=True)
         rec, expl = make_recommendation(activities, plan_choice, start_date)
         st.subheader("💡 Recommendation")
         st.write(rec)
