@@ -20,27 +20,34 @@ authenticator = stauth.Authenticate(
 )
 
 # --- Login or Guest ---
-login_placeholder = st.empty()
-guest_clicked = False
-with login_placeholder.container():
-    col1, col2 = st.columns([2,1])
-    with col1:
-        login_result = authenticator.login('main')
-        if isinstance(login_result, tuple) and len(login_result) == 2:
-            name, authentication_status = login_result
-            username = name
-        else:
-            name = None
-            authentication_status = None
-            username = None
-    with col2:
-        if st.button('Continue as Guest'):
-            guest_clicked = True
 
-if guest_clicked:
+# --- Guest mode persistence ---
+if 'guest' not in st.session_state:
+    st.session_state['guest'] = False
+
+login_placeholder = st.empty()
+if not st.session_state['guest']:
+    with login_placeholder.container():
+        col1, col2 = st.columns([2,1])
+        with col1:
+            login_result = authenticator.login('main')
+            if isinstance(login_result, tuple) and len(login_result) == 2:
+                name, authentication_status = login_result
+                username = name
+            else:
+                name = None
+                authentication_status = None
+                username = None
+        with col2:
+            if st.button('Continue as Guest'):
+                st.session_state['guest'] = True
+                st.session_state['name'] = 'Guest'
+                st.session_state['username'] = 'guest'
+                st.experimental_rerun()
+else:
     authentication_status = True
-    name = 'Guest'
-    username = 'guest'
+    name = st.session_state.get('name', 'Guest')
+    username = st.session_state.get('username', 'guest')
     login_placeholder.empty()
 
 
