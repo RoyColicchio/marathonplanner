@@ -207,10 +207,16 @@ def load_run_plan(plan_path, start_date):
         return float(match.group(1)) if match else 0.0
     plan_df['Planned Distance (mi)'] = plan_df['Plan'].apply(extract_miles)
     # Assign actual calendar dates based on user-selected start date
-    # Find the first row in the plan (assume it's the first Monday or first day)
     plan_df = plan_df.reset_index(drop=True)
-    # Map plan to calendar dates
-    start = pd.to_datetime(start_date)
+    # Guard: start_date must be valid
+    if not start_date or start_date in ["", None, "NaT"]:
+        st.error("No valid start date set. Please select a start date in the sidebar.")
+        st.stop()
+    try:
+        start = pd.to_datetime(start_date)
+    except Exception as e:
+        st.error(f"Invalid start date: {start_date}. Error: {e}")
+        st.stop()
     plan_dates = []
     for i, row in plan_df.iterrows():
         plan_dates.append(start + timedelta(days=i))
