@@ -9,6 +9,8 @@ from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from pace_utils import marathon_pace_seconds, get_pace_range
 
 # --- Authentication ---
+authenticator = stauth.Authenticate(
+
 with open('config.yaml') as file:
     config = yaml.safe_load(file)
 
@@ -19,7 +21,30 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-name, authentication_status, username = authenticator.login('main')
+# --- Login or Guest ---
+login_placeholder = st.empty()
+guest_clicked = False
+with login_placeholder.container():
+    col1, col2 = st.columns([2,1])
+    with col1:
+        login_result = authenticator.login('main')
+        if isinstance(login_result, tuple) and len(login_result) == 2:
+            name, authentication_status = login_result
+            username = name
+        else:
+            name = None
+            authentication_status = None
+            username = None
+    with col2:
+        if st.button('Continue as Guest'):
+            guest_clicked = True
+
+if guest_clicked:
+    authentication_status = True
+    name = 'Guest'
+    username = 'guest'
+    login_placeholder.empty()
+
 
 if authentication_status:
     st.write(f"Welcome, {name}!")
@@ -30,12 +55,20 @@ if authentication_status:
             all_settings = json.load(f)
     else:
         all_settings = {}
-    user_settings = all_settings.get(username, {
-        "name": name,
-        "start_date": "",
-        "plan": "run_plan.csv",
-        "goal_time": "3:30:00"
-    })
+    if username == 'guest':
+        user_settings = {
+            "name": name,
+            "start_date": "",
+            "plan": "run_plan.csv",
+            "goal_time": "3:30:00"
+        }
+    else:
+        user_settings = all_settings.get(username, {
+            "name": name,
+            "start_date": "",
+            "plan": "run_plan.csv",
+            "goal_time": "3:30:00"
+        })
 
     # --- Plan selection dropdown with friendly name ---
     plan_options = {"run_plan.csv": "Pfitz 18/55"}
