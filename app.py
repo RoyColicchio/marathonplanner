@@ -6,181 +6,28 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Modern CSS styling
+# Simple, clean styling that doesn't interfere with functionality
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
     
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
     }
     
     .main .block-container {
         padding-top: 2rem;
-        padding-bottom: 2rem;
         max-width: 1200px;
     }
     
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* Modern card styling */
-    .stApp > div:first-child {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-    }
-    
-    .main {
-        background: #ffffff;
-        border-radius: 12px;
-        margin: 1rem;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    }
-    
-    /* Headers */
     h1 {
-        font-weight: 700;
-        font-size: 2.5rem;
-        color: #1a1a1a;
-        margin-bottom: 0.5rem;
-        letter-spacing: -0.02em;
+        color: #1f2937;
+        font-weight: 600;
     }
     
     h2 {
-        font-weight: 600;
-        font-size: 1.75rem;
         color: #374151;
-        margin-bottom: 1rem;
-        margin-top: 2rem;
-    }
-    
-    h3 {
-        font-weight: 600;
-        font-size: 1.25rem;
-        color: #374151;
-        margin-bottom: 0.75rem;
-    }
-    
-    /* Text styling */
-    p, .stMarkdown {
-        color: #6b7280;
-        font-size: 1rem;
-        line-height: 1.6;
-    }
-    
-    /* Button styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
         font-weight: 500;
-        font-size: 1rem;
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-    
-    /* Form styling */
-    .stSelectbox > div > div {
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-    }
-    
-    .stTextInput > div > div > input {
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        padding: 0.75rem;
-    }
-    
-    .stDateInput > div > div > input {
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        padding: 0.75rem;
-    }
-    
-    /* Info boxes */
-    .stInfo {
-        background: #f0f9ff;
-        border: 1px solid #bae6fd;
-        border-radius: 8px;
-        padding: 1rem;
-    }
-    
-    .stSuccess {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 8px;
-        padding: 1rem;
-    }
-    
-    .stError {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        padding: 1rem;
-    }
-    
-    .stWarning {
-        background: #fffbeb;
-        border: 1px solid #fed7aa;
-        border-radius: 8px;
-        padding: 1rem;
-    }
-    
-    /* Sidebar styling */
-    .css-1d391kg {
-        background: #f9fafb;
-        border-right: 1px solid #e5e7eb;
-    }
-    
-    /* Modern metrics */
-    div[data-testid="metric-container"] {
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: 1rem;
-    }
-    
-    /* Code blocks */
-    .stCode {
-        background: #f3f4f6;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-    }
-    
-    /* Progress bar */
-    .stProgress .css-pxxe24 {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 4px;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        padding: 0.5rem 0;
-        border-bottom: 2px solid transparent;
-        color: #6b7280;
-        font-weight: 500;
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        color: #374151;
-    }
-    
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        color: #667eea;
-        border-bottom-color: #667eea;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -272,10 +119,14 @@ def google_login():
     st.markdown("### Sign in with your Google account to get started")
     
     oauth2 = get_google_oauth_component()
+    
+    # Use the current app URL for redirect
+    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner-rtc.streamlit.app/")
+    
     result = oauth2.authorize_button(
         name="Continue with Google",
         icon="https://developers.google.com/identity/images/g-logo.png",
-        redirect_uri="http://localhost:8501",
+        redirect_uri=redirect_uri,
         scope="openid email profile",
         key="google_oauth",
         use_container_width=True
@@ -310,7 +161,7 @@ def show_header():
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
-    redirect_uri = "http://localhost:8501"
+    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner-rtc.streamlit.app/")
     scope = "read,activity:read_all"
     
     return (f"https://www.strava.com/oauth/authorize?"
@@ -647,11 +498,17 @@ def show_activity_history():
 
 def main():
     """Main application logic."""
+    # Debug info
+    st.write("🔍 Debug: App started")
+    st.write(f"🔍 Debug: Current user: {bool(st.session_state.current_user)}")
+    
     # Check if user is logged in
     if not st.session_state.current_user:
+        st.write("🔍 Debug: Showing login page")
         google_login()
         return
     
+    st.write("🔍 Debug: User logged in, showing dashboard")
     # Show header
     show_header()
     
