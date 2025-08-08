@@ -86,13 +86,14 @@ if authentication_status:
         st.sidebar.header("Setup")
         start_date_input = st.sidebar.date_input("Select your plan start date")
         if start_date_input:
-            user_settings["start_date"] = str(start_date_input)
-            if username != 'guest':
-                all_settings[username] = user_settings
-                with open(settings_path, "w") as f:
-                    json.dump(all_settings, f, indent=2)
-            st.experimental_rerun()
-        st.sidebar.info("Please select a start date to view your plan.")
+            if st.sidebar.button("Continue to Dashboard"):
+                user_settings["start_date"] = str(start_date_input)
+                if username != 'guest':
+                    all_settings[username] = user_settings
+                    with open(settings_path, "w") as f:
+                        json.dump(all_settings, f, indent=2)
+                st.experimental_rerun()
+        st.sidebar.info("Please select a start date and click 'Continue to Dashboard' to view your plan.")
         st.stop()
 
 PACE_MAPPING = [
