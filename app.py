@@ -165,12 +165,11 @@ def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
     
-    # Use the exact domain without any protocol or slashes
-    # This should match exactly what's in the Strava application settings
-    redirect_uri = "marathonplanner.streamlit.app"
+    # Include the protocol for Strava's OAuth
+    redirect_uri = "https://marathonplanner.streamlit.app"
     
     # Log the redirect URI to help debug
-    st.write(f"Using redirect URI: {redirect_uri}")
+    st.write(f"Using Strava redirect URI: {redirect_uri}")
     
     scope = "read,activity:read_all"
     
@@ -188,8 +187,8 @@ def exchange_strava_code_for_token(code):
     
     token_url = "https://www.strava.com/oauth/token"
     
-    # Use exactly the same redirect URI as in the authorization request
-    redirect_uri = "marathonplanner.streamlit.app"
+    # Include the protocol for Strava's OAuth - must match the auth URL
+    redirect_uri = "https://marathonplanner.streamlit.app"
     
     data = {
         "client_id": client_id,
