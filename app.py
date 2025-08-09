@@ -753,7 +753,6 @@ def show_training_plan_table(settings):
     m2.metric("Plan End", plan_max.strftime("%b %d"))
     m3.metric("Goal Time", goal_time)
 
-    # ...existing code...
     if runs:
         def miles_and_pace(run):
             meters = run.get("distance", 0) or 0
