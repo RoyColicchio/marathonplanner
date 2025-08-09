@@ -68,8 +68,43 @@ def get_strava_credentials():
             client_id = client_id or st.secrets.get("strava_client_id")
             client_secret = client_secret or st.secrets.get("strava_client_secret")
     except Exception:
-        # st.secrets might not be available in some contexts
         pass
+
+    # Fallback: read local .streamlit/secrets.toml directly (simple parser)
+    if not client_id or not client_secret:
+        try:
+            path = os.path.join(os.getcwd(), ".streamlit", "secrets.toml")
+            if os.path.exists(path):
+                current_section = None
+                top = {}
+                sections = {}
+                with open(path, "r", encoding="utf-8") as f:
+                    for raw in f:
+                        line = raw.strip()
+                        if not line or line.startswith("#") or line.startswith(";"):
+                            continue
+                        if line.startswith("[") and line.endswith("]"):
+                            current_section = line[1:-1].strip()
+                            sections.setdefault(current_section, {})
+                            continue
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            key = key.strip()
+                            val = val.strip()
+                            # strip quotes if present
+                            if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                                val = val[1:-1]
+                            if current_section:
+                                sections[current_section][key] = val
+                            else:
+                                top[key] = val
+                # Pull values from parsed data
+                if not client_id:
+                    client_id = (sections.get("strava", {}) or {}).get("client_id") or top.get("strava_client_id")
+                if not client_secret:
+                    client_secret = (sections.get("strava", {}) or {}).get("client_secret") or top.get("strava_client_secret")
+        except Exception:
+            pass
 
     # Environment fallback
     if not client_id:
@@ -214,12 +249,16 @@ def show_header():
 def get_strava_auth_url():
     """Generate URL for Strava OAuth."""
     try:
-        no_protocol_url = "marathonplanner.streamlit.app"
+        # Strava requires a fully-qualified URI
+        redirect_uri = (
+            st.secrets.get("strava_redirect_uri")
+            or os.getenv("STRAVA_REDIRECT_URI")
+            or "https://marathonplanner.streamlit.app"
+        )
 
         client_id, client_secret = get_strava_credentials()
         if not client_id or not client_secret:
             st.error("Missing Strava client_id/client_secret. Add them to secrets or env.")
-            # Minimal guidance on what keys are present
             try:
                 st.caption(f"Secrets keys: {list(st.secrets.keys())}")
             except Exception:
@@ -230,7 +269,7 @@ def get_strava_auth_url():
         params = {
             "client_id": client_id,
             "response_type": "code",
-            "redirect_uri": no_protocol_url,
+            "redirect_uri": redirect_uri,
             "approval_prompt": "auto",
             "scope": scope,
         }
@@ -248,14 +287,18 @@ def exchange_strava_code_for_token(code):
         return False
 
     token_url = "https://www.strava.com/oauth/token"
-    no_protocol_url = "marathonplanner.streamlit.app"
+    redirect_uri = (
+        st.secrets.get("strava_redirect_uri")
+        or os.getenv("STRAVA_REDIRECT_URI")
+        or "https://marathonplanner.streamlit.app"
+    )
 
     data = {
         "client_id": client_id,
         "client_secret": client_secret,
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": no_protocol_url,
+        "redirect_uri": redirect_uri,
     }
 
     try:
