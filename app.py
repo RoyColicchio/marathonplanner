@@ -373,7 +373,6 @@ def show_training_plan_table(settings):
 
     # Get Strava data
     if not strava_connect():
-        st.warning("Connect to Strava to see your actual performance.")
         activities = []
     else:
         activities = get_strava_activities()
@@ -401,7 +400,7 @@ def show_training_plan_table(settings):
 
     # Reorder and format columns
     merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
-    merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%Y-%m-%d')
+    merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%m-%d')
 
     # Display table
     st.dataframe(merged_df.fillna(""), height=600)
