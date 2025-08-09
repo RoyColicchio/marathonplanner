@@ -2,8 +2,24 @@ import streamlit as st
 st.set_page_config(
     page_title="Marathon Planner",
     page_icon="🏃",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"def google_login():
+    """Handle Google OAuth login."""
+    st.title("Marathon Training Dashboard")
+    st.markdown("### Sign in with your Google account to get started")
+    
+    oauth2 = get_google_oauth_component()
+    
+    # Use the current app URL for redirect, ensuring no trailing slash
+    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner.streamlit.app/").strip('/')
+    
+    result = oauth2.authorize_button(
+        name="Continue with Google",
+        icon="https://www.google.com/identity/images/g-logo.png",
+        redirect_uri=redirect_uri,
+        scope="openid email profile",
+        key="google_oauth",
+        use_container_width=True
+    )bar_state="collapsed"
 )
 
 # Simple, clean styling that doesn't interfere with functionality
@@ -161,7 +177,8 @@ def show_header():
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
-    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner.streamlit.app/")
+    # Ensure the redirect URI has no trailing slash, as this can cause issues.
+    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner.streamlit.app/").strip('/')
     scope = "read,activity:read_all"
     
     return (f"https://www.strava.com/oauth/authorize?"
