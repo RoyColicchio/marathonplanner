@@ -1,4 +1,9 @@
 import streamlit as st
+import os
+
+# Enable debugging if needed - for local development only
+DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
+
 st.set_page_config(
     page_title="Marathon Planner",
     page_icon="🏃",
@@ -178,17 +183,35 @@ def get_strava_auth_url():
         # For consistency, let's use the direct domain without protocol
         no_protocol_url = "marathonplanner.streamlit.app"
         
+        client_id = None
+        client_secret = None
+        
         # Check if Strava credentials exist in secrets with proper formatting
-        if "strava" not in st.secrets:
-            st.error("Strava API credentials not found in secrets.")
+        if "strava" in st.secrets:
+            st.success("Found strava section in secrets")
+            if "client_id" in st.secrets["strava"] and "client_secret" in st.secrets["strava"]:
+                client_id = st.secrets["strava"]["client_id"]
+                client_secret = st.secrets["strava"]["client_secret"]
+        
+        # Fallback to session state (which we might have set from env variables)
+        if (not client_id or not client_secret) and "strava_client_id" in st.session_state and "strava_client_secret" in st.session_state:
+            st.success("Using Strava credentials from session state (environment variables)")
+            client_id = st.session_state["strava_client_id"]
+            client_secret = st.session_state["strava_client_secret"]
+        
+        # Fallback to environment variables directly
+        if not client_id or not client_secret:
+            env_client_id = os.getenv("STRAVA_CLIENT_ID")
+            env_client_secret = os.getenv("STRAVA_CLIENT_SECRET")
+            if env_client_id and env_client_secret:
+                st.success("Using Strava credentials from environment variables")
+                client_id = env_client_id
+                client_secret = env_client_secret
+        
+        if not client_id or not client_secret:
+            st.error("Missing client_id or client_secret for Strava")
             return None
             
-        if "client_id" not in st.secrets["strava"] or "client_secret" not in st.secrets["strava"]:
-            st.error("Missing client_id or client_secret in Strava secrets.")
-            return None
-            
-        # Check for string vs integer client_id
-        client_id = st.secrets["strava"]["client_id"]
         # If client_id is stored as a string with quotes, strip them and convert to integer
         if isinstance(client_id, str):
             client_id = client_id.strip('"\'')
@@ -224,16 +247,36 @@ def get_strava_auth_url():
 
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
+    client_id = None
+    client_secret = None
+    
     # Check if Strava credentials exist in secrets
-    if "strava" not in st.secrets:
-        st.error("Strava API credentials not found in secrets.")
+    if "strava" in st.secrets:
+        st.success("Found strava section in secrets for token exchange")
+        if "client_id" in st.secrets["strava"] and "client_secret" in st.secrets["strava"]:
+            client_id = st.secrets["strava"]["client_id"]
+            client_secret = st.secrets["strava"]["client_secret"]
+    
+    # Fallback to session state (which we might have set from env variables)
+    if (not client_id or not client_secret) and "strava_client_id" in st.session_state and "strava_client_secret" in st.session_state:
+        st.success("Using Strava credentials from session state for token exchange")
+        client_id = st.session_state["strava_client_id"]
+        client_secret = st.session_state["strava_client_secret"]
+    
+    # Fallback to environment variables directly
+    if not client_id or not client_secret:
+        env_client_id = os.getenv("STRAVA_CLIENT_ID")
+        env_client_secret = os.getenv("STRAVA_CLIENT_SECRET")
+        if env_client_id and env_client_secret:
+            st.success("Using Strava credentials from environment variables for token exchange")
+            client_id = env_client_id
+            client_secret = env_client_secret
+    
+    if not client_id or not client_secret:
+        st.error("Missing client_id or client_secret for Strava token exchange")
         return False
         
     token_url = "https://www.strava.com/oauth/token"
-    
-    # Get credentials from secrets
-    client_id = st.secrets["strava"]["client_id"]
-    client_secret = st.secrets["strava"]["client_secret"]
     
     # If client_id is stored as a string with quotes, strip them
     if isinstance(client_id, str):
@@ -365,21 +408,67 @@ def strava_connect():
     # Debug output to verify Strava credentials
     st.write("### Strava Credentials Check")
     
-    # Debug output to see all available secrets keys
-    st.write("Available secret sections:")
-    st.code(str(st.secrets._secrets.sections()))
-    
-    # Show all top-level keys in secrets
-    st.write("All top-level keys in secrets:")
-    all_keys = list(st.secrets._secrets.keys())
+    # Debug output to see all available secrets keys in a safer way
+    st.write("Available secrets keys:")
+    all_keys = [key for key in st.secrets.keys()]
     st.code(str(all_keys))
     
-    # Try accessing with different case
-    strava_found = False
-    for key in all_keys:
-        if key.lower() == "strava":
-            st.write(f"Found Strava section as '{key}' (case sensitivity matters)")
-            strava_found = True
+    # Show all direct keys in secrets
+    st.write("Direct keys in secrets:")
+    direct_keys = [key for key in st.secrets.keys() if key != "_secrets"]
+    st.code(str(direct_keys))
+    
+    # Add a try/except block to safely inspect the secrets
+    st.write("### Safe Secrets Inspection")
+    try:
+        # Check if we're running on Streamlit Cloud or local
+        import os
+        is_cloud = os.getenv("STREAMLIT_SHARING", "")
+        st.write(f"Running on Streamlit Cloud: {bool(is_cloud)}")
+        
+        # Try direct access to see what's in secrets
+        if "strava" in st.secrets:
+            st.success("Direct check: 'strava' section exists")
+            if hasattr(st.secrets.strava, "client_id") or "client_id" in st.secrets.strava:
+                st.success("Direct check: client_id exists in strava section")
+            else:
+                st.error("Direct check: client_id NOT found in strava section")
+        else:
+            st.error("Direct check: 'strava' section NOT found")
+            
+        # Check if there's any section with a case-insensitive match to 'strava'
+        found_keys = []
+        for key in direct_keys:
+            if isinstance(key, str) and key.lower() == 'strava':
+                found_keys.append(key)
+        
+        if found_keys:
+            st.write(f"Case-insensitive matches for 'strava': {found_keys}")
+        else:
+            st.write("No case-insensitive matches for 'strava'")
+            
+    except Exception as e:
+        st.write(f"Error inspecting secrets: {str(e)}")
+    
+    # Also check for environment variables as a fallback
+    strava_client_id = os.getenv("STRAVA_CLIENT_ID")
+    strava_client_secret = os.getenv("STRAVA_CLIENT_SECRET")
+    
+    if strava_client_id and strava_client_secret:
+        st.success("✅ Strava credentials found in environment variables")
+        st.write(f"Client ID from env: {strava_client_id}")
+        st.write("Client Secret from env: [Hidden for security]")
+        
+        # Create a mock strava section in secrets for the rest of the code
+        if "strava" not in st.secrets:
+            try:
+                # This is a workaround, as st.secrets is not meant to be modified
+                # But for development purposes, it might work
+                st.write("Attempting to use environment variables as fallback...")
+                st.session_state["strava_client_id"] = strava_client_id
+                st.session_state["strava_client_secret"] = strava_client_secret
+            except Exception as e:
+                st.write(f"Error setting session state: {str(e)}")
     
     if "strava" in st.secrets:
         st.success("✅ 'strava' found in secrets")
@@ -396,7 +485,9 @@ def strava_connect():
             st.code(str(list(st.secrets["strava"].keys())))
     else:
         st.error("❌ Strava section not found in secrets")
-        if strava_found:
+        # Check if any case-insensitive match was found earlier
+        case_insensitive_match = any(key.lower() == 'strava' for key in direct_keys if isinstance(key, str))
+        if case_insensitive_match:
             st.warning("Note: A 'Strava' section was found but with different case. TOML is case-sensitive.")
         st.info("""
         To use Strava integration, you need to add your Strava API credentials to the Streamlit secrets.
@@ -437,14 +528,12 @@ def strava_connect():
 
 def get_strava_activities():
     """Fetch activities from Strava API."""
-    # Check if Strava credentials exist in secrets
-    if "strava" not in st.secrets:
-        return []
-        
+    # We don't need to check for credentials here, just the token
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
     
     if not settings.get("strava_token"):
+        st.warning("No Strava token found. Please connect your Strava account.")
         return []
     
     headers = {"Authorization": f"Bearer {settings['strava_token']}"}
