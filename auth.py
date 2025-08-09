@@ -5,7 +5,7 @@ import os
 
 #
 CLIENT_ID = 171563
-CLIENT_SECRET = db5b605f66158bcf80d1ddda5a6a2739e66899dd
+CLIENT_SECRET = "db5b605f66158bcf80d1ddda5a6a2739e66899dd"
 REFRESH_URL = "https://www.strava.com/api/v3/oauth/token"
 TOKENS_FILE = "tokens.json"
 
