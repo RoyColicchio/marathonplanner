@@ -120,8 +120,9 @@ def google_login():
     
     oauth2 = get_google_oauth_component()
     
-    # For Google, we need to use the full https:// URL, Google requires the protocol
-    redirect_uri = "https://marathonplanner.streamlit.app"
+    # For Google, we need to read from secrets or use the default with trailing slash
+    # This must exactly match what's registered in your Google Cloud Console
+    redirect_uri = st.secrets.get("google_redirect_uri", "https://marathonplanner.streamlit.app/")
     
     # Log the redirect URI for Google OAuth
     st.write(f"Using Google redirect URI: {redirect_uri}")
