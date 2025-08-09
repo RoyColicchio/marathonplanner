@@ -120,10 +120,11 @@ def google_login():
     
     oauth2 = get_google_oauth_component()
     
-    # Match exactly what's in Google Cloud Console - without any trailing slash
+    # Get the exact URI registered in Google Cloud Console
+    # From error message, the exact URI is being used without trailing slash
     redirect_uri = "https://marathonplanner.streamlit.app"
     
-    # Log the redirect URI for Google OAuth
+    # Debug output to help troubleshoot
     st.write(f"Using Google redirect URI: {redirect_uri}")
     
     result = oauth2.authorize_button(
