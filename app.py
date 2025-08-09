@@ -161,7 +161,7 @@ def show_header():
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
-    redirect_uri = "https://marathonplanner.streamlit.app/"
+    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner.streamlit.app/")
     scope = "read,activity:read_all"
     
     return (f"https://www.strava.com/oauth/authorize?"
