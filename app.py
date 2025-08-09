@@ -163,26 +163,34 @@ def show_header():
 
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
+    import urllib.parse
+    
     client_id = "138833"
     
     # The redirect URI must exactly match what's registered in Strava app settings
     # Use the domain without protocol as documented by Strava
     redirect_uri = "marathonplanner.streamlit.app"
     
-    # Log the redirect URI to help debug
-    st.write(f"Using Strava redirect URI: {redirect_uri}")
+    # URL encode the redirect URI
+    encoded_redirect_uri = urllib.parse.quote(redirect_uri, safe='')
+    
+    # Log the redirect URIs to help debug
+    st.write(f"Raw Strava redirect URI: {redirect_uri}")
+    st.write(f"Encoded Strava redirect URI: {encoded_redirect_uri}")
     
     scope = "read,activity:read_all"
     
     return (f"https://www.strava.com/oauth/authorize?"
            f"client_id={client_id}&"
            f"response_type=code&"
-           f"redirect_uri={redirect_uri}&"
+           f"redirect_uri={encoded_redirect_uri}&"
            f"approval_prompt=force&"
            f"scope={scope}")
 
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
+    import urllib.parse
+    
     client_id = "138833"
     client_secret = "b8e5025cad1ad68fe29e6c6cd52b0db30c6b0f49"
     
@@ -190,6 +198,9 @@ def exchange_strava_code_for_token(code):
     
     # Use the domain without protocol, consistent with the authorization URL
     redirect_uri = "marathonplanner.streamlit.app"
+    
+    # Show both the raw and encoded URIs for debugging
+    st.write(f"Token exchange - raw redirect URI: {redirect_uri}")
     
     data = {
         "client_id": client_id,
