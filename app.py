@@ -120,8 +120,11 @@ def google_login():
     
     oauth2 = get_google_oauth_component()
     
-    # Use the current app URL for redirect
-    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner.streamlit.app/")
+    # For Google, we need to use the full https:// URL, Google requires the protocol
+    redirect_uri = "https://marathonplanner.streamlit.app"
+    
+    # Log the redirect URI for Google OAuth
+    st.write(f"Using Google redirect URI: {redirect_uri}")
     
     result = oauth2.authorize_button(
         name="Continue with Google",
@@ -162,12 +165,9 @@ def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
     
-    # Get the domain without protocol for Strava settings compatibility
-    # Use the base domain without https:// to match Strava's requirements
-    base_domain = st.secrets.get("redirect_uri", "marathonplanner.streamlit.app").replace("https://", "").strip('/')
-    
-    # For the actual OAuth URL, we need the full https:// URL
-    redirect_uri = f"https://{base_domain}"
+    # Use the exact domain without any protocol or slashes
+    # This should match exactly what's in the Strava application settings
+    redirect_uri = "marathonplanner.streamlit.app"
     
     # Log the redirect URI to help debug
     st.write(f"Using redirect URI: {redirect_uri}")
@@ -188,18 +188,15 @@ def exchange_strava_code_for_token(code):
     
     token_url = "https://www.strava.com/oauth/token"
     
-    # Get the domain without protocol for Strava settings compatibility
-    base_domain = st.secrets.get("redirect_uri", "marathonplanner.streamlit.app").replace("https://", "").strip('/')
-    
-    # For the exchange, we need the full https:// URL
-    redirect_uri = f"https://{base_domain}"
+    # Use exactly the same redirect URI as in the authorization request
+    redirect_uri = "marathonplanner.streamlit.app"
     
     data = {
         "client_id": client_id,
         "client_secret": client_secret,
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri  # Add redirect_uri for token exchange
+        "redirect_uri": redirect_uri  # Must match exactly what was used in authorization
     }
     
     try:
