@@ -102,6 +102,44 @@ import pandas as pd
 import re
 from datetime import datetime, timedelta
 from urllib.parse import urlencode, quote
+from pathlib import Path
+
+# Helper: list available plan CSVs (root and ./plans), validate by presence of 'Plan' column
+def list_available_plans():
+    try:
+        candidates = []
+        seen = set()
+
+        def add_if_valid(p: Path):
+            try:
+                if not p.exists() or p.suffix.lower() != ".csv":
+                    return
+                if p.name in seen:
+                    return
+                # validate columns
+                df = pd.read_csv(p, nrows=1, header=0)
+                cols = [str(c).strip() for c in df.columns]
+                if "Plan" in cols:
+                    candidates.append(str(p))
+                    seen.add(p.name)
+            except Exception:
+                # ignore unreadable files silently
+                pass
+
+        add_if_valid(Path("run_plan.csv"))
+        for p in Path(".").glob("*.csv"):
+            add_if_valid(p)
+        plan_dir = Path("plans")
+        if plan_dir.exists():
+            for p in plan_dir.glob("*.csv"):
+                add_if_valid(p)
+
+        # Fallback to default if none validated
+        if not candidates and Path("run_plan.csv").exists():
+            candidates.append("run_plan.csv")
+        return candidates
+    except Exception:
+        return ["run_plan.csv"] if Path("run_plan.csv").exists() else []
 
 # Helper: get Strava credentials from secrets (section or top-level) or environment
 def get_strava_credentials():
@@ -494,6 +532,62 @@ def get_strava_activities(start_date=None, end_date=None, max_pages=4):
         st.error(f"Error fetching Strava activities: {e}")
         return []
 
+def generate_training_plan(start_date, plan_file: str | None = None):
+    """Loads the training plan from a CSV and adjusts dates. plan_file defaults to run_plan.csv."""
+    try:
+        csv_path = plan_file or "run_plan.csv"
+        # Load the plan using the first row as the header
+        plan_df = pd.read_csv(csv_path, header=0)
+        plan_df.columns = [col.strip() for col in plan_df.columns]
+
+        # Drop rows that are separators or don't have an activity
+        plan_df.dropna(subset=['Plan'], inplace=True)
+        plan_df = plan_df[plan_df['Plan'].str.strip() != '']
+        
+        activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
+        
+        activity_map = {
+            "GA": "General Aerobic",
+            "Rec": "Recovery",
+            "MLR": "Medium-Long Run",
+            "LR": "Long Run",
+            "SP": "Sprints",
+            "V8": "VO₂Max",
+            "LT": "Lactate Threshold",
+            "HMP": "Half Marathon Pace",
+            "MP": "Marathon Pace"
+        }
+        
+        def expand_abbreviations(activity_string):
+            # Sort keys by length, descending, to match longer abbreviations first.
+            sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
+            for abbr in sorted_keys:
+                # Use word boundaries to avoid replacing parts of other words.
+                activity_string = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], activity_string)
+            return activity_string
+
+        expanded_activities = activities.apply(expand_abbreviations)
+
+        num_days = len(activities)
+        dates = [start_date + timedelta(days=i) for i in range(num_days)]
+        days_of_week = [date.strftime("%A") for date in dates]
+        
+        new_plan_df = pd.DataFrame({
+            'Date': dates,
+            'Day': days_of_week,
+            'Activity_Abbr': activities,
+            'Activity': expanded_activities
+        })
+
+        return new_plan_df
+
+    except FileNotFoundError:
+        st.error(f"`{plan_file or 'run_plan.csv'}` not found. Please make sure it's in the repo (root or plans/).")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error processing `{plan_file or 'run_plan.csv'}`: {e}")
+        return pd.DataFrame()
+
 def training_plan_setup():
     """Handle training plan configuration."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
@@ -516,12 +610,25 @@ def training_plan_setup():
             value=settings.get("goal_time", "4:00:00"),
             help="Your target marathon finish time"
         )
+
+    # Plan selection (non-breaking: defaults to run_plan.csv)
+    available_plans = list_available_plans()
+    default_plan = settings.get("plan_file", "run_plan.csv")
+    if default_plan not in available_plans and available_plans:
+        default_plan = available_plans[0]
+    plan_file = st.selectbox(
+        "Training Plan File",
+        options=available_plans or ["run_plan.csv"],
+        index=(available_plans.index(default_plan) if available_plans and default_plan in available_plans else 0),
+        help="Select which CSV plan to use (add more in the repo root or plans/ folder)."
+    )
     
     if st.button("Save Training Plan", use_container_width=True):
         new_settings = {
             **settings,
             "start_date": start_date.strftime("%Y-%m-%d"),
             "goal_time": goal_time,
+            "plan_file": plan_file,
         }
         save_user_settings(user_hash, new_settings)
         st.success("Training plan saved!")
@@ -619,9 +726,10 @@ def show_training_plan_table(settings):
 
     start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
     goal_time = settings["goal_time"]
+    plan_file = settings.get("plan_file", "run_plan.csv")
     
     # Generate plan
-    plan_df = generate_training_plan(start_date)
+    plan_df = generate_training_plan(start_date, plan_file=plan_file)
     
     if plan_df.empty:
         return
