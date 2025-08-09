@@ -5,6 +5,19 @@ import sys
 # Enable debugging if needed - for local development only
 DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
 
+def _is_debug():
+    """Return True if diagnostics should be shown (env, secrets, or ?debug)."""
+    try:
+        if DEBUG_SECRETS:
+            return True
+        if bool(st.secrets.get("show_strava_debug", False)):
+            return True
+        if "debug" in st.query_params:
+            return True
+    except Exception:
+        pass
+    return False
+
 st.set_page_config(
     page_title="Marathon Planner",
     page_icon="🏃",
@@ -679,17 +692,18 @@ def show_training_plan_table(settings):
         st.dataframe(merged_df.fillna(""), height=600)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Diagnostics
-    with st.expander("Strava connection details"):
-        user_hash = get_user_hash(st.session_state.current_user["email"])
-        s = load_user_settings(user_hash)
-        st.write({
-            "token_present": bool(s.get("strava_token")),
-            "expires_at": s.get("strava_expires_at"),
-            "scope": s.get("strava_scope"),
-            "athlete_id": s.get("strava_athlete_id"),
-            "activities_returned": len(activities) if isinstance(activities, list) else 0,
-        })
+    # Diagnostics (hidden unless debug is enabled)
+    if _is_debug():
+        with st.expander("Strava connection details"):
+            user_hash = get_user_hash(st.session_state.current_user["email"])
+            s = load_user_settings(user_hash)
+            st.write({
+                "token_present": bool(s.get("strava_token")),
+                "expires_at": s.get("strava_expires_at"),
+                "scope": s.get("strava_scope"),
+                "athlete_id": s.get("strava_athlete_id"),
+                "activities_returned": len(activities) if isinstance(activities, list) else 0,
+            })
 
 def main():
     """Main application logic."""
