@@ -173,57 +173,39 @@ def show_header():
 
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
-    import urllib.parse
-    
     client_id = "138833"
     
-    # Based on research, try a properly encoded URI with https
-    redirect_uri = "https://marathonplanner.streamlit.app"
+    # Based on documentation, Strava might expect this specific format
+    # Important: This URI *exactly* matches what's shown in the URL bar of the error
+    redirect_uri = "marathonplanner.streamlit.app"
     
-    # URL encode the redirect URI
-    encoded_redirect = urllib.parse.quote(redirect_uri, safe='')
+    # Log the redirect URI to help debug
+    st.write(f"Strava redirect URI: {redirect_uri}")
     
-    # Log the redirect URIs to help debug
-    st.write(f"Original Strava redirect URI: {redirect_uri}")
-    st.write(f"Encoded Strava redirect URI: {encoded_redirect}")
-    
-    # Construct the authorization URL with encoded URI
-    auth_url = (f"https://www.strava.com/oauth/authorize?"
-               f"client_id={client_id}&"
-               f"response_type=code&"
-               f"redirect_uri={encoded_redirect}&"
-               f"approval_prompt=force&"
-               f"scope=read,activity:read_all")
-    
-    st.write(f"Full Strava auth URL: {auth_url}")
+    # Hard-code the full URL to match exactly what we're seeing in the screenshot
+    auth_url = f"https://www.strava.com/oauth/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&approval_prompt=force&scope=read,activity:read_all"
     
     return auth_url
 
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
-    import urllib.parse
-    
     client_id = "138833"
     client_secret = "b8e5025cad1ad68fe29e6c6cd52b0db30c6b0f49"
     
     token_url = "https://www.strava.com/oauth/token"
     
-    # Use the same redirect URI as in the authorization URL
-    redirect_uri = "https://marathonplanner.streamlit.app"
+    # Use exactly the same redirect URI as in the authorization URL
+    redirect_uri = "marathonplanner.streamlit.app"
     
-    # URL encode the redirect URI - must match exactly what was used in authorization
-    encoded_redirect = urllib.parse.quote(redirect_uri, safe='')
-    
-    # Show the URIs for debugging
-    st.write(f"Token exchange - original redirect URI: {redirect_uri}")
-    st.write(f"Token exchange - encoded redirect URI: {encoded_redirect}")
+    # Show the URI for debugging
+    st.write(f"Token exchange - redirect URI: {redirect_uri}")
     
     data = {
         "client_id": client_id,
         "client_secret": client_secret,
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri  # Use the non-encoded version for the data
+        "redirect_uri": redirect_uri  # Must match exactly what was used in authorization
     }
     
     try:
