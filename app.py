@@ -364,7 +364,25 @@ def strava_connect():
     """Handle Strava connection."""
     # Debug output to verify Strava credentials
     st.write("### Strava Credentials Check")
+    
+    # Debug output to see all available secrets keys
+    st.write("Available secret sections:")
+    st.code(str(st.secrets._secrets.sections()))
+    
+    # Show all top-level keys in secrets
+    st.write("All top-level keys in secrets:")
+    all_keys = list(st.secrets._secrets.keys())
+    st.code(str(all_keys))
+    
+    # Try accessing with different case
+    strava_found = False
+    for key in all_keys:
+        if key.lower() == "strava":
+            st.write(f"Found Strava section as '{key}' (case sensitivity matters)")
+            strava_found = True
+    
     if "strava" in st.secrets:
+        st.success("✅ 'strava' found in secrets")
         if "client_id" in st.secrets["strava"] and "client_secret" in st.secrets["strava"]:
             st.success("✅ Strava credentials found in secrets")
             # Mask the credentials for security
@@ -373,8 +391,13 @@ def strava_connect():
             st.write("Client Secret: [Hidden for security]")
         else:
             st.error("❌ Strava section found but missing client_id or client_secret")
+            # Debug: show all keys in the strava section
+            st.write("Keys in strava section:")
+            st.code(str(list(st.secrets["strava"].keys())))
     else:
         st.error("❌ Strava section not found in secrets")
+        if strava_found:
+            st.warning("Note: A 'Strava' section was found but with different case. TOML is case-sensitive.")
         st.info("""
         To use Strava integration, you need to add your Strava API credentials to the Streamlit secrets.
         1. Create a Strava API application at https://www.strava.com/settings/api
