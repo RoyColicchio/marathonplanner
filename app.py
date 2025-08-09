@@ -161,8 +161,17 @@ def show_header():
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
-    # Ensure the redirect URI has no trailing slash, as this can cause issues.
-    redirect_uri = st.secrets.get("redirect_uri", "https://marathonplanner.streamlit.app/").strip('/')
+    
+    # Get the domain without protocol for Strava settings compatibility
+    # Use the base domain without https:// to match Strava's requirements
+    base_domain = st.secrets.get("redirect_uri", "marathonplanner.streamlit.app").replace("https://", "").strip('/')
+    
+    # For the actual OAuth URL, we need the full https:// URL
+    redirect_uri = f"https://{base_domain}"
+    
+    # Log the redirect URI to help debug
+    st.write(f"Using redirect URI: {redirect_uri}")
+    
     scope = "read,activity:read_all"
     
     return (f"https://www.strava.com/oauth/authorize?"
@@ -179,14 +188,22 @@ def exchange_strava_code_for_token(code):
     
     token_url = "https://www.strava.com/oauth/token"
     
+    # Get the domain without protocol for Strava settings compatibility
+    base_domain = st.secrets.get("redirect_uri", "marathonplanner.streamlit.app").replace("https://", "").strip('/')
+    
+    # For the exchange, we need the full https:// URL
+    redirect_uri = f"https://{base_domain}"
+    
     data = {
         "client_id": client_id,
         "client_secret": client_secret,
         "code": code,
-        "grant_type": "authorization_code"
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri  # Add redirect_uri for token exchange
     }
     
     try:
+        st.write(f"Exchanging code for token with redirect_uri: {redirect_uri}")
         response = requests.post(token_url, data=data, timeout=10)
         if response.status_code == 200:
             token_data = response.json()
@@ -199,7 +216,7 @@ def exchange_strava_code_for_token(code):
             save_user_settings(user_hash, settings)
             return True
         else:
-            st.error(f"Failed to get Strava token: {response.status_code}")
+            st.error(f"Failed to get Strava token: {response.status_code} - {response.text}")
             return False
     except Exception as e:
         st.error(f"Error exchanging Strava code: {e}")
