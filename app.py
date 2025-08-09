@@ -178,28 +178,27 @@ def get_strava_auth_url():
         # For consistency, let's use the direct domain without protocol
         no_protocol_url = "marathonplanner.streamlit.app"
         
-        # Check if Strava credentials exist in secrets
+        # Check if Strava credentials exist in secrets with proper formatting
         if "strava" not in st.secrets:
             st.error("Strava API credentials not found in secrets.")
-            st.info("""
-            To use Strava integration, you need to add your Strava API credentials to the Streamlit secrets.
-            1. Create a Strava API application at https://www.strava.com/settings/api
-            2. Add the following to your .streamlit/secrets.toml file or Streamlit Cloud secrets:
-            ```
-            [strava]
-            client_id = "YOUR_STRAVA_CLIENT_ID"
-            client_secret = "YOUR_STRAVA_CLIENT_SECRET"
-            ```
-            3. Set the redirect URI in your Strava API application to: marathonplanner.streamlit.app
-            """)
             return None
             
+        if "client_id" not in st.secrets["strava"] or "client_secret" not in st.secrets["strava"]:
+            st.error("Missing client_id or client_secret in Strava secrets.")
+            return None
+            
+        # Check for string vs integer client_id
         client_id = st.secrets["strava"]["client_id"]
+        # If client_id is stored as a string with quotes, strip them and convert to integer
+        if isinstance(client_id, str):
+            client_id = client_id.strip('"\'')
+        
         scope = "read,activity:read_all"
         
         # Display debug information
         st.write("### Strava Auth URL Debug Info")
         st.write(f"Using redirect URI: {no_protocol_url}")
+        st.write(f"Client ID type: {type(client_id).__name__}")
         
         params = {
             "client_id": client_id,
@@ -236,6 +235,14 @@ def exchange_strava_code_for_token(code):
     client_id = st.secrets["strava"]["client_id"]
     client_secret = st.secrets["strava"]["client_secret"]
     
+    # If client_id is stored as a string with quotes, strip them
+    if isinstance(client_id, str):
+        client_id = client_id.strip('"\'')
+        
+    # If client_secret is stored with quotes, strip them
+    if isinstance(client_secret, str):
+        client_secret = client_secret.strip('"\'')
+    
     # Use the same redirect URI formats as in the auth URL function
     streamlit_app_url = "https://marathonplanner.streamlit.app"
     no_protocol_url = "marathonplanner.streamlit.app"
@@ -243,6 +250,8 @@ def exchange_strava_code_for_token(code):
     # Show detailed debug information
     st.write("### Strava Token Exchange Debug Info")
     st.write(f"Code being exchanged: {code[:5]}...{code[-5:] if len(code) > 10 else code}")
+    st.write(f"Client ID type: {type(client_id).__name__}")
+    st.write(f"Client Secret type: {type(client_secret).__name__}")
     
     # Show redirect URI variations we'll try
     st.write("### Redirect URI Variations for Token Exchange")
@@ -353,9 +362,19 @@ def exchange_strava_code_for_token(code):
 
 def strava_connect():
     """Handle Strava connection."""
-    # Check if Strava credentials exist in secrets
-    if "strava" not in st.secrets:
-        st.warning("Strava integration is not configured.")
+    # Debug output to verify Strava credentials
+    st.write("### Strava Credentials Check")
+    if "strava" in st.secrets:
+        if "client_id" in st.secrets["strava"] and "client_secret" in st.secrets["strava"]:
+            st.success("✅ Strava credentials found in secrets")
+            # Mask the credentials for security
+            client_id = st.secrets["strava"]["client_id"]
+            st.write(f"Client ID: {client_id}")
+            st.write("Client Secret: [Hidden for security]")
+        else:
+            st.error("❌ Strava section found but missing client_id or client_secret")
+    else:
+        st.error("❌ Strava section not found in secrets")
         st.info("""
         To use Strava integration, you need to add your Strava API credentials to the Streamlit secrets.
         1. Create a Strava API application at https://www.strava.com/settings/api
