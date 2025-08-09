@@ -654,61 +654,6 @@ def show_dashboard():
     with tab2:
         training_plan_setup()
 
-def generate_training_plan(start_date):
-    """Loads the training plan from run_plan.csv and adjusts dates."""
-    try:
-        # Load the plan using the first row as the header
-        plan_df = pd.read_csv("run_plan.csv", header=0)
-        plan_df.columns = [col.strip() for col in plan_df.columns]
-
-        # Drop rows that are separators or don't have an activity
-        plan_df.dropna(subset=['Plan'], inplace=True)
-        plan_df = plan_df[plan_df['Plan'].str.strip() != '']
-        
-        activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
-        
-        activity_map = {
-            "GA": "General Aerobic",
-            "Rec": "Recovery",
-            "MLR": "Medium-Long Run",
-            "LR": "Long Run",
-            "SP": "Sprints",
-            "V8": "VO₂Max",
-            "LT": "Lactate Threshold",
-            "HMP": "Half Marathon Pace",
-            "MP": "Marathon Pace"
-        }
-        
-        def expand_abbreviations(activity_string):
-            # Sort keys by length, descending, to match longer abbreviations first.
-            sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
-            for abbr in sorted_keys:
-                # Use word boundaries to avoid replacing parts of other words.
-                activity_string = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], activity_string)
-            return activity_string
-
-        expanded_activities = activities.apply(expand_abbreviations)
-
-        num_days = len(activities)
-        dates = [start_date + timedelta(days=i) for i in range(num_days)]
-        days_of_week = [date.strftime("%A") for date in dates]
-        
-        new_plan_df = pd.DataFrame({
-            'Date': dates,
-            'Day': days_of_week,
-            'Activity_Abbr': activities,
-            'Activity': expanded_activities
-        })
-
-        return new_plan_df
-
-    except FileNotFoundError:
-        st.error("`run_plan.csv` not found. Please make sure it's in the root directory.")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error processing `run_plan.csv`: {e}")
-        return pd.DataFrame()
-
 def show_training_plan_table(settings):
     """Display the training plan in a table."""
     # Personalized header using user's first name (safe fallbacks)
