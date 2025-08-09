@@ -120,12 +120,21 @@ def google_login():
     
     oauth2 = get_google_oauth_component()
     
-    # Get the exact URI registered in Google Cloud Console
-    # From error message, the exact URI is being used without trailing slash
-    redirect_uri = "https://marathonplanner.streamlit.app"
+    # Try a different OAuth approach - Streamlit might have registered a different URI
+    # The URI might be different in development vs production
+    if st._is_running_with_streamlit:
+        # Running in deployed Streamlit Cloud environment
+        redirect_uri = "https://marathonplanner.streamlit.app"
+    else:
+        # Running locally
+        redirect_uri = "http://localhost:8501"
     
     # Debug output to help troubleshoot
     st.write(f"Using Google redirect URI: {redirect_uri}")
+    
+    # Also display client ID for verification
+    client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
+    st.write(f"Using client ID: {client_id_masked}")
     
     result = oauth2.authorize_button(
         name="Continue with Google",
