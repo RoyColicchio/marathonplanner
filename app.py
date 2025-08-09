@@ -591,7 +591,18 @@ def generate_training_plan(start_date):
 
 def show_training_plan_table(settings):
     """Display the training plan in a table."""
-    st.header("Your Training Plan")
+    # Personalized header using user's first name (safe fallbacks)
+    first_name = "Your"
+    try:
+        user = st.session_state.get("current_user") or {}
+        display_name = (user.get("name") or "").strip()
+        if display_name:
+            first_name = display_name.split()[0]
+        elif user.get("email"):
+            first_name = user["email"].split("@")[0]
+    except Exception:
+        pass
+    st.header(f"{first_name}'s Training Plan")
 
     start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
     goal_time = settings["goal_time"]
@@ -615,12 +626,11 @@ def show_training_plan_table(settings):
 
     runs = [a for a in activities if a.get("type") == "Run"]
 
-    # Quick summary metrics row (visual only)
-    m1, m2, m3, m4 = st.columns(4)
+    # Summary metrics row (removed 'Runs Imported' per request)
+    m1, m2, m3 = st.columns(3)
     m1.metric("Plan Start", plan_min.strftime("%b %d"))
     m2.metric("Plan End", plan_max.strftime("%b %d"))
     m3.metric("Goal Time", goal_time)
-    m4.metric("Runs Imported", len(runs))
 
     # ...existing code...
     if runs:
