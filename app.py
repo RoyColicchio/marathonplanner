@@ -44,6 +44,7 @@ import os
 import pandas as pd
 import re
 from datetime import datetime, timedelta
+from urllib.parse import urlencode, quote
 
 # Resolve Google OAuth credentials
 google_client_id = st.secrets.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID")
@@ -172,45 +173,89 @@ def show_header():
                 st.rerun()
 
 def get_strava_auth_url():
-    """Generate Strava OAuth URL."""
-    client_id = "138833"
-    
-    # Based on documentation, Strava might expect this specific format
-    # Important: This URI *exactly* matches what's shown in the URL bar of the error
-    redirect_uri = "marathonplanner.streamlit.app"
-    
-    # Log the redirect URI to help debug
-    st.write(f"Strava redirect URI: {redirect_uri}")
-    
-    # Hard-code the full URL to match exactly what we're seeing in the screenshot
-    auth_url = f"https://www.strava.com/oauth/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&approval_prompt=force&scope=read,activity:read_all"
-    
-    return auth_url
+    """Generate URL for Strava OAuth."""
+    try:
+        # For consistency, let's use the direct domain without protocol
+        no_protocol_url = "marathonplanner.streamlit.app"
+        
+        client_id = st.secrets["strava"]["client_id"]
+        scope = "read,activity:read_all"
+        
+        # Display debug information
+        st.write("### Strava Auth URL Debug Info")
+        st.write(f"Using redirect URI: {no_protocol_url}")
+        
+        params = {
+            "client_id": client_id,
+            "response_type": "code",
+            "redirect_uri": no_protocol_url,
+            "approval_prompt": "auto",
+            "scope": scope,
+        }
+        
+        # Show the exact params that will be used
+        st.write("### Strava Auth Parameters:")
+        st.json(params)
+        
+        auth_url = "https://www.strava.com/oauth/authorize?" + urlencode(params)
+        st.write(f"### Full Strava Auth URL:")
+        st.code(auth_url)
+        
+        return auth_url
+    except Exception as e:
+        st.error(f"Error generating Strava auth URL: {e}")
+        st.exception(e)  # Display full traceback for better debugging
+        return None
+        return None
 
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
-    client_id = "138833"
-    client_secret = "b8e5025cad1ad68fe29e6c6cd52b0db30c6b0f49"
-    
     token_url = "https://www.strava.com/oauth/token"
     
-    # Use exactly the same redirect URI as in the authorization URL
-    redirect_uri = "marathonplanner.streamlit.app"
+    # Get credentials from secrets
+    client_id = st.secrets["strava"]["client_id"]
+    client_secret = st.secrets["strava"]["client_secret"]
     
-    # Show the URI for debugging
-    st.write(f"Token exchange - redirect URI: {redirect_uri}")
+    # Use the same redirect URI formats as in the auth URL function
+    streamlit_app_url = "https://marathonplanner.streamlit.app"
+    no_protocol_url = "marathonplanner.streamlit.app"
     
+    # Show detailed debug information
+    st.write("### Strava Token Exchange Debug Info")
+    st.write(f"Code being exchanged: {code[:5]}...{code[-5:] if len(code) > 10 else code}")
+    
+    # Show redirect URI variations we'll try
+    st.write("### Redirect URI Variations for Token Exchange")
+    st.code(f"With https: {streamlit_app_url}")
+    st.code(f"Without protocol: {no_protocol_url}")
+    
+    # First try with the no-protocol version
     data = {
         "client_id": client_id,
         "client_secret": client_secret,
         "code": code,
         "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri  # Must match exactly what was used in authorization
+        "redirect_uri": no_protocol_url
     }
     
     try:
-        st.write(f"Exchanging code for token with redirect_uri: {redirect_uri}")
+        # Display full request data for debugging
+        st.write("Sending token request with data:")
+        st.json(data)
+        
         response = requests.post(token_url, data=data, timeout=10)
+        
+        # Display raw response for debugging
+        st.write(f"Response status code: {response.status_code}")
+        st.write(f"Response headers: {dict(response.headers)}")
+        
+        try:
+            response_json = response.json()
+            st.write("Response JSON:")
+            st.json(response_json)
+        except:
+            st.write(f"Raw response text: {response.text}")
+        
         if response.status_code == 200:
             token_data = response.json()
             # Save token to user settings
@@ -223,9 +268,67 @@ def exchange_strava_code_for_token(code):
             return True
         else:
             st.error(f"Failed to get Strava token: {response.status_code} - {response.text}")
+            
+            # Try with alternate redirect URI formats
+            if "redirect_uri" in response.text.lower():
+                # Try with https version
+                st.warning("Trying with HTTPS version...")
+                data["redirect_uri"] = "https://marathonplanner.streamlit.app"
+                st.write(f"New redirect_uri: {data['redirect_uri']}")
+                
+                https_response = requests.post(token_url, data=data, timeout=10)
+                st.write(f"HTTPS response: {https_response.status_code} - {https_response.text}")
+                
+                if https_response.status_code == 200:
+                    token_data = https_response.json()
+                    user_hash = get_user_hash(st.session_state.current_user["email"])
+                    settings = load_user_settings(user_hash)
+                    settings["strava_token"] = token_data["access_token"]
+                    settings["strava_refresh_token"] = token_data["refresh_token"]
+                    settings["strava_expires_at"] = token_data["expires_at"]
+                    save_user_settings(user_hash, settings)
+                    return True
+                
+                # Try with HTTP version
+                st.warning("Trying with HTTP version...")
+                data["redirect_uri"] = "http://marathonplanner.streamlit.app"
+                st.write(f"New redirect_uri: {data['redirect_uri']}")
+                
+                http_response = requests.post(token_url, data=data, timeout=10)
+                st.write(f"HTTP response: {http_response.status_code} - {http_response.text}")
+                
+                if http_response.status_code == 200:
+                    token_data = http_response.json()
+                    user_hash = get_user_hash(st.session_state.current_user["email"])
+                    settings = load_user_settings(user_hash)
+                    settings["strava_token"] = token_data["access_token"]
+                    settings["strava_refresh_token"] = token_data["refresh_token"]
+                    settings["strava_expires_at"] = token_data["expires_at"]
+                    save_user_settings(user_hash, settings)
+                    return True
+                
+                # Try with trailing slash
+                st.warning("Trying with trailing slash...")
+                data["redirect_uri"] = "marathonplanner.streamlit.app/"
+                st.write(f"New redirect_uri: {data['redirect_uri']}")
+                
+                slash_response = requests.post(token_url, data=data, timeout=10)
+                st.write(f"Trailing slash response: {slash_response.status_code} - {slash_response.text}")
+                
+                if slash_response.status_code == 200:
+                    token_data = slash_response.json()
+                    user_hash = get_user_hash(st.session_state.current_user["email"])
+                    settings = load_user_settings(user_hash)
+                    settings["strava_token"] = token_data["access_token"]
+                    settings["strava_refresh_token"] = token_data["refresh_token"]
+                    settings["strava_expires_at"] = token_data["expires_at"]
+                    save_user_settings(user_hash, settings)
+                    return True
+            
             return False
     except Exception as e:
         st.error(f"Error exchanging Strava code: {e}")
+        st.exception(e)  # Display full traceback for better debugging
         return False
 
 def strava_connect():
