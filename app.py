@@ -163,44 +163,34 @@ def show_header():
 
 def get_strava_auth_url():
     """Generate Strava OAuth URL."""
-    import urllib.parse
-    
     client_id = "138833"
     
-    # The redirect URI must exactly match what's registered in Strava app settings
-    # Use the domain without protocol as documented by Strava
+    # The exact redirect URI as registered in Strava API settings
+    # This must match EXACTLY what's in your Strava app settings
     redirect_uri = "marathonplanner.streamlit.app"
     
-    # URL encode the redirect URI
-    encoded_redirect_uri = urllib.parse.quote(redirect_uri, safe='')
+    # Log the redirect URI to help debug
+    st.write(f"Using exact Strava redirect URI: {redirect_uri}")
     
-    # Log the redirect URIs to help debug
-    st.write(f"Raw Strava redirect URI: {redirect_uri}")
-    st.write(f"Encoded Strava redirect URI: {encoded_redirect_uri}")
+    # Try direct construction of URL for debugging
+    direct_url = f"https://www.strava.com/oauth/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&approval_prompt=force&scope=read,activity:read_all"
     
-    scope = "read,activity:read_all"
+    st.write(f"Using direct URL: {direct_url}")
     
-    return (f"https://www.strava.com/oauth/authorize?"
-           f"client_id={client_id}&"
-           f"response_type=code&"
-           f"redirect_uri={encoded_redirect_uri}&"
-           f"approval_prompt=force&"
-           f"scope={scope}")
+    return direct_url
 
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
-    import urllib.parse
-    
     client_id = "138833"
     client_secret = "b8e5025cad1ad68fe29e6c6cd52b0db30c6b0f49"
     
     token_url = "https://www.strava.com/oauth/token"
     
-    # Use the domain without protocol, consistent with the authorization URL
+    # The exact same redirect URI as used in the authorization URL
     redirect_uri = "marathonplanner.streamlit.app"
     
-    # Show both the raw and encoded URIs for debugging
-    st.write(f"Token exchange - raw redirect URI: {redirect_uri}")
+    # Show the URI for debugging
+    st.write(f"Token exchange - using exact redirect URI: {redirect_uri}")
     
     data = {
         "client_id": client_id,
