@@ -120,12 +120,17 @@ def google_login():
     
     oauth2 = get_google_oauth_component()
     
-    # Use the value from secrets as registered in Google Cloud Console
-    # This should be the exact value registered in Google Cloud OAuth settings
+    # Use a redirect URI that exactly matches what's registered in Google Cloud Console
+    # Based on the error message, this should be without trailing slash
     redirect_uri = "https://marathonplanner.streamlit.app"
+    
+    # Read the URI from secrets if available
+    if "google_redirect_uri" in st.secrets:
+        redirect_uri = st.secrets.get("google_redirect_uri")
     
     # Debug output to help troubleshoot
     st.write(f"Using Google redirect URI: {redirect_uri}")
+    st.write("Note: This exact URI must be registered in Google Cloud Console.")
     
     # Also display client ID for verification (masked for security)
     client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
