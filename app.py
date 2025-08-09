@@ -279,6 +279,38 @@ def get_strava_auth_url():
         st.error(f"Error generating Strava auth URL: {e}")
         return None
 
+def refresh_strava_token_if_needed():
+    """Refresh Strava token if expired or close to expiry. Returns True if token is usable."""
+    try:
+        user_hash = get_user_hash(st.session_state.current_user["email"])
+        settings = load_user_settings(user_hash)
+        if not settings.get("strava_refresh_token"):
+            return False
+        # If expires within 60s, refresh
+        if not settings.get("strava_expires_at") or time.time() >= settings["strava_expires_at"] - 60:
+            client_id, client_secret = get_strava_credentials()
+            if not client_id or not client_secret:
+                return False
+            token_url = "https://www.strava.com/oauth/token"
+            data = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": settings["strava_refresh_token"],
+            }
+            r = requests.post(token_url, data=data, timeout=10)
+            if r.status_code == 200:
+                token_data = r.json()
+                settings["strava_token"] = token_data.get("access_token", settings.get("strava_token"))
+                settings["strava_refresh_token"] = token_data.get("refresh_token", settings.get("strava_refresh_token"))
+                settings["strava_expires_at"] = token_data.get("expires_at", int(time.time()) + 3600)
+                save_user_settings(user_hash, settings)
+                return True
+            return False
+        return True
+    except Exception:
+        return False
+
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
     client_id, client_secret = get_strava_credentials()
@@ -308,8 +340,12 @@ def exchange_strava_code_for_token(code):
             user_hash = get_user_hash(st.session_state.current_user["email"])
             settings = load_user_settings(user_hash)
             settings["strava_token"] = token_data["access_token"]
-            settings["strava_refresh_token"] = token_data["refresh_token"]
-            settings["strava_expires_at"] = token_data["expires_at"]
+            settings["strava_refresh_token"] = token_data.get("refresh_token")
+            settings["strava_expires_at"] = token_data.get("expires_at")
+            # Save scope and athlete id for diagnostics
+            settings["strava_scope"] = token_data.get("scope")
+            athlete = token_data.get("athlete") or {}
+            settings["strava_athlete_id"] = athlete.get("id")
             save_user_settings(user_hash, settings)
             return True
         else:
@@ -356,9 +392,11 @@ def strava_connect():
         st.link_button("Connect to Strava", auth_url, use_container_width=True)
     return False
 
-def get_strava_activities():
-    """Fetch activities from Strava API."""
-    # We don't need to check for credentials here, just the token
+def get_strava_activities(start_date=None, end_date=None, max_pages=4):
+    """Fetch activities from Strava API with optional date range and pagination."""
+    # Ensure token is valid/refresh if needed
+    refresh_strava_token_if_needed()
+
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
     
@@ -367,14 +405,34 @@ def get_strava_activities():
         return []
     
     headers = {"Authorization": f"Bearer {settings['strava_token']}"}
-    
+
+    params_base = {"per_page": 200}
+    # Strava expects epoch seconds for filters
     try:
-        r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers)
-        if r.status_code == 200:
-            return r.json()
-        else:
-            st.error(f"Failed to fetch Strava activities: {r.status_code}")
-            return []
+        if start_date is not None:
+            # include activities from the previous day to handle TZ differences
+            start_ts = int(datetime.combine(start_date, datetime.min.time()).timestamp()) - 86400
+            params_base["after"] = start_ts
+        if end_date is not None:
+            # include activities up to the next day end
+            end_ts = int(datetime.combine(end_date, datetime.max.time()).timestamp()) + 86400
+            params_base["before"] = end_ts
+    except Exception:
+        pass
+
+    all_acts = []
+    try:
+        for page in range(1, max_pages + 1):
+            params = {**params_base, "page": page}
+            r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers, params=params, timeout=15)
+            if r.status_code != 200:
+                st.error(f"Failed to fetch Strava activities: {r.status_code}")
+                break
+            batch = r.json() or []
+            all_acts.extend(batch)
+            if len(batch) < params_base.get("per_page", 30):
+                break
+        return all_acts
     except Exception as e:
         st.error(f"Error fetching Strava activities: {e}")
         return []
@@ -500,26 +558,49 @@ def show_training_plan_table(settings):
     if plan_df.empty:
         return
 
-    # Get Strava data
+    # Determine date window from the plan
+    plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
+    plan_min = min(plan_df['Date'])
+    plan_max = max(plan_df['Date'])
+
+    # Get Strava data for the plan window
     if not strava_connect():
         activities = []
     else:
-        activities = get_strava_activities()
+        activities = get_strava_activities(start_date=plan_min, end_date=plan_max)
 
     runs = [a for a in activities if a.get("type") == "Run"]
     
     if runs:
-        strava_df = pd.DataFrame([{
-            "Date": datetime.strptime(run.get("start_date_local", "").split("T")[0], "%Y-%m-%d").date(),
-            "Actual Miles": round(run.get("distance", 0) * 0.000621371, 2),
-            "Actual Pace": f"{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) // 60)}:{int(run.get('moving_time', 0) / (run.get('distance', 1) * 0.000621371) % 60):02d}" if run.get('distance', 0) > 0 else "N/A"
-        } for run in runs])
-        
-        # Merge plan with strava data
-        plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
+        def miles_and_pace(run):
+            meters = run.get("distance", 0) or 0
+            moving_time = run.get("moving_time", 0) or 0
+            miles = meters * 0.000621371
+            if miles > 0 and moving_time > 0:
+                sec_per_mile = moving_time / miles
+                minutes = int(sec_per_mile // 60)
+                seconds = int(sec_per_mile % 60)
+                pace = f"{minutes}:{seconds:02d}"
+            else:
+                pace = "N/A"
+            # use local start date if available, else utc
+            date_str = (run.get("start_date_local") or run.get("start_date") or "").split("T")[0]
+            try:
+                run_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except Exception:
+                run_date = None
+            return run_date, round(miles, 2), pace
+
+        rows = []
+        for run in runs:
+            d, m, p = miles_and_pace(run)
+            if d is not None:
+                rows.append({"Date": d, "Actual Miles": m, "Actual Pace": p})
+
+        strava_df = pd.DataFrame(rows)
         merged_df = pd.merge(plan_df, strava_df, on="Date", how="left")
     else:
-        merged_df = plan_df
+        merged_df = plan_df.copy()
         merged_df["Actual Miles"] = None
         merged_df["Actual Pace"] = None
 
@@ -533,6 +614,18 @@ def show_training_plan_table(settings):
 
     # Display table
     st.dataframe(merged_df.fillna(""), height=600)
+
+    # Diagnostics
+    with st.expander("Strava connection details"):
+        user_hash = get_user_hash(st.session_state.current_user["email"])
+        s = load_user_settings(user_hash)
+        st.write({
+            "token_present": bool(s.get("strava_token")),
+            "expires_at": s.get("strava_expires_at"),
+            "scope": s.get("strava_scope"),
+            "athlete_id": s.get("strava_athlete_id"),
+            "activities_returned": len(activities) if isinstance(activities, list) else 0,
+        })
 
 def main():
     """Main application logic."""
