@@ -15,26 +15,64 @@ st.set_page_config(
 # Simple, clean styling that doesn't interfere with functionality
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
+    :root {
+        --bg: #0b1220;
+        --card: #0f172a;
+        --muted: #94a3b8;
+        --text: #e2e8f0;
+        --accent: #22c55e;
+        --accent-2: #06b6d4;
+        --border: #1e293b;
     }
-    
+    html, body, [class*="css"], [data-testid="stAppViewContainer"] * {
+        font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(180deg, #0a0f1e, #0b1220 30%);
+        color: var(--text);
+    }
     .main .block-container {
-        padding-top: 2rem;
+        padding-top: 1.5rem;
         max-width: 1200px;
     }
-    
-    h1 {
-        color: #1f2937;
-        font-weight: 600;
+    /* Title with subtle gradient */
+    h1, h2, h3 { color: var(--text); }
+    h1 span.gradient {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
-    
-    h2 {
-        color: #374151;
-        font-weight: 500;
+    /* Cards */
+    .mp-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px 18px;
+        box-shadow: 0 2px 10px rgba(2,6,23,0.35);
     }
+    /* Buttons */
+    .stButton>button, a[data-baseweb="button"] {
+        border-radius: 12px !important;
+        border: 1px solid var(--border) !important;
+        background: linear-gradient(180deg, #0b152a 0%, #0a1427 100%) !important;
+        color: var(--text) !important;
+        transition: transform .05s ease, border-color .2s ease;
+    }
+    .stButton>button:hover, a[data-baseweb="button"]:hover {
+        border-color: var(--accent) !important;
+        transform: translateY(-1px);
+    }
+    /* Dataframe wrapper */
+    [data-testid="stDataFrame"] div[data-testid="stVerticalBlock"] {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 6px 6px 2px 6px;
+    }
+    /* Hide Streamlit chrome for a cleaner look */
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -234,17 +272,23 @@ def google_login():
 def show_header():
     """Display the app header with user info."""
     col1, col2 = st.columns([3, 1])
-    
     with col1:
-        st.title("Marathon Training Dashboard")
-    
+        st.markdown("# <span class='gradient'>Marathon Training Dashboard</span>", unsafe_allow_html=True)
     with col2:
         if st.session_state.current_user:
             user = st.session_state.current_user
-            st.markdown(f"**{user['name']}**")
-            if st.button("Sign Out", key="signout"):
-                st.session_state.current_user = None
-                st.rerun()
+            # Avatar + name stack
+            av_col, info_col = st.columns([1, 2])
+            with av_col:
+                if user.get("picture"):
+                    st.image(user["picture"], width=44)
+            with info_col:
+                st.markdown(f"**{user['name']}**")
+                # keep Sign Out button behavior unchanged
+                st.button("Sign Out", key="signout")
+                if st.session_state.get("signout"):
+                    st.session_state.current_user = None
+                    st.rerun()
 
 def get_strava_auth_url():
     """Generate URL for Strava OAuth."""
@@ -482,7 +526,7 @@ def show_dashboard():
         return training_plan_setup()
 
     # Tabs for different sections
-    tab1, tab2 = st.tabs(["Training Plan", "Settings"])
+    tab1, tab2 = st.tabs(["🏃 Training Plan", "⚙️ Settings"])
     
     with tab1:
         show_training_plan_table(settings)
@@ -570,7 +614,15 @@ def show_training_plan_table(settings):
         activities = get_strava_activities(start_date=plan_min, end_date=plan_max)
 
     runs = [a for a in activities if a.get("type") == "Run"]
-    
+
+    # Quick summary metrics row (visual only)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Plan Start", plan_min.strftime("%b %d"))
+    m2.metric("Plan End", plan_max.strftime("%b %d"))
+    m3.metric("Goal Time", goal_time)
+    m4.metric("Runs Imported", len(runs))
+
+    # ...existing code...
     if runs:
         def miles_and_pace(run):
             meters = run.get("distance", 0) or 0
@@ -583,7 +635,6 @@ def show_training_plan_table(settings):
                 pace = f"{minutes}:{seconds:02d}"
             else:
                 pace = "N/A"
-            # use local start date if available, else utc
             date_str = (run.get("start_date_local") or run.get("start_date") or "").split("T")[0]
             try:
                 run_date = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -612,8 +663,11 @@ def show_training_plan_table(settings):
     merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
     merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%m-%d')
 
-    # Display table
-    st.dataframe(merged_df.fillna(""), height=600)
+    # Display table inside a card
+    with st.container():
+        st.markdown('<div class="mp-card">', unsafe_allow_html=True)
+        st.dataframe(merged_df.fillna(""), height=600)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Diagnostics
     with st.expander("Strava connection details"):
