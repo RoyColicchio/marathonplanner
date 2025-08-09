@@ -175,19 +175,23 @@ def get_strava_auth_url():
     """Generate Strava OAuth URL."""
     client_id = "138833"
     
-    # The exact redirect URI as registered in Strava API settings
-    # This must match EXACTLY what's in your Strava app settings
-    redirect_uri = "marathonplanner.streamlit.app"
+    # Try with http protocol - Strava might require this specific format
+    redirect_uri = "http://marathonplanner.streamlit.app"
     
     # Log the redirect URI to help debug
-    st.write(f"Using exact Strava redirect URI: {redirect_uri}")
+    st.write(f"Using Strava redirect URI: {redirect_uri}")
     
-    # Try direct construction of URL for debugging
-    direct_url = f"https://www.strava.com/oauth/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&approval_prompt=force&scope=read,activity:read_all"
+    # Construct the authorization URL
+    auth_url = (f"https://www.strava.com/oauth/authorize?"
+               f"client_id={client_id}&"
+               f"response_type=code&"
+               f"redirect_uri={redirect_uri}&"
+               f"approval_prompt=force&"
+               f"scope=read,activity:read_all")
     
-    st.write(f"Using direct URL: {direct_url}")
+    st.write(f"Full Strava auth URL: {auth_url}")
     
-    return direct_url
+    return auth_url
 
 def exchange_strava_code_for_token(code):
     """Exchange authorization code for access token."""
@@ -196,11 +200,11 @@ def exchange_strava_code_for_token(code):
     
     token_url = "https://www.strava.com/oauth/token"
     
-    # The exact same redirect URI as used in the authorization URL
-    redirect_uri = "marathonplanner.streamlit.app"
+    # Use the same redirect URI as in the authorization URL - with http protocol
+    redirect_uri = "http://marathonplanner.streamlit.app"
     
     # Show the URI for debugging
-    st.write(f"Token exchange - using exact redirect URI: {redirect_uri}")
+    st.write(f"Token exchange - using redirect URI: {redirect_uri}")
     
     data = {
         "client_id": client_id,
