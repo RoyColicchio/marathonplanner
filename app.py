@@ -314,7 +314,7 @@ def generate_training_plan(start_date):
         plan_df.dropna(subset=['Plan'], inplace=True)
         plan_df = plan_df[plan_df['Plan'].str.strip() != '']
         
-        activities = plan_df['Plan'].copy().reset_index(drop=True)
+        activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
         
         activity_map = {
             "GA": "General Aerobic",
