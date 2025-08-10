@@ -126,13 +126,32 @@ def list_available_plans():
                 # ignore unreadable files silently
                 pass
 
+        def add_ics_if_valid(p: Path):
+            try:
+                if not p.exists() or p.suffix.lower() != ".ics":
+                    return
+                if p.name in seen:
+                    return
+                # quick validation: contains VEVENT and SUMMARY
+                with p.open("r", encoding="utf-8") as f:
+                    head = f.read(4096)
+                if "BEGIN:VEVENT" in head and "SUMMARY" in head:
+                    candidates.append(str(p))
+                    seen.add(p.name)
+            except Exception:
+                pass
+
         add_if_valid(Path("run_plan.csv"))
         for p in Path(".").glob("*.csv"):
             add_if_valid(p)
+        for p in Path(".").glob("*.ics"):
+            add_ics_if_valid(p)
         plan_dir = Path("plans")
         if plan_dir.exists():
             for p in plan_dir.glob("*.csv"):
                 add_if_valid(p)
+            for p in plan_dir.glob("*.ics"):
+                add_ics_if_valid(p)
 
         # Fallback to default if none validated
         if not candidates and Path("run_plan.csv").exists():
@@ -140,6 +159,78 @@ def list_available_plans():
         return candidates
     except Exception:
         return ["run_plan.csv"] if Path("run_plan.csv").exists() else []
+
+# Friendly names for plan files
+def plan_display_name(p: str) -> str:
+    name = Path(p).name
+    lname = name.lower()
+    if name == "run_plan.csv":
+        return "18 Weeks, 55 Mile/Week Peak"
+    if lname in ("unofficial-pfitz-18-63.ics", "pfitz-18-63.ics"):
+        return "18 Weeks, 63 Mile/Week Peak"
+    if lname.endswith(".ics") and "63" in lname:
+        return "18 Weeks, 63 Mile/Week Peak"
+    return name
+
+# Lightweight ICS parser for plan activities
+def parse_ics_activities(file_path: str) -> list[str]:
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except Exception:
+        return []
+    # Unfold lines per RFC 5545 (lines starting with space/tab continue previous)
+    lines = raw.replace("\r\n", "\n").split("\n")
+    unfolded = []
+    for line in lines:
+        if line.startswith(" ") or line.startswith("\t"):
+            if unfolded:
+                unfolded[-1] += line[1:]
+        else:
+            unfolded.append(line)
+    events = []
+    current = None
+    for line in unfolded:
+        s = line.strip()
+        if s == "BEGIN:VEVENT":
+            current = {}
+        elif s == "END:VEVENT":
+            if current and ("SUMMARY" in current or any(k.startswith("SUMMARY") for k in current)):
+                # pick DTSTART-like key
+                dt_val = None
+                for k, v in current.items():
+                    if k.startswith("DTSTART"):
+                        dt_val = v
+                        break
+                dt_parsed = None
+                if dt_val:
+                    m = re.search(r"(\d{8})(T\d{6}Z?)?", dt_val)
+                    if m:
+                        ymd = m.group(1)
+                        try:
+                            dt_parsed = datetime.strptime(ymd, "%Y%m%d")
+                        except Exception:
+                            dt_parsed = None
+                # get summary value
+                summary = None
+                if "SUMMARY" in current:
+                    summary = current["SUMMARY"]
+                else:
+                    for k, v in current.items():
+                        if k.startswith("SUMMARY"):
+                            summary = v
+                            break
+                if summary:
+                    events.append({"date": dt_parsed, "summary": summary})
+            current = None
+        else:
+            if current is not None and ":" in line:
+                k, v = line.split(":", 1)
+                current[k] = v
+    # sort by date if available
+    events.sort(key=lambda e: e["date"] or datetime.max)
+    activities = [e["summary"].strip() for e in events if e.get("summary")]
+    return activities
 
 # Helper: get Strava credentials from secrets (section or top-level) or environment
 def get_strava_credentials():
@@ -579,19 +670,25 @@ def replace_primary_miles(text: str, new_miles: float) -> str:
     return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
 
 def generate_training_plan(start_date, plan_file: str | None = None):
-    """Loads the training plan from a CSV and adjusts dates. plan_file defaults to run_plan.csv."""
+    """Loads the training plan from a CSV or ICS and adjusts dates. plan_file defaults to run_plan.csv."""
     try:
         csv_path = plan_file or "run_plan.csv"
-        # Load the plan using the first row as the header
-        plan_df = pd.read_csv(csv_path, header=0)
-        plan_df.columns = [col.strip() for col in plan_df.columns]
 
-        # Drop rows that are separators or don't have an activity
-        plan_df.dropna(subset=['Plan'], inplace=True)
-        plan_df = plan_df[plan_df['Plan'].str.strip() != '']
-        
-        activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
-        
+        # Case 1: ICS calendar with one VEVENT per planned day
+        if str(csv_path).lower().endswith(".ics"):
+            activities_list = parse_ics_activities(csv_path)
+            if not activities_list:
+                st.error(f"`{csv_path}` could not be parsed or has no events.")
+                return pd.DataFrame()
+            activities = pd.Series(activities_list, dtype="object")
+        else:
+            # Case 2: CSV with a 'Plan' column
+            plan_df = pd.read_csv(csv_path, header=0)
+            plan_df.columns = [col.strip() for col in plan_df.columns]
+            plan_df.dropna(subset=['Plan'], inplace=True)
+            plan_df = plan_df[plan_df['Plan'].str.strip() != '']
+            activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
+
         activity_map = {
             "GA": "General Aerobic",
             "Rec": "Recovery",
@@ -603,24 +700,19 @@ def generate_training_plan(start_date, plan_file: str | None = None):
             "HMP": "Half Marathon Pace",
             "MP": "Marathon Pace"
         }
-        
         def expand_abbreviations(activity_string):
-            # Sort keys by length, descending, to match longer abbreviations first.
             sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
             for abbr in sorted_keys:
-                # Use word boundaries to avoid replacing parts of other words.
                 activity_string = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], activity_string)
             return activity_string
 
         expanded_activities = activities.apply(expand_abbreviations)
-
-        # Parse planned miles from the raw plan text (best-effort)
         planned_miles = activities.apply(extract_primary_miles)
 
         num_days = len(activities)
         dates = [start_date + timedelta(days=i) for i in range(num_days)]
         days_of_week = [date.strftime("%A") for date in dates]
-        
+
         new_plan_df = pd.DataFrame({
             'Date': dates,
             'Day': days_of_week,
@@ -802,36 +894,45 @@ def training_plan_setup():
     """Handle training plan configuration."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
-    
+
     st.header("Training Plan Setup")
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         start_date = st.date_input(
-            "Start Date", 
+            "Start Date",
             value=datetime.strptime(settings.get("start_date", str(datetime.now().date())), "%Y-%m-%d").date(),
             help="The start date of your training plan"
         )
-        
+
     with col2:
         goal_time = st.text_input(
-            "Goal Marathon Time (HH:MM:SS)", 
+            "Goal Marathon Time (HH:MM:SS)",
             value=settings.get("goal_time", "4:00:00"),
             help="Your target marathon finish time"
         )
 
-    # Plan selection (non-breaking: defaults to run_plan.csv)
-    available_plans = list_available_plans()
-    default_plan = settings.get("plan_file", "run_plan.csv")
-    if default_plan not in available_plans and available_plans:
-        default_plan = available_plans[0]
-    plan_file = st.selectbox(
-        "Training Plan File",
-        options=available_plans or ["run_plan.csv"],
-        index=(available_plans.index(default_plan) if available_plans and default_plan in available_plans else 0),
-        help="Select which CSV plan to use (add more in the repo root or plans/ folder)."
+    # Plan selection with friendly titles; defaults to run_plan.csv
+    available_paths = list_available_plans()
+    default_plan_path = settings.get("plan_file", "run_plan.csv")
+    if default_plan_path not in available_paths and available_paths:
+        default_plan_path = available_paths[0]
+    labels = [plan_display_name(p) for p in available_paths] or ["18 Weeks, 55 Mile/Week Peak"]
+    # index must match the order of labels/paths
+    try:
+        default_index = available_paths.index(default_plan_path) if available_paths else 0
+    except ValueError:
+        default_index = 0
+    selected_label = st.selectbox(
+        "Training Plan",
+        options=labels,
+        index=min(default_index, len(labels)-1),
+        help="Select a plan. Place CSVs or ICS files in the repo root or plans/ folder."
     )
+    # map label back to path
+    label_to_path = {plan_display_name(p): p for p in available_paths}
+    selected_plan_path = label_to_path.get(selected_label, default_plan_path)
 
     # Adjustment controls with persisted defaults
     c1, c2 = st.columns(2)
@@ -848,20 +949,20 @@ def training_plan_setup():
             min_value=-5, max_value=5, step=1, value=int(settings.get("weekly_miles_delta", 0) or 0),
             help="Adjust K longest runs per week by ±1 mile (K = |value|)",
         )
-    
+
     if st.button("Save Training Plan", use_container_width=True):
         new_settings = {
             **settings,
             "start_date": start_date.strftime("%Y-%m-%d"),
             "goal_time": goal_time,
-            "plan_file": plan_file,
+            "plan_file": selected_plan_path,
             "week_adjust": int(week_adjust),
             "weekly_miles_delta": int(weekly_miles_delta),
         }
         save_user_settings(user_hash, new_settings)
         st.success("Training plan saved!")
         st.rerun()
-    
+
     return settings
 
 def show_dashboard():
