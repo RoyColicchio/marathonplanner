@@ -1099,14 +1099,75 @@ def show_training_plan_table(settings):
     gmp_sec = marathon_pace_seconds(goal_time)
     merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
 
-    # Reorder and format columns
-    merged_df = merged_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]]
-    merged_df['Date'] = pd.to_datetime(merged_df['Date']).dt.strftime('%m-%d')
+    # Build display dataframe with weekly summary rows and row styling flags
+    work = merged_df[[
+        "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"
+    ]].copy()
+    work["Date"] = pd.to_datetime(work["Date"]).dt.date
+    base_date = plan_min
+    work.sort_values("Date", inplace=True)
+    work["_week"] = ((pd.to_datetime(work["Date"]) - pd.to_datetime(base_date)).dt.days // 7) + 1
+
+    display_rows = []
+    summary_row_indices = set()
+    today_index = None
+    today = datetime.now().date()
+
+    for wk, grp in work.groupby("_week", sort=True):
+        # append group's rows first
+        for _, row in grp.iterrows():
+            display_rows.append({
+                "Date": row["Date"],
+                "Day": row["Day"],
+                "Activity": row["Activity"],
+                "Suggested Pace": row["Suggested Pace"],
+                "Actual Miles": row.get("Actual Miles", None),
+                "Actual Pace": row.get("Actual Pace", None),
+            })
+        # weekly summary row (aggregate actual miles)
+        actual_sum = pd.to_numeric(grp["Actual Miles"], errors="coerce").fillna(0).sum()
+        activity_text = f"Total miles ran: {actual_sum:.1f} mi"
+        display_rows.append({
+            "Date": None,
+            "Day": f"Week {int(wk)} Summary",
+            "Activity": activity_text,
+            "Suggested Pace": "",
+            "Actual Miles": "",
+            "Actual Pace": "",
+            "__is_summary": True,
+        })
+        summary_row_indices.add(len(display_rows) - 1)
+
+    display_df = pd.DataFrame(display_rows)
+
+    # Track today's row index for styling (match on date)
+    if (display_df["Date"].astype("object") == today).any():
+        today_index = display_df.index[display_df["Date"].astype("object") == today][0]
+
+    # Format Date for display and fill blanks
+    display_df["Date"] = display_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
+    display_df.fillna("", inplace=True)
+
+    # Styling: weekly summary rows bold with subtle background; today's row italic with accent background
+    def _style_rows(row: pd.Series):
+        idx = row.name
+        base = ""  # default
+        if idx in summary_row_indices:
+            return [
+                "font-weight:700;background-color:rgba(34,197,94,0.10);"
+            ] * len(row)
+        if today_index is not None and idx == today_index:
+            return [
+                "font-style:italic;background-color:rgba(6,182,212,0.12);"
+            ] * len(row)
+        return [base] * len(row)
+
+    styled = display_df.style.apply(_style_rows, axis=1)
 
     # Display table inside a card
     with st.container():
         st.markdown('<div class="mp-card">', unsafe_allow_html=True)
-        st.dataframe(merged_df.fillna(""), height=600)
+        st.dataframe(styled, height=600)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # Diagnostics (hidden unless debug is enabled)
