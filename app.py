@@ -292,13 +292,12 @@ def google_login():
     if "google_redirect_uri" in st.secrets:
         redirect_uri = st.secrets.get("google_redirect_uri")
     
-    # Debug output to help troubleshoot
-    st.write(f"Using Google redirect URI: {redirect_uri}")
-    st.write("Note: This exact URI must be registered in Google Cloud Console.")
-    
-    # Also display client ID for verification (masked for security)
-    client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
-    st.write(f"Using client ID: {client_id_masked}")
+    # Show debug info only in debug mode
+    if _is_debug():
+        st.write(f"Using Google redirect URI: {redirect_uri}")
+        st.write("Note: This exact URI must be registered in Google Cloud Console.")
+        client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
+        st.write(f"Using client ID: {client_id_masked}")
     
     result = oauth2.authorize_button(
         name="Continue with Google",
