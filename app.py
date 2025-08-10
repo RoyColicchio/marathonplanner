@@ -587,6 +587,166 @@ def generate_training_plan(start_date, plan_file: str | None = None):
         st.error(f"Error processing `{plan_file or 'run_plan.csv'}`: {e}")
         return pd.DataFrame()
 
+# -------- Plan adjustment helpers (safe; no-ops if missing columns) --------
+
+def _find_column(df, candidates=None, contains=None):
+    cols = {str(c).lower().replace(" ", "").replace("_", ""): c for c in df.columns}
+    if candidates:
+        for cand in candidates:
+            key = cand.lower().replace(" ", "").replace("_", "")
+            if key in cols:
+                return cols[key]
+    if contains:
+        for c in df.columns:
+            if contains.lower() in str(c).lower():
+                return c
+    return None
+
+def _get_date_col(df):
+    return _find_column(df, candidates=["date", "run_date"], contains="date")
+
+def _get_miles_col(df):
+    # Common names; if none found, adjustments that need miles are skipped
+    col = _find_column(df, candidates=["miles", "planned_miles", "distance", "plan_miles", "dist"]) or _find_column(df, contains="mile") or _find_column(df, contains="dist")
+    return col
+
+def _compute_week_index(df, date_col, start_date=None):
+    if start_date is not None:
+        base = pd.to_datetime(start_date)
+    else:
+        base = pd.to_datetime(df[date_col].min())
+    d = pd.to_datetime(df[date_col]) - base
+    return (d.dt.days // 7) + 1  # 1-based
+
+def _weekday_series(df, date_col):
+    if date_col is None:
+        return None
+    return pd.to_datetime(df[date_col]).dt.weekday  # 0..6
+
+def _combine_week_pair_best_effort(df, date_col, miles_col, w_a, w_b):
+    """Combine week w_b into w_a. If miles/date are present, sum miles by weekday and drop w_b; shift later dates -7d."""
+    out = df.copy()
+    weeks = set(out["_mp_week"]) if "_mp_week" in out.columns else set()
+    if w_a not in weeks or w_b not in weeks:
+        return out
+
+    a = out[out["_mp_week"] == w_a].copy()
+    b = out[out["_mp_week"] == w_b].copy()
+
+    if date_col and miles_col and len(a) and len(b):
+        a_wd = _weekday_series(a, date_col)
+        b_wd = _weekday_series(b, date_col)
+        a.loc[:, "_mp_wd"] = a_wd
+        b.loc[:, "_mp_wd"] = b_wd
+        b_sum = b.groupby("_mp_wd")[miles_col].sum() if miles_col in b.columns else {}
+        a[miles_col] = pd.to_numeric(a[miles_col], errors="coerce").fillna(0.0) + a["_mp_wd"].map(b_sum).fillna(0.0)
+        a.drop(columns=["_mp_wd"], inplace=True, errors="ignore")
+        # write back
+        out.loc[a.index, miles_col] = a[miles_col]
+
+    # drop week B
+    out = out[out["_mp_week"] != w_b].copy()
+
+    # shift dates of weeks after w_b earlier by 7 days
+    if date_col:
+        mask_after = out["_mp_week"] > w_b
+        out.loc[mask_after, date_col] = pd.to_datetime(out.loc[mask_after, date_col]) - timedelta(days=7)
+
+    # recompute/compact week index
+    if date_col:
+        out["_mp_week"] = _compute_week_index(out, date_col, pd.to_datetime(out[date_col]).min())
+    else:
+        uniq = {wk: i + 1 for i, wk in enumerate(sorted(out["_mp_week"].unique()))}
+        out["_mp_week"] = out["_mp_week"].map(uniq)
+
+    return out
+
+def adjust_training_plan(df, start_date=None, week_adjust=0, weekly_miles_delta=0):
+    """Apply requested plan adjustments.
+    week_adjust in {-2,-1,0,1,2} with rules:
+      - -1: combine weeks 1&2
+      - -2: combine weeks 1&2 and 3&4
+      - +1: duplicate week 6 to the end
+      - +2: duplicate weeks 6 and 12 to the end
+    weekly_miles_delta in [-5..5]: adjust K=|delta| longest runs per week by +/-1 mile.
+    If required columns are missing, safely no-op.
+    """
+    try:
+        if df is None or len(df) == 0:
+            return df
+        out = df.copy()
+        date_col = _get_date_col(out)
+        miles_col = _get_miles_col(out)
+        if miles_col:
+            out[miles_col] = pd.to_numeric(out[miles_col], errors="coerce").fillna(0.0)
+        # Build a baseline week index
+        if date_col:
+            out["_mp_week"] = _compute_week_index(out, date_col, start_date)
+        else:
+            guess = _find_column(out, candidates=["week"])
+            if guess:
+                out["_mp_week"] = pd.to_numeric(out[guess], errors="coerce").fillna(1).astype(int)
+            else:
+                out["_mp_week"] = (pd.Series(range(len(out))) // 7) + 1
+
+        # Week adjustments
+        wa = int(week_adjust or 0)
+        if wa < 0:
+            if wa == -1:
+                out = _combine_week_pair_best_effort(out, date_col, miles_col, 1, 2)
+            elif wa == -2:
+                out = _combine_week_pair_best_effort(out, date_col, miles_col, 1, 2)
+                out = _combine_week_pair_best_effort(out, date_col, miles_col, 3, 4)
+        elif wa > 0:
+            to_dup = [6] if wa == 1 else [6, 12] if wa == 2 else []
+            if to_dup:
+                current_max = int(out["_mp_week"].max())
+                blocks = [out]
+                append_i = 1
+                for w in to_dup:
+                    src_w = w if w in set(out["_mp_week"]) else current_max
+                    nb = out[out["_mp_week"] == src_w].copy()
+                    new_w = current_max + append_i
+                    nb["_mp_week"] = new_w
+                    if date_col:
+                        nb[date_col] = pd.to_datetime(nb[date_col]) + timedelta(days=(new_w - src_w) * 7)
+                    blocks.append(nb)
+                    append_i += 1
+                out = pd.concat(blocks, ignore_index=True)
+
+        # Weekly mileage redistribution
+        delta = int(weekly_miles_delta or 0)
+        if miles_col and delta != 0:
+            k = abs(delta)
+            sign = 1 if delta > 0 else -1
+            def _adjust_week(group):
+                if k <= 0 or len(group) == 0:
+                    return group
+                idx = group[miles_col].nlargest(min(k, len(group))).index
+                group.loc[idx, miles_col] = (group.loc[idx, miles_col] + (1 * sign)).clip(lower=0)
+                return group
+            out = out.groupby("_mp_week", group_keys=False).apply(_adjust_week)
+
+        if "_mp_week" in out.columns:
+            out.drop(columns=["_mp_week"], inplace=True)
+        if date_col:
+            out.sort_values(by=date_col, inplace=True, ignore_index=True)
+        return out
+    except Exception:
+        return df
+
+# Convenience wrapper
+
+def apply_user_plan_adjustments(plan_df, settings, start_date):
+    return adjust_training_plan(
+        plan_df,
+        start_date=start_date,
+        week_adjust=int(settings.get("week_adjust", 0) or 0),
+        weekly_miles_delta=int(settings.get("weekly_miles_delta", 0) or 0),
+    )
+
+# -------- End plan adjustment helpers --------
+
 def training_plan_setup():
     """Handle training plan configuration."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
@@ -621,6 +781,22 @@ def training_plan_setup():
         index=(available_plans.index(default_plan) if available_plans and default_plan in available_plans else 0),
         help="Select which CSV plan to use (add more in the repo root or plans/ folder)."
     )
+
+    # Adjustment controls with persisted defaults
+    c1, c2 = st.columns(2)
+    with c1:
+        week_adjust = st.selectbox(
+            "Adjust plan length (weeks)",
+            options=[-2, -1, 0, 1, 2],
+            index=[-2, -1, 0, 1, 2].index(int(settings.get("week_adjust", 0) or 0)),
+            help="-1: combine w1&2; -2: also combine w3&4; +1: duplicate w6; +2: duplicate w6 & w12",
+        )
+    with c2:
+        weekly_miles_delta = st.slider(
+            "Weekly mileage adjustment (mi/week)",
+            min_value=-5, max_value=5, step=1, value=int(settings.get("weekly_miles_delta", 0) or 0),
+            help="Adjust K longest runs per week by ±1 mile (K = |value|)",
+        )
     
     if st.button("Save Training Plan", use_container_width=True):
         new_settings = {
@@ -628,6 +804,8 @@ def training_plan_setup():
             "start_date": start_date.strftime("%Y-%m-%d"),
             "goal_time": goal_time,
             "plan_file": plan_file,
+            "week_adjust": int(week_adjust),
+            "weekly_miles_delta": int(weekly_miles_delta),
         }
         save_user_settings(user_hash, new_settings)
         st.success("Training plan saved!")
@@ -675,6 +853,9 @@ def show_training_plan_table(settings):
     # Generate plan
     plan_df = generate_training_plan(start_date, plan_file=plan_file)
     
+    # Apply adjustments (no-ops if columns unavailable)
+    plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
+    
     if plan_df.empty:
         return
 
@@ -691,7 +872,7 @@ def show_training_plan_table(settings):
 
     runs = [a for a in activities if a.get("type") == "Run"]
 
-    # Summary metrics row (removed 'Runs Imported' per request)
+    # Summary metrics row
     m1, m2, m3 = st.columns(3)
     m1.metric("Plan Start", plan_min.strftime("%b %d"))
     m2.metric("Plan End", plan_max.strftime("%b %d"))
