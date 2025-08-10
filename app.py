@@ -1101,7 +1101,7 @@ def show_training_plan_table(settings):
 
     # Build display dataframe with weekly summary rows and row styling flags
     work = merged_df[[
-        "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"
+        "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace", "Plan_Miles"
     ]].copy()
     work["Date"] = pd.to_datetime(work["Date"]).dt.date
     base_date = plan_min
@@ -1124,15 +1124,15 @@ def show_training_plan_table(settings):
                 "Actual Miles": row.get("Actual Miles", None),
                 "Actual Pace": row.get("Actual Pace", None),
             })
-        # weekly summary row (aggregate actual miles)
-        actual_sum = pd.to_numeric(grp["Actual Miles"], errors="coerce").fillna(0).sum()
-        activity_text = f"Total miles ran: {actual_sum:.1f} mi"
+        # weekly summary row: planned vs actual totals
+        planned_sum = pd.to_numeric(grp.get("Plan_Miles", pd.Series([])), errors="coerce").fillna(0).sum()
+        actual_sum = pd.to_numeric(grp.get("Actual Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         display_rows.append({
             "Date": None,
             "Day": f"Week {int(wk)} Summary",
-            "Activity": activity_text,
+            "Activity": f"Total planned miles: {planned_sum:.1f} mi",
             "Suggested Pace": "",
-            "Actual Miles": "",
+            "Actual Miles": float(actual_sum),
             "Actual Pace": "",
             "__is_summary": True,
         })
