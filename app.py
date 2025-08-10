@@ -531,6 +531,53 @@ def get_strava_activities(start_date=None, end_date=None, max_pages=4):
         st.error(f"Error fetching Strava activities: {e}")
         return []
 
+def extract_primary_miles(text: str) -> float | None:
+    """Extract the primary planned distance in miles from a plan text like 'MLR 12' or 'MP 13 w/ 8 @ MP'.
+    Heuristics: take the first standalone number not followed by 'k'/'K' and not an 'x' rep count.
+    Returns float or None if not found.
+    """
+    if not isinstance(text, str):
+        return None
+    s = text.strip()
+    # Find all numbers with positions
+    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\b", s):
+        start, end = m.span()
+        val = m.group(1)
+        # Skip if immediately followed by 'k'/'K'
+        if end < len(s) and s[end].lower() == 'k':
+            continue
+        # Skip if just after an 'x' (e.g., '6 x 100')
+        prev = s[max(0, start-2):start].lower()
+        if 'x' in prev:
+            continue
+        try:
+            return float(val)
+        except Exception:
+            continue
+    return None
+
+def replace_primary_miles(text: str, new_miles: float) -> str:
+    """Replace the first primary miles number in the text with new_miles (formatted nicely)."""
+    if not isinstance(text, str):
+        return text
+    if new_miles is None:
+        return text
+    fmt = f"{int(round(new_miles))}" if abs(new_miles - round(new_miles)) < 0.05 else f"{new_miles:.1f}"
+
+    def _repl(match: re.Match):
+        number = match.group(1)
+        # Respect same rules as extractor
+        span = match.span(1)
+        end = span[1]
+        if end < len(text) and text[end].lower() == 'k':
+            return number  # don't change k-values
+        prev = text[max(0, span[0]-2):span[0]].lower()
+        if 'x' in prev:
+            return number  # don't change rep counts
+        return fmt
+
+    return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
+
 def generate_training_plan(start_date, plan_file: str | None = None):
     """Loads the training plan from a CSV and adjusts dates. plan_file defaults to run_plan.csv."""
     try:
@@ -567,6 +614,9 @@ def generate_training_plan(start_date, plan_file: str | None = None):
 
         expanded_activities = activities.apply(expand_abbreviations)
 
+        # Parse planned miles from the raw plan text (best-effort)
+        planned_miles = activities.apply(extract_primary_miles)
+
         num_days = len(activities)
         dates = [start_date + timedelta(days=i) for i in range(num_days)]
         days_of_week = [date.strftime("%A") for date in dates]
@@ -575,7 +625,8 @@ def generate_training_plan(start_date, plan_file: str | None = None):
             'Date': dates,
             'Day': days_of_week,
             'Activity_Abbr': activities,
-            'Activity': expanded_activities
+            'Activity': expanded_activities,
+            'Plan_Miles': planned_miles,
         })
 
         return new_plan_df
@@ -607,7 +658,7 @@ def _get_date_col(df):
 
 def _get_miles_col(df):
     # Common names; if none found, adjustments that need miles are skipped
-    col = _find_column(df, candidates=["miles", "planned_miles", "distance", "plan_miles", "dist"]) or _find_column(df, contains="mile") or _find_column(df, contains="dist")
+    col = _find_column(df, candidates=["plan_miles", "miles", "planned_miles", "distance", "plan_miles", "dist"]) or _find_column(df, contains="mile") or _find_column(df, contains="dist")
     return col
 
 def _compute_week_index(df, date_col, start_date=None):
@@ -855,6 +906,17 @@ def show_training_plan_table(settings):
     
     # Apply adjustments (no-ops if columns unavailable)
     plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
+
+    # Reflect adjusted miles back into the plan text for display (e.g., MLR 12 -> MLR 13)
+    if not plan_df.empty and "Plan_Miles" in plan_df.columns:
+        def _apply_txt(row):
+            pm = row.get("Plan_Miles")
+            if pm is None or (isinstance(pm, float) and pd.isna(pm)) or pm == 0:
+                return row
+            row["Activity_Abbr"] = replace_primary_miles(row.get("Activity_Abbr", ""), pm)
+            row["Activity"] = replace_primary_miles(row.get("Activity", ""), pm)
+            return row
+        plan_df = plan_df.apply(_apply_txt, axis=1)
     
     if plan_df.empty:
         return
