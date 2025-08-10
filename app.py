@@ -1144,6 +1144,10 @@ def show_training_plan_table(settings):
     if (display_df["Date"].astype("object") == today).any():
         today_index = display_df.index[display_df["Date"].astype("object") == today][0]
 
+    # Remove helper column from user view
+    if "__is_summary" in display_df.columns:
+        display_df.drop(columns=["__is_summary"], inplace=True)
+
     # Format Date for display and fill blanks
     display_df["Date"] = display_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
     display_df.fillna("", inplace=True)
@@ -1162,7 +1166,16 @@ def show_training_plan_table(settings):
             ] * len(row)
         return [base] * len(row)
 
-    styled = display_df.style.apply(_style_rows, axis=1)
+    # Formatter: show Actual Miles to the hundredth for numeric values
+    def _fmt_miles(v):
+        try:
+            if v == "" or v is None or (isinstance(v, float) and pd.isna(v)):
+                return ""
+            return f"{float(v):.2f}"
+        except Exception:
+            return v
+
+    styled = display_df.style.format({"Actual Miles": _fmt_miles}).apply(_style_rows, axis=1)
 
     # Display table inside a card
     with st.container():
