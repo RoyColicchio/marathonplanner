@@ -232,6 +232,24 @@ def parse_ics_activities(file_path: str) -> list[str]:
     activities = [e["summary"].strip() for e in events if e.get("summary")]
     return activities
 
+# Filter: weekly summary lines like "Training Week 1 Distance: 47 mi"
+def is_weekly_summary(text: str) -> bool:
+    try:
+        if not isinstance(text, str):
+            return False
+        s = text.strip().lower()
+        if not s:
+            return False
+        # Must start with "training week" and include distance/total or a mileage number
+        if s.startswith("training week"):
+            if "distance" in s or "total" in s:
+                return True
+            if re.search(r"\b\d+\s*(mi|mile|miles|km|kilometer|kilomet(er|re)s)\b", s):
+                return True
+        return False
+    except Exception:
+        return False
+
 # Helper: get Strava credentials from secrets (section or top-level) or environment
 def get_strava_credentials():
     client_id = None
@@ -688,6 +706,10 @@ def generate_training_plan(start_date, plan_file: str | None = None):
             plan_df.dropna(subset=['Plan'], inplace=True)
             plan_df = plan_df[plan_df['Plan'].str.strip() != '']
             activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
+
+        # Remove weekly summary lines (e.g., "Training Week 1 Distance: 47 mi")
+        if len(activities):
+            activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
 
         activity_map = {
             "GA": "General Aerobic",
