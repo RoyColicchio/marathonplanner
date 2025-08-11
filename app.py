@@ -93,7 +93,7 @@ from streamlit_oauth import OAuth2Component
 import json
 import hashlib
 from pathlib import Path
-from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode, GridUpdateMode, DataReturnMode
 from pace_utils import marathon_pace_seconds, get_pace_range
 import requests
 import time
@@ -1436,10 +1436,18 @@ def show_training_plan_table(settings):
     grid_df = pd.DataFrame(display_rows)
     # Format display Date and keep ISO for actions
     grid_df["Date"] = grid_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
+    # Reorder columns so a visible column (Date) is first; keep technical fields at the end
+    ordered_cols = [
+        "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace",
+        "DateISO", "Week", "is_summary", "is_today"
+    ]
+    grid_df = grid_df[ordered_cols]
 
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
     gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
+    # Force checkbox on the Date column (first visible col)
+    gb.configure_column("Date", header_name="Date", width=90, checkboxSelection=True)
     gb.configure_grid_options(
         suppressRowClickSelection=True,
         isRowSelectable=JsCode("function (params) { return !params.data.is_summary; }"),
@@ -1462,7 +1470,6 @@ def show_training_plan_table(settings):
         gb.configure_column(c, hide=True)
 
     # Friendlier column sizing
-    gb.configure_column("Date", header_name="Date", width=90)
     gb.configure_column("Day", header_name="Day", width=120)
     gb.configure_column("Activity", header_name="Activity", flex=2)
     gb.configure_column("Suggested Pace", header_name="Suggested Pace", width=160)
@@ -1478,7 +1485,8 @@ def show_training_plan_table(settings):
         allow_unsafe_jscode=True,
         fit_columns_on_grid_load=True,
         height=600,
-        update_mode="SELECTION_CHANGED",
+        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
         enable_enterprise_modules=False,
         theme="streamlit",
     )
