@@ -1181,6 +1181,111 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
     )
 
 
+# -------- Per-user plan overrides (swap days) --------
+
+def _plan_signature(settings: dict) -> str:
+    return f"{settings.get('plan_file', 'run_plan.csv')}|{settings.get('start_date', '')}"
+
+
+def _get_overrides_for_plan(settings: dict) -> dict:
+    try:
+        sig = _plan_signature(settings)
+        by_plan = settings.get("overrides_by_plan", {}) or {}
+        return by_plan.get(sig, {}) or {}
+    except Exception:
+        return {}
+
+
+def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
+    try:
+        sig = _plan_signature(settings)
+        by_plan = settings.get("overrides_by_plan", {}) or {}
+        by_plan[sig] = overrides
+        settings["overrides_by_plan"] = by_plan
+        save_user_settings(user_hash, settings)
+    except Exception as e:
+        st.error(f"Error saving overrides: {e}")
+
+
+def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
+    try:
+        overrides = _get_overrides_for_plan(settings)
+        if not overrides or plan_df is None or plan_df.empty:
+            return plan_df
+        out = plan_df.copy()
+        if "Date" in out.columns:
+            out["Date"] = pd.to_datetime(out["Date"]).dt.date
+        for date_iso, payload in overrides.items():
+            try:
+                dt = datetime.strptime(str(date_iso), "%Y-%m-%d").date()
+            except Exception:
+                continue
+            mask = (out["Date"] == dt) if "Date" in out.columns else None
+            if mask is not None and mask.any():
+                for k in ("Activity_Abbr", "Activity", "Plan_Miles"):
+                    if k in out.columns and k in payload:
+                        out.loc[mask, k] = payload[k]
+        return out
+    except Exception:
+        return plan_df
+
+
+def _override_payload_from_row(row: pd.Series) -> dict:
+    return {
+        "Activity_Abbr": row.get("Activity_Abbr", ""),
+        "Activity": row.get("Activity", ""),
+        "Plan_Miles": float(row.get("Plan_Miles")) if pd.notna(row.get("Plan_Miles")) else None,
+    }
+
+
+def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a, date_b):
+    try:
+        df = plan_df.copy()
+        df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        row_a = df[df["Date"] == date_a]
+        row_b = df[df["Date"] == date_b]
+        if row_a.empty or row_b.empty:
+            st.warning("Selected dates are not in the plan.")
+            return
+        pa = _override_payload_from_row(row_a.iloc[0])
+        pb = _override_payload_from_row(row_b.iloc[0])
+        overrides = _get_overrides_for_plan(settings)
+        overrides[date_a.strftime("%Y-%m-%d")] = pb
+        overrides[date_b.strftime("%Y-%m-%d")] = pa
+        _save_overrides_for_plan(user_hash, settings, overrides)
+        st.success(f"Swapped {date_a.strftime('%a %m-%d')} and {date_b.strftime('%a %m-%d')}.")
+    except Exception as e:
+        st.error(f"Swap failed: {e}")
+
+
+def clear_override_day(user_hash: str, settings: dict, date_x):
+    try:
+        overrides = _get_overrides_for_plan(settings)
+        key = date_x.strftime("%Y-%m-%d")
+        if key in overrides:
+            del overrides[key]
+            _save_overrides_for_plan(user_hash, settings, overrides)
+            st.success(f"Cleared override for {date_x.strftime('%a %m-%d')}.")
+        else:
+            st.info("No override set for that date.")
+    except Exception as e:
+        st.error(f"Clear failed: {e}")
+
+
+def clear_all_overrides(user_hash: str, settings: dict):
+    try:
+        sig = _plan_signature(settings)
+        by_plan = settings.get("overrides_by_plan", {}) or {}
+        if sig in by_plan:
+            del by_plan[sig]
+            settings["overrides_by_plan"] = by_plan
+            save_user_settings(user_hash, settings)
+            st.success("Cleared all overrides for this plan.")
+        else:
+            st.info("No overrides to clear.")
+    except Exception as e:
+        st.error(f"Reset failed: {e}")
+
 def show_dashboard():
     """Display the main dashboard."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
@@ -1219,6 +1324,10 @@ def show_training_plan_table(settings):
     plan_df = generate_training_plan(start_date, plan_file=plan_file)
     plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
 
+    # Apply any saved per-user overrides (e.g., swaps)
+    user_hash = get_user_hash(st.session_state.current_user["email"])
+    plan_df = apply_plan_overrides(plan_df, settings)
+
     if not plan_df.empty and "Plan_Miles" in plan_df.columns:
         def _apply_txt(row):
             pm = row.get("Plan_Miles")
@@ -1235,6 +1344,35 @@ def show_training_plan_table(settings):
     plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
     plan_min = min(plan_df['Date'])
     plan_max = max(plan_df['Date'])
+
+    # --- Week-level swap UI (select two days within the same week) ---
+    # Compute week index relative to plan start
+    plan_df['_week'] = ((pd.to_datetime(plan_df['Date']) - pd.to_datetime(plan_min)).dt.days // 7) + 1
+    with st.expander("Swap days (per week)"):
+        for wk, grp in plan_df.groupby('_week', sort=True):
+            st.markdown(f"**Week {int(wk)}**")
+            cols = st.columns(2)
+            # Render checkboxes for each day in this week
+            for i, (_, r) in enumerate(grp.sort_values('Date').iterrows()):
+                date_obj = pd.to_datetime(r['Date']).date()
+                label = f"{date_obj.strftime('%a %m-%d')}: {(r.get('Activity_Abbr') or r.get('Activity') or '').strip()}"
+                key = f"wk{wk}_sel_{date_obj.isoformat()}"
+                cols[i % 2].checkbox(label, key=key)
+            # Swap button for this week only
+            if st.button(f"Swap selected in Week {int(wk)}", key=f"wk{wk}_btn_swap"):
+                selected = []
+                for _, r in grp.iterrows():
+                    d = pd.to_datetime(r['Date']).date()
+                    if st.session_state.get(f"wk{wk}_sel_{d.isoformat()}"):
+                        selected.append(d)
+                if len(selected) != 2:
+                    st.warning("Select exactly two days in this week to swap.")
+                else:
+                    swap_plan_days(user_hash, settings, plan_df, selected[0], selected[1])
+                    # Reset toggles
+                    for d in selected:
+                        st.session_state[f"wk{wk}_sel_{d.isoformat()}"] = False
+                    st.rerun()
 
     if not strava_connect():
         activities = []
@@ -1352,6 +1490,14 @@ def show_training_plan_table(settings):
             return v
 
     styled = display_df.style.format({"Actual Miles": _fmt_miles}).apply(_style_rows, axis=1)
+    # Hide the index column to remove the leading '#'
+    try:
+        styled = styled.hide(axis="index")
+    except Exception:
+        try:
+            styled = styled.hide_index()
+        except Exception:
+            pass
 
     with st.container():
         st.markdown('<div class="mp-card">', unsafe_allow_html=True)
