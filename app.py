@@ -1428,6 +1428,7 @@ def show_training_plan_table(settings):
                 "Week": int(wk),
                 "is_summary": False,
                 "is_today": bool(row["Date"] == today),
+                "is_past": bool(row["Date"] < today),
                 "Date": row["Date"],
                 "Day": row["Day"],
                 "Activity": row["Activity"],
