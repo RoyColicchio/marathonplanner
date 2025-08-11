@@ -1461,7 +1461,6 @@ def show_training_plan_table(settings):
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
     gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
-    # Force checkbox on the Date column (first visible col) with tooltip/icon
     gb.configure_column(
         "Date",
         header_name="Date ⓘ",
@@ -1483,7 +1482,14 @@ def show_training_plan_table(settings):
     )
     gb.configure_grid_options(
         suppressRowClickSelection=True,
-        isRowSelectable=JsCode("function (params) { return !params.data.is_summary; }"),
+        isRowSelectable=JsCode(
+            """
+            function (params) {
+                // Only allow selection for non-summary, non-past rows
+                return !params.data.is_summary && !params.data.is_past;
+            }
+            """
+        ),
         getRowStyle=JsCode(
             """
             function (params) {
@@ -1492,6 +1498,9 @@ def show_training_plan_table(settings):
               }
               if (params.data && params.data.is_today) {
                 return {fontStyle: 'italic', backgroundColor: 'rgba(6,182,212,0.12)'};
+              }
+              if (params.data && params.data.is_past) {
+                return {color: '#888', backgroundColor: 'rgba(100,100,100,0.07)'};
               }
               return null;
             }
@@ -1542,11 +1551,10 @@ def show_training_plan_table(settings):
     except Exception:
         sel_now = []
 
-    # Filter out summary rows and store only when non-empty to avoid wiping on button click rerun
-    sel_now = [r for r in sel_now if not r.get("is_summary")]
+    # Filter out summary and past rows from selection
+    sel_now = [r for r in sel_now if not r.get("is_summary") and not r.get("is_past")]
     if len(sel_now) > 0:
         st.session_state.plan_grid_sel = sel_now
-
     current_sel = st.session_state.plan_grid_sel
 
     # Render the top action bar now that we have (persisted) selection info
@@ -1556,6 +1564,8 @@ def show_training_plan_table(settings):
             if st.button("Swap selected", use_container_width=True):
                 if len(current_sel) != 2:
                     st.warning("Select exactly two days.")
+                elif any(r.get("is_past") for r in current_sel):
+                    st.warning("You can only swap today or future activities.")
                 else:
                     # Enforce same-week
                     if int(current_sel[0].get("Week")) != int(current_sel[1].get("Week")):
@@ -1565,7 +1575,6 @@ def show_training_plan_table(settings):
                             d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
                             d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
                             swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                            # Force immediate reflect by reapplying overrides in-session
                             tmp = apply_plan_overrides(plan_df.copy(), settings)
                             st.session_state.plan_grid_sel = []
                             st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
