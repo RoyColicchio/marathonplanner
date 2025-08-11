@@ -1304,7 +1304,7 @@ def show_dashboard():
 
 
 def show_training_plan_table(settings):
-    """Display the training plan in a table."""
+    """Display the training plan in a table with in-table swap controls."""
     first_name = "Your"
     try:
         user = st.session_state.get("current_user") or {}
@@ -1344,35 +1344,6 @@ def show_training_plan_table(settings):
     plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
     plan_min = min(plan_df['Date'])
     plan_max = max(plan_df['Date'])
-
-    # --- Week-level swap UI (select two days within the same week) ---
-    # Compute week index relative to plan start
-    plan_df['_week'] = ((pd.to_datetime(plan_df['Date']) - pd.to_datetime(plan_min)).dt.days // 7) + 1
-    with st.expander("Swap days (per week)"):
-        for wk, grp in plan_df.groupby('_week', sort=True):
-            st.markdown(f"**Week {int(wk)}**")
-            cols = st.columns(2)
-            # Render checkboxes for each day in this week
-            for i, (_, r) in enumerate(grp.sort_values('Date').iterrows()):
-                date_obj = pd.to_datetime(r['Date']).date()
-                label = f"{date_obj.strftime('%a %m-%d')}: {(r.get('Activity_Abbr') or r.get('Activity') or '').strip()}"
-                key = f"wk{wk}_sel_{date_obj.isoformat()}"
-                cols[i % 2].checkbox(label, key=key)
-            # Swap button for this week only
-            if st.button(f"Swap selected in Week {int(wk)}", key=f"wk{wk}_btn_swap"):
-                selected = []
-                for _, r in grp.iterrows():
-                    d = pd.to_datetime(r['Date']).date()
-                    if st.session_state.get(f"wk{wk}_sel_{d.isoformat()}"):
-                        selected.append(d)
-                if len(selected) != 2:
-                    st.warning("Select exactly two days in this week to swap.")
-                else:
-                    swap_plan_days(user_hash, settings, plan_df, selected[0], selected[1])
-                    # Reset toggles
-                    for d in selected:
-                        st.session_state[f"wk{wk}_sel_{d.isoformat()}"] = False
-                    st.rerun()
 
     if not strava_connect():
         activities = []
@@ -1421,6 +1392,7 @@ def show_training_plan_table(settings):
     gmp_sec = marathon_pace_seconds(goal_time)
     merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
 
+    # Build display rows with week grouping and flags for styling/selection
     work = merged_df[[
         "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace", "Plan_Miles"
     ]].copy()
@@ -1430,13 +1402,15 @@ def show_training_plan_table(settings):
     work["_week"] = ((pd.to_datetime(work["Date"]) - pd.to_datetime(base_date)).dt.days // 7) + 1
 
     display_rows = []
-    summary_row_indices = set()
-    today_index = None
     today = datetime.now().date()
 
     for wk, grp in work.groupby("_week", sort=True):
         for _, row in grp.iterrows():
             display_rows.append({
+                "DateISO": row["Date"].strftime("%Y-%m-%d"),
+                "Week": int(wk),
+                "is_summary": False,
+                "is_today": bool(row["Date"] == today),
                 "Date": row["Date"],
                 "Day": row["Day"],
                 "Activity": row["Activity"],
@@ -1447,62 +1421,89 @@ def show_training_plan_table(settings):
         planned_sum = pd.to_numeric(grp.get("Plan_Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         actual_sum = pd.to_numeric(grp.get("Actual Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         display_rows.append({
+            "DateISO": "",
+            "Week": int(wk),
+            "is_summary": True,
+            "is_today": False,
             "Date": None,
             "Day": f"Week {int(wk)} Summary",
             "Activity": f"Total planned miles: {planned_sum:.1f} mi",
             "Suggested Pace": "",
             "Actual Miles": float(actual_sum),
             "Actual Pace": "",
-            "__is_summary": True,
         })
-        summary_row_indices.add(len(display_rows) - 1)
 
-    display_df = pd.DataFrame(display_rows)
+    grid_df = pd.DataFrame(display_rows)
+    # Format display Date and keep ISO for actions
+    grid_df["Date"] = grid_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
 
-    if (display_df["Date"].astype("object") == today).any():
-        today_index = display_df.index[display_df["Date"].astype("object") == today][0]
+    # Configure AgGrid
+    gb = GridOptionsBuilder.from_dataframe(grid_df)
+    gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
+    gb.configure_grid_options(
+        suppressRowClickSelection=True,
+        isRowSelectable=JsCode("function (params) { return !params.data.is_summary; }"),
+        getRowStyle=JsCode(
+            """
+            function (params) {
+              if (params.data && params.data.is_summary) {
+                return {fontWeight: '700', backgroundColor: 'rgba(34,197,94,0.10)'};
+              }
+              if (params.data && params.data.is_today) {
+                return {fontStyle: 'italic', backgroundColor: 'rgba(6,182,212,0.12)'};
+              }
+              return null;
+            }
+            """
+        ),
+    )
+    # Hide technical columns
+    for c in ["DateISO", "Week", "is_summary", "is_today"]:
+        gb.configure_column(c, hide=True)
 
-    if "__is_summary" in display_df.columns:
-        display_df.drop(columns=["__is_summary"], inplace=True)
+    # Friendlier column sizing
+    gb.configure_column("Date", header_name="Date", width=90)
+    gb.configure_column("Day", header_name="Day", width=120)
+    gb.configure_column("Activity", header_name="Activity", flex=2)
+    gb.configure_column("Suggested Pace", header_name="Suggested Pace", width=160)
+    gb.configure_column("Actual Miles", header_name="Actual Miles", width=120, type=["numericColumn", "numberColumnFilter"])
+    gb.configure_column("Actual Pace", header_name="Actual Pace", width=120)
 
-    display_df["Date"] = display_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
-    display_df.fillna("", inplace=True)
+    grid_options = gb.build()
 
-    def _style_rows(row: pd.Series):
-        idx = row.name
-        base = ""
-        if idx in summary_row_indices:
-            return [
-                "font-weight:700;background-color:rgba(34,197,94,0.10);"
-            ] * len(row)
-        if today_index is not None and idx == today_index:
-            return [
-                "font-style:italic;background-color:rgba(6,182,212,0.12);"
-            ] * len(row)
-        return [base] * len(row)
+    st.markdown('<div class="mp-card">', unsafe_allow_html=True)
+    grid_resp = AgGrid(
+        grid_df,
+        gridOptions=grid_options,
+        allow_unsafe_jscode=True,
+        fit_columns_on_grid_load=True,
+        height=600,
+        update_mode="SELECTION_CHANGED",
+        enable_enterprise_modules=False,
+        theme="streamlit",
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    def _fmt_miles(v):
-        try:
-            if v == "" or v is None or (isinstance(v, float) and pd.isna(v)):
-                return ""
-            return f"{float(v):.2f}"
-        except Exception:
-            return v
-
-    styled = display_df.style.format({"Actual Miles": _fmt_miles}).apply(_style_rows, axis=1)
-    # Hide the index column to remove the leading '#'
-    try:
-        styled = styled.hide(axis="index")
-    except Exception:
-        try:
-            styled = styled.hide_index()
-        except Exception:
-            pass
-
-    with st.container():
-        st.markdown('<div class="mp-card">', unsafe_allow_html=True)
-        st.dataframe(styled, height=600)
-        st.markdown('</div>', unsafe_allow_html=True)
+    sel = grid_resp.get("selected_rows", []) or []
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("Swap selected", use_container_width=True):
+            if len(sel) != 2:
+                st.warning("Select exactly two days.")
+            else:
+                # Enforce same-week
+                if int(sel[0].get("Week")) != int(sel[1].get("Week")):
+                    st.warning("Please select two days from the same week.")
+                else:
+                    try:
+                        d1 = datetime.strptime(sel[0]["DateISO"], "%Y-%m-%d").date()
+                        d2 = datetime.strptime(sel[1]["DateISO"], "%Y-%m-%d").date()
+                        swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Swap failed: {e}")
+    with c2:
+        st.caption("Tip: select two days in the same week to swap their planned workouts. Weekly summary rows are not selectable.")
 
     if _is_debug():
         with st.expander("Strava connection details"):
