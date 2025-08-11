@@ -1465,6 +1465,14 @@ def show_training_plan_table(settings):
     ]
     grid_df = grid_df[ordered_cols]
 
+    # Debug: show grid_df and which rows are selectable
+    if _is_debug():
+        st.write('grid_df for AgGrid:')
+        st.dataframe(grid_df)
+        selectable_rows = grid_df[(grid_df['is_summary'] == False) & (grid_df['is_past'] == False) & (grid_df['DateISO'] != '')]
+        st.write(f"Selectable rows (should be today/future, not summary): {len(selectable_rows)}")
+        st.dataframe(selectable_rows)
+
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
     gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
