@@ -13,6 +13,7 @@ def marathon_pace_seconds(goal_time_str):
     pace_sec = total_seconds / marathon_miles
     return pace_sec
 
+
 def get_pace_range(activity, gmp_sec):
     """Return suggested pace range string for an activity type and goal marathon pace (in seconds)."""
     if not isinstance(activity, str):
@@ -23,7 +24,8 @@ def get_pace_range(activity, gmp_sec):
         {"type": "Medium-Long Run", "keywords": ["medium-long run", "mlr"], "delta": (30, 75)},
         {"type": "General Aerobic", "keywords": ["general aerobic", "ga"], "delta": (45, 90)},
         {"type": "Recovery Run", "keywords": ["recovery", "rec"], "delta": (90, 144)},
-        {"type": "Marathon Pace Run", "keywords": ["marathon pace", "mp"], "delta": (0, 0)},
+        # Use a 10s wide window centered on MP
+        {"type": "Marathon Pace Run", "keywords": ["marathon pace", "mp"], "delta": (-5, 5)},
         {"type": "LT/Tempo Run", "keywords": ["lactate threshold", "tempo", "lt", "hmp"], "delta": (-48, -24)},
         {"type": "VO₂ Max Intervals", "keywords": ["vo₂max", "vo2max", "vo2 max"], "delta": (-96, -72)},
         {"type": "Strides", "keywords": ["sprints", "strides", "sp"], "delta": (-50, -35)},
@@ -32,6 +34,11 @@ def get_pace_range(activity, gmp_sec):
             if kw in activity_lower:
                 low = gmp_sec + mapping["delta"][0]
                 high = gmp_sec + mapping["delta"][1]
+                # Ensure the range isn't collapsed by rounding; widen to 10 seconds if equal
+                if int(round(low)) == int(round(high)):
+                    low -= 5
+                    high += 5
+
                 def sec_to_str(sec):
                     m = int(sec // 60)
                     s = int(round(sec % 60))
