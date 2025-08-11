@@ -1436,6 +1436,10 @@ def show_training_plan_table(settings):
     grid_df = pd.DataFrame(display_rows)
     # Format display Date and keep ISO for actions
     grid_df["Date"] = grid_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
+
+    # Placeholder for a top action bar (will render above the grid)
+    top_bar = st.container()
+
     # Reorder columns so a visible column (Date) is first; keep technical fields at the end
     ordered_cols = [
         "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace",
@@ -1448,6 +1452,18 @@ def show_training_plan_table(settings):
     gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
     # Force checkbox on the Date column (first visible col)
     gb.configure_column("Date", header_name="Date", width=90, checkboxSelection=True)
+    # Add informative tooltip to Suggested Pace column
+    pace_tip = (
+        "For multi-segment workouts, the pace shown reflects the working segment. "
+        "Assume other miles are General Aerobic unless otherwise noted."
+    )
+    gb.configure_column(
+        "Suggested Pace",
+        header_name="Suggested Pace",
+        width=200,
+        headerTooltip=pace_tip,
+        tooltipValueGetter=JsCode(f"function(params){{ return '{pace_tip}'; }}"),
+    )
     gb.configure_grid_options(
         suppressRowClickSelection=True,
         isRowSelectable=JsCode("function (params) { return !params.data.is_summary; }"),
@@ -1464,6 +1480,7 @@ def show_training_plan_table(settings):
             }
             """
         ),
+        tooltipShowDelay=100,
     )
     # Hide technical columns
     for c in ["DateISO", "Week", "is_summary", "is_today"]:
@@ -1472,7 +1489,6 @@ def show_training_plan_table(settings):
     # Friendlier column sizing
     gb.configure_column("Day", header_name="Day", width=120)
     gb.configure_column("Activity", header_name="Activity", flex=2)
-    gb.configure_column("Suggested Pace", header_name="Suggested Pace", width=160)
     gb.configure_column("Actual Miles", header_name="Actual Miles", width=120, type=["numericColumn", "numberColumnFilter"])
     gb.configure_column("Actual Pace", header_name="Actual Pace", width=120)
 
@@ -1493,25 +1509,28 @@ def show_training_plan_table(settings):
     st.markdown('</div>', unsafe_allow_html=True)
 
     sel = grid_resp.get("selected_rows", []) or []
-    c1, c2 = st.columns([1, 5])
-    with c1:
-        if st.button("Swap selected", use_container_width=True):
-            if len(sel) != 2:
-                st.warning("Select exactly two days.")
-            else:
-                # Enforce same-week
-                if int(sel[0].get("Week")) != int(sel[1].get("Week")):
-                    st.warning("Please select two days from the same week.")
+
+    # Render the top action bar now that we have selection info
+    with top_bar:
+        c1, c2 = st.columns([1, 6])
+        with c1:
+            if st.button("Swap selected", use_container_width=True):
+                if len(sel) != 2:
+                    st.warning("Select exactly two days.")
                 else:
-                    try:
-                        d1 = datetime.strptime(sel[0]["DateISO"], "%Y-%m-%d").date()
-                        d2 = datetime.strptime(sel[1]["DateISO"], "%Y-%m-%d").date()
-                        swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Swap failed: {e}")
-    with c2:
-        st.caption("Tip: select two days in the same week to swap their planned workouts. Weekly summary rows are not selectable.")
+                    # Enforce same-week
+                    if int(sel[0].get("Week")) != int(sel[1].get("Week")):
+                        st.warning("Please select two days from the same week.")
+                    else:
+                        try:
+                            d1 = datetime.strptime(sel[0]["DateISO"], "%Y-%m-%d").date()
+                            d2 = datetime.strptime(sel[1]["DateISO"], "%Y-%m-%d").date()
+                            swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Swap failed: {e}")
+        with c2:
+            st.caption("Tip: select two days in the same week to swap their planned workouts. Weekly summary rows are not selectable.")
 
     if _is_debug():
         with st.expander("Strava connection details"):
