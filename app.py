@@ -331,586 +331,182 @@ if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "google_oauth_component" not in st.session_state:
     st.session_state.google_oauth_component = None
+# Goal Time Coach state
+if "goal_coach_open" not in st.session_state:
+    st.session_state.goal_coach_open = False
+if "goal_coach_messages" not in st.session_state:
+    st.session_state.goal_coach_messages = []
+if "goal_coach_step" not in st.session_state:
+    st.session_state.goal_coach_step = 0
+if "goal_coach_answers" not in st.session_state:
+    st.session_state.goal_coach_answers = {}
+if "goal_coach_cons" not in st.session_state:
+    st.session_state.goal_coach_cons = None
+if "goal_coach_amb" not in st.session_state:
+    st.session_state.goal_coach_amb = None
 
-def get_google_oauth_component():
-    """Initialize Google OAuth component."""
-    if st.session_state.google_oauth_component is None:
-        st.session_state.google_oauth_component = OAuth2Component(
-            client_id=google_client_id,
-            client_secret=google_client_secret,
-            authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
-            token_endpoint="https://oauth2.googleapis.com/token",
-            refresh_token_endpoint="https://oauth2.googleapis.com/token",
-            revoke_token_endpoint="https://oauth2.googleapis.com/revoke",
-        )
-    return st.session_state.google_oauth_component
+# --- Goal Time Coach helpers ---
+import re as _re_gc
+from math import floor as _floor
 
-def get_user_info(access_token):
-    """Get user info from Google API."""
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get("https://openidconnect.googleapis.com/v1/userinfo", headers=headers)
-    if response.status_code == 200:
-        return response.json()
+def _gc_seconds_to_hms(total_s: float) -> str:
+    s = max(0, int(round(total_s)))
+    h = s // 3600
+    m = (s % 3600) // 60
+    sec = s % 60
+    return f"{h}:{m:02d}:{sec:02d}"
+
+def _gc_parse_time_str(t: str) -> int | None:
+    if not isinstance(t, str):
+        return None
+    t = t.strip()
+    # Accept H:MM:SS or M:SS
+    if _re_gc.fullmatch(r"\d{1,2}:\d{2}:\d{2}", t):
+        h, m, s = [int(x) for x in t.split(":")]
+        return h * 3600 + m * 60 + s
+    if _re_gc.fullmatch(r"\d{1,2}:\d{2}", t):
+        m, s = [int(x) for x in t.split(":")]
+        return m * 60 + s
+    # Also accept just minutes integer
+    if _re_gc.fullmatch(r"\d{1,3}", t):
+        return int(t) * 60
     return None
 
-def get_user_hash(email):
-    """Create a consistent hash for the user based on email."""
-    return hashlib.sha256(email.encode()).hexdigest()[:16]
-
-def load_user_settings(user_hash):
-    """Load user-specific settings from JSON file."""
-    try:
-        settings_path = Path("user_settings.json")
-        if settings_path.exists():
-            with settings_path.open("r") as f:
-                all_settings = json.load(f)
-            return all_settings.get(user_hash, {})
-        return {}
-    except Exception as e:
-        st.error(f"Error loading user settings: {e}")
-        return {}
-
-def save_user_settings(user_hash, settings):
-    """Save user-specific settings to JSON file."""
-    try:
-        settings_path = Path("user_settings.json")
-        all_settings = {}
-        if settings_path.exists():
-            with settings_path.open("r") as f:
-                all_settings = json.load(f)
-        
-        all_settings[user_hash] = settings
-        
-        with settings_path.open("w") as f:
-            json.dump(all_settings, f, indent=2)
-    except Exception as e:
-        st.error(f"Error saving user settings: {e}")
-
-def google_login():
-    """Handle Google OAuth login."""
-    st.title("Marathon Training Dashboard")
-    st.markdown("### Sign in with your Google account to get started")
-    
-    oauth2 = get_google_oauth_component()
-    
-    # Use a redirect URI that exactly matches what's registered in Google Cloud Console
-    # Based on the error message, this should be without trailing slash
-    redirect_uri = "https://marathonplanner.streamlit.app"
-    
-    # Read the URI from secrets if available
-    if "google_redirect_uri" in st.secrets:
-        redirect_uri = st.secrets.get("google_redirect_uri")
-    
-    # Show debug info only in debug mode
-    if _is_debug():
-        st.write(f"Using Google redirect URI: {redirect_uri}")
-        st.write("Note: This exact URI must be registered in Google Cloud Console.")
-        client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
-        st.write(f"Using client ID: {client_id_masked}")
-    
-    result = oauth2.authorize_button(
-        name="Continue with Google",
-        icon="https://developers.google.com/identity/images/g-logo.png",
-        redirect_uri=redirect_uri,
-        scope="openid email profile",
-        key="google_oauth",
-        use_container_width=True
-    )
-    
-    if result and "token" in result:
-        user_info = get_user_info(result["token"]["access_token"])
-        if user_info:
-            st.session_state.current_user = {
-                "email": user_info.get("email"),
-                "name": user_info.get("name", user_info.get("email")),
-                "picture": user_info.get("picture", ""),
-                "access_token": result["token"]["access_token"]
-            }
-            st.rerun()
-
-def show_header():
-    """Display the app header with user info."""
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown("# <span class='gradient'>Marathon Training Dashboard</span>", unsafe_allow_html=True)
-    with col2:
-        if st.session_state.current_user:
-            user = st.session_state.current_user
-            # Avatar + name stack
-            av_col, info_col = st.columns([1, 2])
-            with av_col:
-                if user.get("picture"):
-                    st.image(user["picture"], width=44)
-            with info_col:
-                st.markdown(f"**{user['name']}**")
-                # keep Sign Out button behavior unchanged
-                st.button("Sign Out", key="signout")
-                if st.session_state.get("signout"):
-                    st.session_state.current_user = None
-                    st.rerun()
-
-def get_strava_auth_url():
-    """Generate URL for Strava OAuth."""
-    try:
-        # Strava requires a fully-qualified URI
-        redirect_uri = (
-            st.secrets.get("strava_redirect_uri")
-            or os.getenv("STRAVA_REDIRECT_URI")
-            or "https://marathonplanner.streamlit.app"
-        )
-
-        client_id, client_secret = get_strava_credentials()
-        if not client_id or not client_secret:
-            st.error("Missing Strava client_id/client_secret. Add them to secrets or env.")
-            try:
-                st.caption(f"Secrets keys: {list(st.secrets.keys())}")
-            except Exception:
-                pass
-            return None
-
-        scope = "read,activity:read_all"
-        params = {
-            "client_id": client_id,
-            "response_type": "code",
-            "redirect_uri": redirect_uri,
-            "approval_prompt": "auto",
-            "scope": scope,
-        }
-        auth_url = "https://www.strava.com/oauth/authorize?" + urlencode(params)
-        return auth_url
-    except Exception as e:
-        st.error(f"Error generating Strava auth URL: {e}")
-        return None
-
-def refresh_strava_token_if_needed():
-    """Refresh Strava token if expired or close to expiry. Returns True if token is usable."""
-    try:
-        user_hash = get_user_hash(st.session_state.current_user["email"])
-        settings = load_user_settings(user_hash)
-        if not settings.get("strava_refresh_token"):
-            return False
-        # If expires within 60s, refresh
-        if not settings.get("strava_expires_at") or time.time() >= settings["strava_expires_at"] - 60:
-            client_id, client_secret = get_strava_credentials()
-            if not client_id or not client_secret:
-                return False
-            token_url = "https://www.strava.com/oauth/token"
-            data = {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": settings["strava_refresh_token"],
-            }
-            r = requests.post(token_url, data=data, timeout=10)
-            if r.status_code == 200:
-                token_data = r.json()
-                settings["strava_token"] = token_data.get("access_token", settings.get("strava_token"))
-                settings["strava_refresh_token"] = token_data.get("refresh_token", settings.get("strava_refresh_token"))
-                settings["strava_expires_at"] = token_data.get("expires_at", int(time.time()) + 3600)
-                save_user_settings(user_hash, settings)
-                return True
-            return False
-        return True
-    except Exception:
-        return False
-
-def exchange_strava_code_for_token(code):
-    """Exchange authorization code for access token."""
-    client_id, client_secret = get_strava_credentials()
-    if not client_id or not client_secret:
-        st.error("Missing Strava client_id/client_secret for token exchange.")
-        return False
-
-    token_url = "https://www.strava.com/oauth/token"
-    redirect_uri = (
-        st.secrets.get("strava_redirect_uri")
-        or os.getenv("STRAVA_REDIRECT_URI")
-        or "https://marathonplanner.streamlit.app"
-    )
-
-    data = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "code": code,
-        "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri,
+def _gc_parse_race(msg: str):
+    if not isinstance(msg, str):
+        return None, None
+    txt = msg.strip().lower()
+    if txt in ("skip", "none", "no"):
+        return None, None
+    # distance keywords
+    dist_map = {
+        "5k": 5000,
+        "10k": 10000,
+        "half": 21097.5,
+        "half marathon": 21097.5,
+        "hm": 21097.5,
+        "marathon": 42195,
+        "full": 42195,
     }
+    found_d = None
+    for k, d in dist_map.items():
+        if k in txt:
+            found_d = d
+            break
+    # time pattern
+    m = _re_gc.search(r"(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2}|\b\d{1,3}\b)", txt)
+    secs = _gc_parse_time_str(m.group(1)) if m else None
+    if found_d and secs:
+        return found_d, secs
+    return None, None
 
-    try:
-        response = requests.post(token_url, data=data, timeout=10)
-        if response.status_code == 200:
-            token_data = response.json()
-            user_hash = get_user_hash(st.session_state.current_user["email"])
-            settings = load_user_settings(user_hash)
-            settings["strava_token"] = token_data["access_token"]
-            settings["strava_refresh_token"] = token_data.get("refresh_token")
-            settings["strava_expires_at"] = token_data.get("expires_at")
-            # Save scope and athlete id for diagnostics
-            settings["strava_scope"] = token_data.get("scope")
-            athlete = token_data.get("athlete") or {}
-            settings["strava_athlete_id"] = athlete.get("id")
-            save_user_settings(user_hash, settings)
-            return True
-        else:
-            st.error(f"Failed to get Strava token: {response.status_code} - {response.text}")
-            return False
-    except Exception as e:
-        st.error(f"Error exchanging Strava code: {e}")
-        return False
+def _gc_riegel(t1_sec: float, d1_m: float, d2_m: float = 42195.0) -> float:
+    # Riegel prediction with exponent 1.06
+    if not t1_sec or not d1_m:
+        return 0.0
+    return float(t1_sec) * ((d2_m / float(d1_m)) ** 1.06)
 
-def strava_connect():
-    """Handle Strava connection."""
-    client_id, client_secret = get_strava_credentials()
+def _gc_mileage_baseline_pace(mpw: float, lr_mi: float) -> float:
+    # Rough baseline pace (sec/mi) from mileage and long run
+    # Buckets chosen to be conservative
+    if mpw is None:
+        mpw = 0
+    pace = 11 * 60  # default 11:00/mi
+    if mpw >= 65:
+        pace = 7 * 60 + 30
+    elif mpw >= 55:
+        pace = 8 * 60 + 15
+    elif mpw >= 45:
+        pace = 8 * 60 + 45
+    elif mpw >= 35:
+        pace = 9 * 60 + 30
+    elif mpw >= 25:
+        pace = 10 * 60 + 30
+    # Long-run adjustment
+    if lr_mi and lr_mi >= 20:
+        pace -= 15
+    elif lr_mi and lr_mi < 16:
+        pace += 15
+    return max(5 * 60, pace)
 
-    if not client_id or not client_secret:
-        st.error("Strava credentials not found.")
-        st.info("Add [strava] client_id/client_secret to .streamlit/secrets.toml or set STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET env vars.")
-        # Light introspection only
-        try:
-            st.caption(f"Secrets keys available: {list(st.secrets.keys())}")
-        except Exception:
-            pass
-        return False
+def _gc_recommend(ans: dict) -> tuple[str, str]:
+    mpw = float(ans.get("mpw") or 0)
+    lr = float(ans.get("lr") or 0)
+    d = ans.get("race_dist_m")
+    t = ans.get("race_time_s")
 
-    user_hash = get_user_hash(st.session_state.current_user["email"])
-    settings = load_user_settings(user_hash)
+    if d and t:
+        base = _gc_riegel(t, d)
+        # mileage factor
+        if mpw < 30:
+            base *= 1.05
+        elif mpw < 45:
+            base *= 1.02
+        elif mpw > 60:
+            base *= 0.99
+        # longest run factor
+        if lr >= 20:
+            base *= 0.99
+        elif lr and lr < 16:
+            base *= 1.01
+    else:
+        # build from baseline pace
+        pace = _gc_mileage_baseline_pace(mpw, lr)
+        base = pace * 26.2188
 
-    # Handle authorization callback
-    query_params = st.query_params
-    if "code" in query_params:
-        code = query_params["code"]
-        if exchange_strava_code_for_token(code):
-            st.success("Successfully connected to Strava!")
-            st.query_params.clear()
-            st.rerun()
+    conservative = base * 1.03
+    ambitious = base * 0.98
+    return _gc_seconds_to_hms(conservative), _gc_seconds_to_hms(ambitious)
 
-    # Check existing token
-    if settings.get("strava_token") and settings.get("strava_expires_at"):
-        if time.time() < settings["strava_expires_at"]:
-            return True
-
-    st.warning("Connect your Strava account to see your training data.")
-    auth_url = get_strava_auth_url()
-    if auth_url:
-        st.link_button("Connect to Strava", auth_url, use_container_width=True)
-    return False
-
-def get_strava_activities(start_date=None, end_date=None, max_pages=4):
-    """Fetch activities from Strava API with optional date range and pagination."""
-    # Ensure token is valid/refresh if needed
-    refresh_strava_token_if_needed()
-
-    user_hash = get_user_hash(st.session_state.current_user["email"])
-    settings = load_user_settings(user_hash)
-    
-    if not settings.get("strava_token"):
-        st.warning("No Strava token found. Please connect your Strava account.")
-        return []
-    
-    headers = {"Authorization": f"Bearer {settings['strava_token']}"}
-
-    params_base = {"per_page": 200}
-    # Strava expects epoch seconds for filters
-    try:
-        if start_date is not None:
-            # include activities from the previous day to handle TZ differences
-            start_ts = int(datetime.combine(start_date, datetime.min.time()).timestamp()) - 86400
-            params_base["after"] = start_ts
-        if end_date is not None:
-            # include activities up to the next day end
-            end_ts = int(datetime.combine(end_date, datetime.max.time()).timestamp()) + 86400
-            params_base["before"] = end_ts
-    except Exception:
-        pass
-
-    all_acts = []
-    try:
-        for page in range(1, max_pages + 1):
-            params = {**params_base, "page": page}
-            r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers, params=params, timeout=15)
-            if r.status_code != 200:
-                st.error(f"Failed to fetch Strava activities: {r.status_code}")
-                break
-            batch = r.json() or []
-            all_acts.extend(batch)
-            if len(batch) < params_base.get("per_page", 30):
-                break
-        return all_acts
-    except Exception as e:
-        st.error(f"Error fetching Strava activities: {e}")
-        return []
-
-def extract_primary_miles(text: str) -> float | None:
-    """Extract the primary planned distance in miles from a plan text like 'MLR 12' or 'MP 13 w/ 8 @ MP'.
-    Heuristics: take the first standalone number not followed by 'k'/'K' and not an 'x' rep count.
-    Returns float or None if not found.
-    """
-    if not isinstance(text, str):
-        return None
-    s = text.strip()
-    # Find all numbers with positions
-    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\b", s):
-        start, end = m.span()
-        val = m.group(1)
-        # Skip if immediately followed by 'k'/'K'
-        if end < len(s) and s[end].lower() == 'k':
-            continue
-        # Skip if just after an 'x' (e.g., '6 x 100')
-        prev = s[max(0, start-2):start].lower()
-        if 'x' in prev:
-            continue
-        try:
-            return float(val)
-        except Exception:
-            continue
-    return None
-
-def replace_primary_miles(text: str, new_miles: float) -> str:
-    """Replace the first primary miles number in the text with new_miles (formatted nicely)."""
-    if not isinstance(text, str):
-        return text
-    if new_miles is None:
-        return text
-    fmt = f"{int(round(new_miles))}" if abs(new_miles - round(new_miles)) < 0.05 else f"{new_miles:.1f}"
-
-    def _repl(match: re.Match):
-        number = match.group(1)
-        # Respect same rules as extractor
-        span = match.span(1)
-        end = span[1]
-        if end < len(text) and text[end].lower() == 'k':
-            return number  # don't change k-values
-        prev = text[max(0, span[0]-2):span[0]].lower()
-        if 'x' in prev:
-            return number  # don't change rep counts
-        return fmt
-
-    return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
-
-def generate_training_plan(start_date, plan_file: str | None = None):
-    """Loads the training plan from a CSV or ICS and adjusts dates. plan_file defaults to run_plan.csv."""
-    try:
-        csv_path = plan_file or "run_plan.csv"
-
-        # Case 1: ICS calendar with one VEVENT per planned day
-        if str(csv_path).lower().endswith(".ics"):
-            activities_list = parse_ics_activities(csv_path)
-            if not activities_list:
-                st.error(f"`{csv_path}` could not be parsed or has no events.")
-                return pd.DataFrame()
-            activities = pd.Series(activities_list, dtype="object")
-        else:
-            # Case 2: CSV with a 'Plan' column
-            plan_df = pd.read_csv(csv_path, header=0)
-            plan_df.columns = [col.strip() for col in plan_df.columns]
-            plan_df.dropna(subset=['Plan'], inplace=True)
-            plan_df = plan_df[plan_df['Plan'].str.strip() != '']
-            activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
-
-        # Remove weekly summary lines (e.g., "Training Week 1 Distance: 47 mi")
-        if len(activities):
-            activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
-
-        activity_map = {
-            "GA": "General Aerobic",
-            "Rec": "Recovery",
-            "MLR": "Medium-Long Run",
-            "LR": "Long Run",
-            "SP": "Sprints",
-            "V8": "VO₂Max",
-            "LT": "Lactate Threshold",
-            "HMP": "Half Marathon Pace",
-            "MP": "Marathon Pace"
+def _gc_reset():
+    st.session_state.goal_coach_open = True
+    st.session_state.goal_coach_step = 0
+    st.session_state.goal_coach_answers = {}
+    st.session_state.goal_coach_messages = [
+        {
+            "role": "assistant",
+            "content": "I can help choose a realistic marathon goal. Do you have a recent race result (e.g., '5K 23:45' or 'Half 1:45:00')? Type 'skip' if not.",
         }
-        def expand_abbreviations(activity_string):
-            sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
-            for abbr in sorted_keys:
-                activity_string = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], activity_string)
-            return activity_string
+    ]
+    st.session_state.goal_coach_cons = None
+    st.session_state.goal_coach_amb = None
 
-        expanded_activities = activities.apply(expand_abbreviations)
-        planned_miles = activities.apply(extract_primary_miles)
+def _gc_handle(user_msg: str):
+    msgs = st.session_state.goal_coach_messages
+    msgs.append({"role": "user", "content": user_msg})
+    step = st.session_state.goal_coach_step
+    ans = st.session_state.goal_coach_answers
 
-        num_days = len(activities)
-        dates = [start_date + timedelta(days=i) for i in range(num_days)]
-        days_of_week = [date.strftime("%A") for date in dates]
-
-        new_plan_df = pd.DataFrame({
-            'Date': dates,
-            'Day': days_of_week,
-            'Activity_Abbr': activities,
-            'Activity': expanded_activities,
-            'Plan_Miles': planned_miles,
-        })
-
-        return new_plan_df
-
-    except FileNotFoundError:
-        st.error(f"`{plan_file or 'run_plan.csv'}` not found. Please make sure it's in the repo (root or plans/).")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error processing `{plan_file or 'run_plan.csv'}`: {e}")
-        return pd.DataFrame()
-
-# -------- Plan adjustment helpers (safe; no-ops if missing columns) --------
-
-def _find_column(df, candidates=None, contains=None):
-    cols = {str(c).lower().replace(" ", "").replace("_", ""): c for c in df.columns}
-    if candidates:
-        for cand in candidates:
-            key = cand.lower().replace(" ", "").replace("_", "")
-            if key in cols:
-                return cols[key]
-    if contains:
-        for c in df.columns:
-            if contains.lower() in str(c).lower():
-                return c
-    return None
-
-def _get_date_col(df):
-    return _find_column(df, candidates=["date", "run_date"], contains="date")
-
-def _get_miles_col(df):
-    # Common names; if none found, adjustments that need miles are skipped
-    col = _find_column(df, candidates=["plan_miles", "miles", "planned_miles", "distance", "plan_miles", "dist"]) or _find_column(df, contains="mile") or _find_column(df, contains="dist")
-    return col
-
-def _compute_week_index(df, date_col, start_date=None):
-    if start_date is not None:
-        base = pd.to_datetime(start_date)
-    else:
-        base = pd.to_datetime(df[date_col].min())
-    d = pd.to_datetime(df[date_col]) - base
-    return (d.dt.days // 7) + 1  # 1-based
-
-def _weekday_series(df, date_col):
-    if date_col is None:
-        return None
-    return pd.to_datetime(df[date_col]).dt.weekday  # 0..6
-
-def _combine_week_pair_best_effort(df, date_col, miles_col, w_a, w_b):
-    """Combine week w_b into w_a. If miles/date are present, sum miles by weekday and drop w_b; shift later dates -7d."""
-    out = df.copy()
-    weeks = set(out["_mp_week"]) if "_mp_week" in out.columns else set()
-    if w_a not in weeks or w_b not in weeks:
-        return out
-
-    a = out[out["_mp_week"] == w_a].copy()
-    b = out[out["_mp_week"] == w_b].copy()
-
-    if date_col and miles_col and len(a) and len(b):
-        a_wd = _weekday_series(a, date_col)
-        b_wd = _weekday_series(b, date_col)
-        a.loc[:, "_mp_wd"] = a_wd
-        b.loc[:, "_mp_wd"] = b_wd
-        b_sum = b.groupby("_mp_wd")[miles_col].sum() if miles_col in b.columns else {}
-        a[miles_col] = pd.to_numeric(a[miles_col], errors="coerce").fillna(0.0) + a["_mp_wd"].map(b_sum).fillna(0.0)
-        a.drop(columns=["_mp_wd"], inplace=True, errors="ignore")
-        # write back
-        out.loc[a.index, miles_col] = a[miles_col]
-
-    # drop week B
-    out = out[out["_mp_week"] != w_b].copy()
-
-    # shift dates of weeks after w_b earlier by 7 days
-    if date_col:
-        mask_after = out["_mp_week"] > w_b
-        out.loc[mask_after, date_col] = pd.to_datetime(out.loc[mask_after, date_col]) - timedelta(days=7)
-
-    # recompute/compact week index
-    if date_col:
-        out["_mp_week"] = _compute_week_index(out, date_col, pd.to_datetime(out[date_col]).min())
-    else:
-        uniq = {wk: i + 1 for i, wk in enumerate(sorted(out["_mp_week"].unique()))}
-        out["_mp_week"] = out["_mp_week"].map(uniq)
-
-    return out
-
-def adjust_training_plan(df, start_date=None, week_adjust=0, weekly_miles_delta=0):
-    """Apply requested plan adjustments.
-    week_adjust in {-2,-1,0,1,2} with rules:
-      - -1: combine weeks 1&2
-      - -2: combine weeks 1&2 and 3&4
-      - +1: duplicate week 6 to the end
-      - +2: duplicate weeks 6 and 12 to the end
-    weekly_miles_delta in [-5..5]: adjust K=|delta| longest runs per week by +/-1 mile.
-    If required columns are missing, safely no-op.
-    """
-    try:
-        if df is None or len(df) == 0:
-            return df
-        out = df.copy()
-        date_col = _get_date_col(out)
-        miles_col = _get_miles_col(out)
-        if miles_col:
-            out[miles_col] = pd.to_numeric(out[miles_col], errors="coerce").fillna(0.0)
-        # Build a baseline week index
-        if date_col:
-            out["_mp_week"] = _compute_week_index(out, date_col, start_date)
+    if step == 0:
+        d, t = _gc_parse_race(user_msg)
+        if d and t:
+            ans["race_dist_m"], ans["race_time_s"] = d, t
+            msgs.append({"role": "assistant", "content": "Great! What's your average weekly mileage over the last 6–8 weeks?"})
         else:
-            guess = _find_column(out, candidates=["week"])
-            if guess:
-                out["_mp_week"] = pd.to_numeric(out[guess], errors="coerce").fillna(1).astype(int)
-            else:
-                out["_mp_week"] = (pd.Series(range(len(out))) // 7) + 1
+            ans["race_dist_m"], ans["race_time_s"] = None, None
+            msgs.append({"role": "assistant", "content": "No problem. What's your average weekly mileage over the last 6–8 weeks?"})
+        st.session_state.goal_coach_step = 1
+        return
 
-        # Week adjustments
-        wa = int(week_adjust or 0)
-        if wa < 0:
-            if wa == -1:
-                out = _combine_week_pair_best_effort(out, date_col, miles_col, 1, 2)
-            elif wa == -2:
-                out = _combine_week_pair_best_effort(out, date_col, miles_col, 1, 2)
-                out = _combine_week_pair_best_effort(out, date_col, miles_col, 3, 4)
-        elif wa > 0:
-            to_dup = [6] if wa == 1 else [6, 12] if wa == 2 else []
-            if to_dup:
-                current_max = int(out["_mp_week"].max())
-                blocks = [out]
-                append_i = 1
-                for w in to_dup:
-                    src_w = w if w in set(out["_mp_week"]) else current_max
-                    nb = out[out["_mp_week"] == src_w].copy()
-                    new_w = current_max + append_i
-                    nb["_mp_week"] = new_w
-                    if date_col:
-                        nb[date_col] = pd.to_datetime(nb[date_col]) + timedelta(days=(new_w - src_w) * 7)
-                    blocks.append(nb)
-                    append_i += 1
-                out = pd.concat(blocks, ignore_index=True)
+    if step == 1:
+        nums = _re_gc.findall(r"\d+(?:\.\d+)?", user_msg)
+        ans["mpw"] = float(nums[0]) if nums else 0.0
+        msgs.append({"role": "assistant", "content": "What's your longest recent long run (in miles)?"})
+        st.session_state.goal_coach_step = 2
+        return
 
-        # Weekly mileage redistribution
-        delta = int(weekly_miles_delta or 0)
-        if miles_col and delta != 0:
-            k = abs(delta)
-            sign = 1 if delta > 0 else -1
-            def _adjust_week(group):
-                if k <= 0 or len(group) == 0:
-                    return group
-                idx = group[miles_col].nlargest(min(k, len(group))).index
-                group.loc[idx, miles_col] = (group.loc[idx, miles_col] + (1 * sign)).clip(lower=0)
-                return group
-            out = out.groupby("_mp_week", group_keys=False).apply(_adjust_week)
-
-        if "_mp_week" in out.columns:
-            out.drop(columns=["_mp_week"], inplace=True)
-        if date_col:
-            out.sort_values(by=date_col, inplace=True, ignore_index=True)
-        return out
-    except Exception:
-        return df
-
-# Convenience wrapper
-
-def apply_user_plan_adjustments(plan_df, settings, start_date):
-    return adjust_training_plan(
-        plan_df,
-        start_date=start_date,
-        week_adjust=int(settings.get("week_adjust", 0) or 0),
-        weekly_miles_delta=int(settings.get("weekly_miles_delta", 0) or 0),
-    )
-
-# -------- End plan adjustment helpers --------
+    if step == 2:
+        nums = _re_gc.findall(r"\d+(?:\.\d+)?", user_msg)
+        ans["lr"] = float(nums[0]) if nums else 0.0
+        cons, amb = _gc_recommend(ans)
+        st.session_state.goal_coach_cons = cons
+        st.session_state.goal_coach_amb = amb
+        msgs.append({
+            "role": "assistant",
+            "content": f"Based on your answers, a conservative goal is {cons} and an ambitious goal is {amb}. Use a button below to apply one.",
+        })
+        st.session_state.goal_coach_step = 3
+        return
 
 def training_plan_setup():
     """Handle training plan configuration."""
@@ -929,11 +525,18 @@ def training_plan_setup():
         )
 
     with col2:
-        goal_time = st.text_input(
-            "Goal Marathon Time (HH:MM:SS)",
-            value=settings.get("goal_time", "4:00:00"),
-            help="Your target marathon finish time"
-        )
+        # Input + Goal Coach button side-by-side
+        sub1, sub2 = st.columns([3, 1])
+        with sub1:
+            goal_time = st.text_input(
+                "Goal Marathon Time (HH:MM:SS)",
+                value=settings.get("goal_time", "4:00:00"),
+                key="goal_time_input",
+                help="Your target marathon finish time"
+            )
+        with sub2:
+            if st.button("Goal Coach", key="open_goal_coach_btn"):
+                _gc_reset()
 
     # Plan selection with friendly titles; defaults to run_plan.csv
     available_paths = list_available_plans()
@@ -972,11 +575,52 @@ def training_plan_setup():
             help="Adjust K longest runs per week by ±1 mile (K = |value|)",
         )
 
+    # Goal Coach UI (chat-like) below the controls
+    if st.session_state.goal_coach_open:
+        st.markdown("#### Goal Time Coach")
+        chat_supported = hasattr(st, "chat_message") and hasattr(st, "chat_input")
+        # Render history
+        for m in st.session_state.goal_coach_messages:
+            if chat_supported:
+                st.chat_message(m["role"]).write(m["content"])  # type: ignore[attr-defined]
+            else:
+                if m["role"] == "assistant":
+                    st.info(m["content"])  # fallback styling
+                else:
+                    st.write(f"You: {m['content']}")
+        # Input
+        user_msg = None
+        if chat_supported:
+            user_msg = st.chat_input("Your answer…")  # type: ignore[attr-defined]
+        else:
+            user_msg = st.text_input("Your answer…", key="goal_coach_fallback_input")
+            if st.button("Send", key="goal_coach_send_btn"):
+                user_msg = st.session_state.get("goal_coach_fallback_input", "")
+        if user_msg:
+            _gc_handle(user_msg)
+            st.rerun()
+        # Recommendation buttons when ready
+        if st.session_state.goal_coach_step >= 3:
+            c1b, c2b, c3b = st.columns([1, 1, 2])
+            cons = st.session_state.goal_coach_cons
+            amb = st.session_state.goal_coach_amb
+            if c1b.button(f"Use {cons}", key="use_cons_goal"):
+                st.session_state["goal_time_input"] = cons
+                st.session_state.goal_coach_open = False
+                st.success(f"Goal time set to {cons}")
+                st.rerun()
+            if c2b.button(f"Use {amb}", key="use_amb_goal"):
+                st.session_state["goal_time_input"] = amb
+                st.session_state.goal_coach_open = False
+                st.success(f"Goal time set to {amb}")
+                st.rerun()
+            c3b.button("Close Coach", key="close_goal_coach", on_click=lambda: st.session_state.update({"goal_coach_open": False}))
+
     if st.button("Save Training Plan", use_container_width=True):
         new_settings = {
             **settings,
             "start_date": start_date.strftime("%Y-%m-%d"),
-            "goal_time": goal_time,
+            "goal_time": st.session_state.get("goal_time_input", goal_time),
             "plan_file": selected_plan_path,
             "week_adjust": int(week_adjust),
             "weekly_miles_delta": int(weekly_miles_delta),
@@ -987,27 +631,575 @@ def training_plan_setup():
 
     return settings
 
+def get_google_oauth_component():
+    """Initialize Google OAuth component."""
+    if st.session_state.google_oauth_component is None:
+        st.session_state.google_oauth_component = OAuth2Component(
+            client_id=google_client_id,
+            client_secret=google_client_secret,
+            authorize_endpoint="https://accounts.google.com/o/oauth2/auth",
+            token_endpoint="https://oauth2.googleapis.com/token",
+            refresh_token_endpoint="https://oauth2.googleapis.com/token",
+            revoke_token_endpoint="https://oauth2.googleapis.com/revoke",
+        )
+    return st.session_state.google_oauth_component
+
+
+def get_user_info(access_token):
+    """Get user info from Google API."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = requests.get("https://openidconnect.googleapis.com/v1/userinfo", headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    return None
+
+
+def get_user_hash(email):
+    """Create a consistent hash for the user based on email."""
+    return hashlib.sha256(email.encode()).hexdigest()[:16]
+
+
+def load_user_settings(user_hash):
+    """Load user-specific settings from JSON file."""
+    try:
+        settings_path = Path("user_settings.json")
+        if settings_path.exists():
+            with settings_path.open("r") as f:
+                all_settings = json.load(f)
+            return all_settings.get(user_hash, {})
+        return {}
+    except Exception as e:
+        st.error(f"Error loading user settings: {e}")
+        return {}
+
+
+def save_user_settings(user_hash, settings):
+    """Save user-specific settings to JSON file."""
+    try:
+        settings_path = Path("user_settings.json")
+        all_settings = {}
+        if settings_path.exists():
+            with settings_path.open("r") as f:
+                all_settings = json.load(f)
+        all_settings[user_hash] = settings
+        with settings_path.open("w") as f:
+            json.dump(all_settings, f, indent=2)
+    except Exception as e:
+        st.error(f"Error saving user settings: {e}")
+
+
+def google_login():
+    """Handle Google OAuth login."""
+    st.title("Marathon Training Dashboard")
+    st.markdown("### Sign in with your Google account to get started")
+
+    oauth2 = get_google_oauth_component()
+
+    # Use a redirect URI that exactly matches what's registered in Google Cloud Console
+    redirect_uri = "https://marathonplanner.streamlit.app"
+    if "google_redirect_uri" in st.secrets:
+        redirect_uri = st.secrets.get("google_redirect_uri")
+
+    if _is_debug():
+        st.write(f"Using Google redirect URI: {redirect_uri}")
+        st.write("Note: This exact URI must be registered in Google Cloud Console.")
+        client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
+        st.write(f"Using client ID: {client_id_masked}")
+
+    result = oauth2.authorize_button(
+        name="Continue with Google",
+        icon="https://developers.google.com/identity/images/g-logo.png",
+        redirect_uri=redirect_uri,
+        scope="openid email profile",
+        key="google_oauth",
+        use_container_width=True,
+    )
+
+    if result and "token" in result:
+        user_info = get_user_info(result["token"]["access_token"])
+        if user_info:
+            st.session_state.current_user = {
+                "email": user_info.get("email"),
+                "name": user_info.get("name", user_info.get("email")),
+                "picture": user_info.get("picture", ""),
+                "access_token": result["token"]["access_token"],
+            }
+            st.rerun()
+
+
+def show_header():
+    """Display the app header with user info."""
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("# <span class='gradient'>Marathon Training Dashboard</span>", unsafe_allow_html=True)
+    with col2:
+        if st.session_state.current_user:
+            user = st.session_state.current_user
+            av_col, info_col = st.columns([1, 2])
+            with av_col:
+                if user.get("picture"):
+                    st.image(user["picture"], width=44)
+            with info_col:
+                st.markdown(f"**{user['name']}**")
+                st.button("Sign Out", key="signout")
+                if st.session_state.get("signout"):
+                    st.session_state.current_user = None
+                    st.rerun()
+
+
+def get_strava_auth_url():
+    """Generate URL for Strava OAuth."""
+    try:
+        redirect_uri = (
+            st.secrets.get("strava_redirect_uri")
+            or os.getenv("STRAVA_REDIRECT_URI")
+            or "https://marathonplanner.streamlit.app"
+        )
+
+        client_id, client_secret = get_strava_credentials()
+        if not client_id or not client_secret:
+            st.error("Missing Strava client_id/client_secret. Add them to secrets or env.")
+            try:
+                st.caption(f"Secrets keys: {list(st.secrets.keys())}")
+            except Exception:
+                pass
+            return None
+
+        scope = "read,activity:read_all"
+        params = {
+            "client_id": client_id,
+            "response_type": "code",
+            "redirect_uri": redirect_uri,
+            "approval_prompt": "auto",
+            "scope": scope,
+        }
+        auth_url = "https://www.strava.com/oauth/authorize?" + urlencode(params)
+        return auth_url
+    except Exception as e:
+        st.error(f"Error generating Strava auth URL: {e}")
+        return None
+
+
+def refresh_strava_token_if_needed():
+    """Refresh Strava token if expired or close to expiry. Returns True if token is usable."""
+    try:
+        user_hash = get_user_hash(st.session_state.current_user["email"])
+        settings = load_user_settings(user_hash)
+        if not settings.get("strava_refresh_token"):
+            return False
+        if not settings.get("strava_expires_at") or time.time() >= settings["strava_expires_at"] - 60:
+            client_id, client_secret = get_strava_credentials()
+            if not client_id or not client_secret:
+                return False
+            token_url = "https://www.strava.com/oauth/token"
+            data = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": settings["strava_refresh_token"],
+            }
+            r = requests.post(token_url, data=data, timeout=10)
+            if r.status_code == 200:
+                token_data = r.json()
+                settings["strava_token"] = token_data.get("access_token", settings.get("strava_token"))
+                settings["strava_refresh_token"] = token_data.get("refresh_token", settings.get("strava_refresh_token"))
+                settings["strava_expires_at"] = token_data.get("expires_at", int(time.time()) + 3600)
+                save_user_settings(user_hash, settings)
+                return True
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def exchange_strava_code_for_token(code):
+    """Exchange authorization code for access token."""
+    client_id, client_secret = get_strava_credentials()
+    if not client_id or not client_secret:
+        st.error("Missing Strava client_id/client_secret for token exchange.")
+        return False
+
+    token_url = "https://www.strava.com/oauth/token"
+    redirect_uri = (
+        st.secrets.get("strava_redirect_uri")
+        or os.getenv("STRAVA_REDIRECT_URI")
+        or "https://marathonplanner.streamlit.app"
+    )
+
+    data = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+    }
+
+    try:
+        response = requests.post(token_url, data=data, timeout=10)
+        if response.status_code == 200:
+            token_data = response.json()
+            user_hash = get_user_hash(st.session_state.current_user["email"])
+            settings = load_user_settings(user_hash)
+            settings["strava_token"] = token_data["access_token"]
+            settings["strava_refresh_token"] = token_data.get("refresh_token")
+            settings["strava_expires_at"] = token_data.get("expires_at")
+            settings["strava_scope"] = token_data.get("scope")
+            athlete = token_data.get("athlete") or {}
+            settings["strava_athlete_id"] = athlete.get("id")
+            save_user_settings(user_hash, settings)
+            return True
+        else:
+            st.error(f"Failed to get Strava token: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Error exchanging Strava code: {e}")
+        return False
+
+
+def strava_connect():
+    """Handle Strava connection."""
+    client_id, client_secret = get_strava_credentials()
+
+    if not client_id or not client_secret:
+        st.error("Strava credentials not found.")
+        st.info("Add [strava] client_id/client_secret to .streamlit/secrets.toml or set STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET env vars.")
+        try:
+            st.caption(f"Secrets keys available: {list(st.secrets.keys())}")
+        except Exception:
+            pass
+        return False
+
+    user_hash = get_user_hash(st.session_state.current_user["email"])
+    settings = load_user_settings(user_hash)
+
+    query_params = st.query_params
+    if "code" in query_params:
+        code = query_params["code"]
+        if exchange_strava_code_for_token(code):
+            st.success("Successfully connected to Strava!")
+            st.query_params.clear()
+            st.rerun()
+
+    if settings.get("strava_token") and settings.get("strava_expires_at"):
+        if time.time() < settings["strava_expires_at"]:
+            return True
+
+    st.warning("Connect your Strava account to see your training data.")
+    auth_url = get_strava_auth_url()
+    if auth_url:
+        st.link_button("Connect to Strava", auth_url, use_container_width=True)
+    return False
+
+
+def get_strava_activities(start_date=None, end_date=None, max_pages=4):
+    """Fetch activities from Strava API with optional date range and pagination."""
+    refresh_strava_token_if_needed()
+
+    user_hash = get_user_hash(st.session_state.current_user["email"])
+    settings = load_user_settings(user_hash)
+
+    if not settings.get("strava_token"):
+        st.warning("No Strava token found. Please connect your Strava account.")
+        return []
+
+    headers = {"Authorization": f"Bearer {settings['strava_token']}"}
+
+    params_base = {"per_page": 200}
+    try:
+        if start_date is not None:
+            start_ts = int(datetime.combine(start_date, datetime.min.time()).timestamp()) - 86400
+            params_base["after"] = start_ts
+        if end_date is not None:
+            end_ts = int(datetime.combine(end_date, datetime.max.time()).timestamp()) + 86400
+            params_base["before"] = end_ts
+    except Exception:
+        pass
+
+    all_acts = []
+    try:
+        for page in range(1, max_pages + 1):
+            params = {**params_base, "page": page}
+            r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers, params=params, timeout=15)
+            if r.status_code != 200:
+                st.error(f"Failed to fetch Strava activities: {r.status_code}")
+                break
+            batch = r.json() or []
+            all_acts.extend(batch)
+            if len(batch) < params_base.get("per_page", 30):
+                break
+        return all_acts
+    except Exception as e:
+        st.error(f"Error fetching Strava activities: {e}")
+        return []
+
+
+def extract_primary_miles(text: str) -> float | None:
+    """Extract the primary planned distance in miles from a plan text like 'MLR 12' or 'MP 13 w/ 8 @ MP'."""
+    if not isinstance(text, str):
+        return None
+    s = text.strip()
+    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\b", s):
+        start, end = m.span()
+        val = m.group(1)
+        if end < len(s) and s[end].lower() == 'k':
+            continue
+        prev = s[max(0, start-2):start].lower()
+        if 'x' in prev:
+            continue
+        try:
+            return float(val)
+        except Exception:
+            continue
+    return None
+
+
+def replace_primary_miles(text: str, new_miles: float) -> str:
+    """Replace the first primary miles number in the text with new_miles (formatted nicely)."""
+    if not isinstance(text, str):
+        return text
+    if new_miles is None:
+        return text
+    fmt = f"{int(round(new_miles))}" if abs(new_miles - round(new_miles)) < 0.05 else f"{new_miles:.1f}"
+
+    def _repl(match: re.Match):
+        number = match.group(1)
+        span = match.span(1)
+        end = span[1]
+        if end < len(text) and text[end].lower() == 'k':
+            return number
+        prev = text[max(0, span[0]-2):span[0]].lower()
+        if 'x' in prev:
+            return number
+        return fmt
+
+    return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
+
+
+def generate_training_plan(start_date, plan_file: str | None = None):
+    """Loads the training plan from a CSV or ICS and adjusts dates. plan_file defaults to run_plan.csv."""
+    try:
+        csv_path = plan_file or "run_plan.csv"
+        if str(csv_path).lower().endswith(".ics"):
+            activities_list = parse_ics_activities(csv_path)
+            if not activities_list:
+                st.error(f"`{csv_path}` could not be parsed or has no events.")
+                return pd.DataFrame()
+            activities = pd.Series(activities_list, dtype="object")
+        else:
+            plan_df = pd.read_csv(csv_path, header=0)
+            plan_df.columns = [col.strip() for col in plan_df.columns]
+            plan_df.dropna(subset=['Plan'], inplace=True)
+            plan_df = plan_df[plan_df['Plan'].str.strip() != '']
+            activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
+        if len(activities):
+            activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
+
+        activity_map = {
+            "GA": "General Aerobic",
+            "Rec": "Recovery",
+            "MLR": "Medium-Long Run",
+            "LR": "Long Run",
+            "SP": "Sprints",
+            "V8": "VO₂Max",
+            "LT": "Lactate Threshold",
+            "HMP": "Half Marathon Pace",
+            "MP": "Marathon Pace",
+        }
+        def expand_abbreviations(activity_string):
+            sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
+            for abbr in sorted_keys:
+                activity_string = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], activity_string)
+            return activity_string
+
+        expanded_activities = activities.apply(expand_abbreviations)
+        planned_miles = activities.apply(extract_primary_miles)
+
+        num_days = len(activities)
+        dates = [start_date + timedelta(days=i) for i in range(num_days)]
+        days_of_week = [date.strftime("%A") for date in dates]
+
+        new_plan_df = pd.DataFrame({
+            'Date': dates,
+            'Day': days_of_week,
+            'Activity_Abbr': activities,
+            'Activity': expanded_activities,
+            'Plan_Miles': planned_miles,
+        })
+        return new_plan_df
+
+    except FileNotFoundError:
+        st.error(f"`{plan_file or 'run_plan.csv'}` not found. Please make sure it's in the repo (root or plans/).")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error processing `{plan_file or 'run_plan.csv'}`: {e}")
+        return pd.DataFrame()
+
+
+# -------- Plan adjustment helpers --------
+
+def _find_column(df, candidates=None, contains=None):
+    cols = {str(c).lower().replace(" ", "").replace("_", ""): c for c in df.columns}
+    if candidates:
+        for cand in candidates:
+            key = cand.lower().replace(" ", "").replace("_", "")
+            if key in cols:
+                return cols[key]
+    if contains:
+        for c in df.columns:
+            if contains.lower() in str(c).lower():
+                return c
+    return None
+
+
+def _get_date_col(df):
+    return _find_column(df, candidates=["date", "run_date"], contains="date")
+
+
+def _get_miles_col(df):
+    col = _find_column(df, candidates=["plan_miles", "miles", "planned_miles", "distance", "plan_miles", "dist"]) or _find_column(df, contains="mile") or _find_column(df, contains="dist")
+    return col
+
+
+def _compute_week_index(df, date_col, start_date=None):
+    if start_date is not None:
+        base = pd.to_datetime(start_date)
+    else:
+        base = pd.to_datetime(df[date_col].min())
+    d = pd.to_datetime(df[date_col]) - base
+    return (d.dt.days // 7) + 1
+
+
+def _weekday_series(df, date_col):
+    if date_col is None:
+        return None
+    return pd.to_datetime(df[date_col]).dt.weekday
+
+
+def _combine_week_pair_best_effort(df, date_col, miles_col, w_a, w_b):
+    out = df.copy()
+    weeks = set(out["_mp_week"]) if "_mp_week" in out.columns else set()
+    if w_a not in weeks or w_b not in weeks:
+        return out
+
+    a = out[out["_mp_week"] == w_a].copy()
+    b = out[out["_mp_week"] == w_b].copy()
+
+    if date_col and miles_col and len(a) and len(b):
+        a_wd = _weekday_series(a, date_col)
+        b_wd = _weekday_series(b, date_col)
+        a.loc[:, "_mp_wd"] = a_wd
+        b.loc[:, "_mp_wd"] = b_wd
+        b_sum = b.groupby("_mp_wd")[miles_col].sum() if miles_col in b.columns else {}
+        a[miles_col] = pd.to_numeric(a[miles_col], errors="coerce").fillna(0.0) + a["_mp_wd"].map(b_sum).fillna(0.0)
+        a.drop(columns=["_mp_wd"], inplace=True, errors="ignore")
+        out.loc[a.index, miles_col] = a[miles_col]
+
+    out = out[out["_mp_week"] != w_b].copy()
+
+    if date_col:
+        mask_after = out["_mp_week"] > w_b
+        out.loc[mask_after, date_col] = pd.to_datetime(out.loc[mask_after, date_col]) - timedelta(days=7)
+
+    if date_col:
+        out["_mp_week"] = _compute_week_index(out, date_col, pd.to_datetime(out[date_col]).min())
+    else:
+        uniq = {wk: i + 1 for i, wk in enumerate(sorted(out["_mp_week"].unique()))}
+        out["_mp_week"] = out["_mp_week"].map(uniq)
+
+    return out
+
+
+def adjust_training_plan(df, start_date=None, week_adjust=0, weekly_miles_delta=0):
+    try:
+        if df is None or len(df) == 0:
+            return df
+        out = df.copy()
+        date_col = _get_date_col(out)
+        miles_col = _get_miles_col(out)
+        if miles_col:
+            out[miles_col] = pd.to_numeric(out[miles_col], errors="coerce").fillna(0.0)
+        if date_col:
+            out["_mp_week"] = _compute_week_index(out, date_col, start_date)
+        else:
+            guess = _find_column(out, candidates=["week"])
+            if guess:
+                out["_mp_week"] = pd.to_numeric(out[guess], errors="coerce").fillna(1).astype(int)
+            else:
+                out["_mp_week"] = (pd.Series(range(len(out))) // 7) + 1
+
+        wa = int(week_adjust or 0)
+        if wa < 0:
+            if wa == -1:
+                out = _combine_week_pair_best_effort(out, date_col, miles_col, 1, 2)
+            elif wa == -2:
+                out = _combine_week_pair_best_effort(out, date_col, miles_col, 1, 2)
+                out = _combine_week_pair_best_effort(out, date_col, miles_col, 3, 4)
+        elif wa > 0:
+            to_dup = [6] if wa == 1 else [6, 12] if wa == 2 else []
+            if to_dup:
+                current_max = int(out["_mp_week"].max())
+                blocks = [out]
+                append_i = 1
+                for w in to_dup:
+                    src_w = w if w in set(out["_mp_week"]) else current_max
+                    nb = out[out["_mp_week"] == src_w].copy()
+                    new_w = current_max + append_i
+                    nb["_mp_week"] = new_w
+                    if date_col:
+                        nb[date_col] = pd.to_datetime(nb[date_col]) + timedelta(days=(new_w - src_w) * 7)
+                    blocks.append(nb)
+                    append_i += 1
+                out = pd.concat(blocks, ignore_index=True)
+
+        delta = int(weekly_miles_delta or 0)
+        if miles_col and delta != 0:
+            k = abs(delta)
+            sign = 1 if delta > 0 else -1
+            def _adjust_week(group):
+                if k <= 0 or len(group) == 0:
+                    return group
+                idx = group[miles_col].nlargest(min(k, len(group))).index
+                group.loc[idx, miles_col] = (group.loc[idx, miles_col] + (1 * sign)).clip(lower=0)
+                return group
+            out = out.groupby("_mp_week", group_keys=False).apply(_adjust_week)
+
+        if "_mp_week" in out.columns:
+            out.drop(columns=["_mp_week"], inplace=True)
+        if date_col:
+            out.sort_values(by=date_col, inplace=True, ignore_index=True)
+        return out
+    except Exception:
+        return df
+
+
+def apply_user_plan_adjustments(plan_df, settings, start_date):
+    return adjust_training_plan(
+        plan_df,
+        start_date=start_date,
+        week_adjust=int(settings.get("week_adjust", 0) or 0),
+        weekly_miles_delta=int(settings.get("weekly_miles_delta", 0) or 0),
+    )
+
+
 def show_dashboard():
     """Display the main dashboard."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
-    
+
     if not settings.get("goal_time") or not settings.get("start_date"):
         st.info("Please complete your training plan setup first.")
         return training_plan_setup()
 
-    # Tabs for different sections
     tab1, tab2 = st.tabs(["🏃 Training Plan", "⚙️ Settings"])
-    
+
     with tab1:
         show_training_plan_table(settings)
-    
     with tab2:
         training_plan_setup()
 
+
 def show_training_plan_table(settings):
     """Display the training plan in a table."""
-    # Personalized header using user's first name (safe fallbacks)
     first_name = "Your"
     try:
         user = st.session_state.get("current_user") or {}
@@ -1023,14 +1215,10 @@ def show_training_plan_table(settings):
     start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
     goal_time = settings["goal_time"]
     plan_file = settings.get("plan_file", "run_plan.csv")
-    
-    # Generate plan
+
     plan_df = generate_training_plan(start_date, plan_file=plan_file)
-    
-    # Apply adjustments (no-ops if columns unavailable)
     plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
 
-    # Reflect adjusted miles back into the plan text for display (e.g., MLR 12 -> MLR 13)
     if not plan_df.empty and "Plan_Miles" in plan_df.columns:
         def _apply_txt(row):
             pm = row.get("Plan_Miles")
@@ -1040,16 +1228,14 @@ def show_training_plan_table(settings):
             row["Activity"] = replace_primary_miles(row.get("Activity", ""), pm)
             return row
         plan_df = plan_df.apply(_apply_txt, axis=1)
-    
+
     if plan_df.empty:
         return
 
-    # Determine date window from the plan
     plan_df['Date'] = pd.to_datetime(plan_df['Date']).dt.date
     plan_min = min(plan_df['Date'])
     plan_max = max(plan_df['Date'])
 
-    # Get Strava data for the plan window
     if not strava_connect():
         activities = []
     else:
@@ -1057,7 +1243,6 @@ def show_training_plan_table(settings):
 
     runs = [a for a in activities if a.get("type") == "Run"]
 
-    # Summary metrics row
     m1, m2, m3 = st.columns(3)
     m1.metric("Plan Start", plan_min.strftime("%b %d"))
     m2.metric("Plan End", plan_max.strftime("%b %d"))
@@ -1095,11 +1280,9 @@ def show_training_plan_table(settings):
         merged_df["Actual Miles"] = None
         merged_df["Actual Pace"] = None
 
-    # Calculate suggested pace
     gmp_sec = marathon_pace_seconds(goal_time)
     merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
 
-    # Build display dataframe with weekly summary rows and row styling flags
     work = merged_df[[
         "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace", "Plan_Miles"
     ]].copy()
@@ -1114,7 +1297,6 @@ def show_training_plan_table(settings):
     today = datetime.now().date()
 
     for wk, grp in work.groupby("_week", sort=True):
-        # append group's rows first
         for _, row in grp.iterrows():
             display_rows.append({
                 "Date": row["Date"],
@@ -1124,7 +1306,6 @@ def show_training_plan_table(settings):
                 "Actual Miles": row.get("Actual Miles", None),
                 "Actual Pace": row.get("Actual Pace", None),
             })
-        # weekly summary row: planned vs actual totals
         planned_sum = pd.to_numeric(grp.get("Plan_Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         actual_sum = pd.to_numeric(grp.get("Actual Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         display_rows.append({
@@ -1140,22 +1321,18 @@ def show_training_plan_table(settings):
 
     display_df = pd.DataFrame(display_rows)
 
-    # Track today's row index for styling (match on date)
     if (display_df["Date"].astype("object") == today).any():
         today_index = display_df.index[display_df["Date"].astype("object") == today][0]
 
-    # Remove helper column from user view
     if "__is_summary" in display_df.columns:
         display_df.drop(columns=["__is_summary"], inplace=True)
 
-    # Format Date for display and fill blanks
     display_df["Date"] = display_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
     display_df.fillna("", inplace=True)
 
-    # Styling: weekly summary rows bold with subtle background; today's row italic with accent background
     def _style_rows(row: pd.Series):
         idx = row.name
-        base = ""  # default
+        base = ""
         if idx in summary_row_indices:
             return [
                 "font-weight:700;background-color:rgba(34,197,94,0.10);"
@@ -1166,7 +1343,6 @@ def show_training_plan_table(settings):
             ] * len(row)
         return [base] * len(row)
 
-    # Formatter: show Actual Miles to the hundredth for numeric values
     def _fmt_miles(v):
         try:
             if v == "" or v is None or (isinstance(v, float) and pd.isna(v)):
@@ -1177,13 +1353,11 @@ def show_training_plan_table(settings):
 
     styled = display_df.style.format({"Actual Miles": _fmt_miles}).apply(_style_rows, axis=1)
 
-    # Display table inside a card
     with st.container():
         st.markdown('<div class="mp-card">', unsafe_allow_html=True)
         st.dataframe(styled, height=600)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Diagnostics (hidden unless debug is enabled)
     if _is_debug():
         with st.expander("Strava connection details"):
             user_hash = get_user_hash(st.session_state.current_user["email"])
@@ -1196,18 +1370,16 @@ def show_training_plan_table(settings):
                 "activities_returned": len(activities) if isinstance(activities, list) else 0,
             })
 
+
 def main():
     """Main application logic."""
-    # Check if user is logged in
     if not st.session_state.current_user:
         google_login()
         return
-    
-    # Show header
+
     show_header()
-    
-    # Show main dashboard
     show_dashboard()
+
 
 if __name__ == "__main__":
     main()
