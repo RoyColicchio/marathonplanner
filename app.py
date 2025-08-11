@@ -1512,39 +1512,49 @@ def show_training_plan_table(settings):
         update_mode=GridUpdateMode.SELECTION_CHANGED,
         enable_enterprise_modules=False,
         theme="streamlit",
+        key="plan_grid",
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Robustly extract selected rows without triggering boolean evaluation on DataFrames
-    sel = []
+    # Persist selection across reruns
+    if "plan_grid_sel" not in st.session_state:
+        st.session_state.plan_grid_sel = []
+
+    sel_now = []
     try:
         if isinstance(grid_resp, dict) and "selected_rows" in grid_resp:
             sr = grid_resp["selected_rows"]
             if isinstance(sr, pd.DataFrame):
-                sel = sr.to_dict("records")
+                sel_now = sr.to_dict("records")
             elif isinstance(sr, list):
-                sel = sr
-            else:
-                sel = []
+                sel_now = sr
     except Exception:
-        sel = []
+        sel_now = []
 
-    # Render the top action bar now that we have selection info
+    # Filter out summary rows and store only when non-empty to avoid wiping on button click rerun
+    sel_now = [r for r in sel_now if not r.get("is_summary")]
+    if len(sel_now) > 0:
+        st.session_state.plan_grid_sel = sel_now
+
+    current_sel = st.session_state.plan_grid_sel
+
+    # Render the top action bar now that we have (persisted) selection info
     with top_bar:
         c1, c2 = st.columns([1, 6])
         with c1:
             if st.button("Swap selected", use_container_width=True):
-                if len(sel) != 2:
+                if len(current_sel) != 2:
                     st.warning("Select exactly two days.")
                 else:
                     # Enforce same-week
-                    if int(sel[0].get("Week")) != int(sel[1].get("Week")):
+                    if int(current_sel[0].get("Week")) != int(current_sel[1].get("Week")):
                         st.warning("Please select two days from the same week.")
                     else:
                         try:
-                            d1 = datetime.strptime(sel[0]["DateISO"], "%Y-%m-%d").date()
-                            d2 = datetime.strptime(sel[1]["DateISO"], "%Y-%m-%d").date()
+                            d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
+                            d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
                             swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                            st.session_state.plan_grid_sel = []  # clear selection after swap
                             st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
                             st.rerun()
                         except Exception as e:
