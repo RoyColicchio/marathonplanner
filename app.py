@@ -1486,11 +1486,12 @@ def show_training_plan_table(settings):
     for c in ["DateISO", "Week", "is_summary", "is_today"]:
         gb.configure_column(c, hide=True)
 
-    # Friendlier column sizing
-    gb.configure_column("Day", header_name="Day", width=120)
-    gb.configure_column("Activity", header_name="Activity", flex=2)
-    gb.configure_column("Actual Miles", header_name="Actual Miles", width=120, type=["numericColumn", "numberColumnFilter"])
-    gb.configure_column("Actual Pace", header_name="Actual Pace", width=120)
+    # Friendlier column sizing and header tooltips
+    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout.", width=120)
+    gb.configure_column("Activity", header_name="Activity ⓘ", headerTooltip="Planned workout description for the day.", flex=2)
+    # Suggested Pace already configured with tooltip above
+    gb.configure_column("Actual Miles", header_name="Actual Miles ⓘ", headerTooltip="Miles recorded from Strava on that date.", width=120, type=["numericColumn", "numberColumnFilter"])
+    gb.configure_column("Actual Pace", header_name="Actual Pace ⓘ", headerTooltip="Average pace from the Strava activity (min/mi).", width=120)
 
     grid_options = gb.build()
 
@@ -1508,7 +1509,19 @@ def show_training_plan_table(settings):
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    sel = grid_resp.get("selected_rows", []) or []
+    # Robustly extract selected rows without triggering boolean evaluation on DataFrames
+    sel = []
+    try:
+        if isinstance(grid_resp, dict) and "selected_rows" in grid_resp:
+            sr = grid_resp["selected_rows"]
+            if isinstance(sr, pd.DataFrame):
+                sel = sr.to_dict("records")
+            elif isinstance(sr, list):
+                sel = sr
+            else:
+                sel = []
+    except Exception:
+        sel = []
 
     # Render the top action bar now that we have selection info
     with top_bar:
