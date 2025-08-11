@@ -1466,6 +1466,12 @@ def show_training_plan_table(settings):
     ]
     grid_df = grid_df[ordered_cols]
 
+    # Ensure required columns exist and fill missing with False
+    for col in ['is_past', 'is_summary', 'is_today']:
+        if col not in grid_df.columns:
+            grid_df[col] = False
+        else:
+            grid_df[col] = grid_df[col].fillna(False)
     # Debug: show grid_df and which rows are selectable
     if _is_debug():
         st.write('grid_df for AgGrid:')
