@@ -1443,6 +1443,7 @@ def show_training_plan_table(settings):
             "Week": int(wk),
             "is_summary": True,
             "is_today": False,
+            "is_past": False,
             "Date": None,
             "Day": f"Week {int(wk)} Summary",
             "Activity": f"Total planned miles: {planned_sum:.1f} mi",
