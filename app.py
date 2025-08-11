@@ -1450,8 +1450,14 @@ def show_training_plan_table(settings):
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
     gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
-    # Force checkbox on the Date column (first visible col)
-    gb.configure_column("Date", header_name="Date", width=90, checkboxSelection=True)
+    # Force checkbox on the Date column (first visible col) with tooltip/icon
+    gb.configure_column(
+        "Date",
+        header_name="Date ⓘ",
+        headerTooltip="Calendar date (MM-DD). Use the checkbox to select rows for swapping.",
+        width=100,
+        checkboxSelection=True,
+    )
     # Add informative tooltip to Suggested Pace column
     pace_tip = (
         "For multi-segment workouts, the pace shown reflects the working segment. "
@@ -1539,6 +1545,7 @@ def show_training_plan_table(settings):
                             d1 = datetime.strptime(sel[0]["DateISO"], "%Y-%m-%d").date()
                             d2 = datetime.strptime(sel[1]["DateISO"], "%Y-%m-%d").date()
                             swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                            st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Swap failed: {e}")
