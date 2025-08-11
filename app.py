@@ -1558,10 +1558,14 @@ def show_training_plan_table(settings):
         sel_now = []
 
     # Filter out summary and past rows from selection
-    sel_now = [r for r in sel_now if not r.get("is_summary") and not r.get("is_past")]
+    sel_now = [r for r in sel_now if not r.get("is_summary") and not r.get("is_past") and r.get("DateISO")]  # must have DateISO
+    # Only update session selection if non-empty, otherwise preserve previous
     if len(sel_now) > 0:
         st.session_state.plan_grid_sel = sel_now
     current_sel = st.session_state.plan_grid_sel
+    # Debug: show what is being selected
+    if _is_debug():
+        st.info(f"Selected rows: {current_sel}")
 
     # Render the top action bar now that we have (persisted) selection info
     with top_bar:
