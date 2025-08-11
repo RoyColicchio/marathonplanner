@@ -1190,8 +1190,12 @@ def _plan_signature(settings: dict) -> str:
 def _get_overrides_for_plan(settings: dict) -> dict:
     try:
         sig = _plan_signature(settings)
+        # Prefer in-memory session overrides for immediate effect
+        sess = (st.session_state.get("plan_overrides_by_plan", {}) or {}).get(sig, {})
         by_plan = settings.get("overrides_by_plan", {}) or {}
-        return by_plan.get(sig, {}) or {}
+        saved = by_plan.get(sig, {}) or {}
+        # Session overrides win over saved
+        return {**saved, **sess}
     except Exception:
         return {}
 
@@ -1202,6 +1206,10 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
         by_plan = settings.get("overrides_by_plan", {}) or {}
         by_plan[sig] = overrides
         settings["overrides_by_plan"] = by_plan
+        # Mirror into session_state for immediate UI update
+        store = st.session_state.get("plan_overrides_by_plan", {}) or {}
+        store[sig] = overrides
+        st.session_state["plan_overrides_by_plan"] = store
         save_user_settings(user_hash, settings)
     except Exception as e:
         st.error(f"Error saving overrides: {e}")
@@ -1389,6 +1397,9 @@ def show_training_plan_table(settings):
         merged_df["Actual Miles"] = None
         merged_df["Actual Pace"] = None
 
+    # Reapply overrides to ensure the displayed table reflects latest swaps
+    merged_df = apply_plan_overrides(merged_df, settings)
+
     gmp_sec = marathon_pace_seconds(goal_time)
     merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
 
@@ -1554,7 +1565,9 @@ def show_training_plan_table(settings):
                             d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
                             d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
                             swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                            st.session_state.plan_grid_sel = []  # clear selection after swap
+                            # Force immediate reflect by reapplying overrides in-session
+                            tmp = apply_plan_overrides(plan_df.copy(), settings)
+                            st.session_state.plan_grid_sel = []
                             st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
                             st.rerun()
                         except Exception as e:
