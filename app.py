@@ -1248,10 +1248,16 @@ def _override_payload_from_row(row: pd.Series) -> dict:
 
 def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a, date_b):
     try:
+        # Use merged_df with DateISO to ensure correct row selection
         df = plan_df.copy()
         df["Date"] = pd.to_datetime(df["Date"]).dt.date
-        row_a = df[df["Date"] == date_a]
-        row_b = df[df["Date"] == date_b]
+        # If DateISO exists, use it for robust matching
+        if "DateISO" in df.columns:
+            row_a = df[df["DateISO"] == date_a.strftime("%Y-%m-%d")]
+            row_b = df[df["DateISO"] == date_b.strftime("%Y-%m-%d")]
+        else:
+            row_a = df[df["Date"] == date_a]
+            row_b = df[df["Date"] == date_b]
         if row_a.empty or row_b.empty:
             st.warning("Selected dates are not in the plan.")
             return
@@ -1261,7 +1267,7 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         overrides[date_a.strftime("%Y-%m-%d")] = pb
         overrides[date_b.strftime("%Y-%m-%d")] = pa
         _save_overrides_for_plan(user_hash, settings, overrides)
-        st.success(f"Swapped {date_a.strftime('%a %m-%d')} and {date_b.strftime('%a %m-%d')}.")
+        st.success(f"Swapped {date_a.strftime('%a %m-%d')} and {date_b.strftime('%a %m-%d')}")
     except Exception as e:
         st.error(f"Swap failed: {e}")
 
