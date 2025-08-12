@@ -1525,23 +1525,49 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             a_mask = (plan_df['Date'] == date_a)
             b_mask = (plan_df['Date'] == date_b)
             
+        if _is_debug():
+            st.write(f"**Direct DataFrame update - rows found:**")
+            st.write(f"- Day A ({date_a_str}): {a_mask.sum()} rows")
+            st.write(f"- Day B ({date_b_str}): {b_mask.sum()} rows")
+            
         # Swap the values directly in the DataFrame for each field
         for field in workout_fields:
             if field in plan_df.columns:
-                # Save the original values
-                a_val = plan_df.loc[a_mask, field].values[0] if any(a_mask) else None
-                b_val = plan_df.loc[b_mask, field].values[0] if any(b_mask) else None
-                
-                # Swap them if both exist
-                if a_val is not None and b_val is not None:
-                    plan_df.loc[a_mask, field] = b_val
-                    plan_df.loc[b_mask, field] = a_val
+                try:
+                    # Save the original values
+                    a_val = plan_df.loc[a_mask, field].values[0] if any(a_mask) else None
+                    b_val = plan_df.loc[b_mask, field].values[0] if any(b_mask) else None
                     
                     if _is_debug():
-                        st.write(f"**Directly swapped {field} in DataFrame**")
+                        st.write(f"**Swapping field {field}:** {a_val} ↔ {b_val}")
+                    
+                    # Swap them if both exist
+                    if a_val is not None and b_val is not None:
+                        plan_df.loc[a_mask, field] = b_val
+                        plan_df.loc[b_mask, field] = a_val
+                        
+                        if _is_debug():
+                            st.write(f"**✓ Successfully swapped {field} in DataFrame**")
+                    else:
+                        if _is_debug():
+                            st.write(f"**✗ Could not swap {field} - missing values**")
+                except Exception as e:
+                    if _is_debug():
+                        st.write(f"**✗ Error swapping {field}: {e}**")
         
         if _is_debug():
             st.write("**SWAP SUCCESS:**", f"Swapped {date_a_str} and {date_b_str}")
+            
+            # Show the plan DataFrame with updates
+            st.write("**Plan DataFrame after direct update:**")
+            display_df = plan_df.copy()
+            if 'DateISO' in display_df.columns:
+                display_df['Date_Highlighted'] = display_df.apply(
+                    lambda row: f"**{row['Date']}**" if row['DateISO'] in [date_a_str, date_b_str] else row['Date'], 
+                    axis=1
+                )
+                display_cols = ['Date_Highlighted', 'DateISO', 'Activity', 'Plan_Miles']
+                st.dataframe(display_df[display_cols])
         
         # Log success
         st.success(f"Swapped {date_a.strftime('%a %m-%d')} and {date_b.strftime('%a %m-%d')}")
@@ -1912,18 +1938,25 @@ def show_training_plan_table(settings):
 
     # Filter out summary and past rows from selection
     sel_now = [r for r in sel_now if not r.get("is_summary") and not r.get("is_past") and r.get("DateISO")]  # must have DateISO
+    
+    # Debug the selected rows before updating session state
+    if _is_debug():
+        st.write("**Current selection from grid:**", sel_now)
+        
     # Only update session selection if non-empty, otherwise preserve previous
     if len(sel_now) > 0:
         st.session_state.plan_grid_sel = sel_now
+        
     current_sel = st.session_state.get("plan_grid_sel", [])
+    
     # Debug: show what is being selected
     if _is_debug():
-        st.info(f"Selected rows: {current_sel}")
+        st.info(f"Selected rows (persisted in session): {current_sel}")
         
         # Show override debug info
-        if st.session_state.get("_debug_overrides"):
+        if st.session_state.get("_debug_overrides") is not None:
             st.write("### Debug: Swap Information")
-            st.write("**Current overrides:**", st.session_state["_debug_overrides"])
+            st.write("**Current overrides (processed):**", st.session_state["_debug_overrides"])
             
         if st.session_state.get("_debug_override_source"):
             st.write("**Override sources:**", st.session_state["_debug_override_source"])
@@ -1944,35 +1977,67 @@ def show_training_plan_table(settings):
     with top_bar:
         c1, c2 = st.columns([1, 6])
         with c1:
-            if st.button("Swap selected", use_container_width=True):
+            swap_button = st.button("Swap selected", use_container_width=True)
+            if swap_button:
+                if _is_debug():
+                    st.write("### Swap button clicked")
+                    st.write(f"Current selection: {current_sel}")
+                    
                 if len(current_sel) != 2:
                     st.warning("Select exactly two days.")
                 elif any(r.get("is_past") for r in current_sel):
                     st.warning("You can only swap today or future activities.")
                 else:
                     # Enforce same-week
-                    if int(current_sel[0].get("Week")) != int(current_sel[1].get("Week")):
-                        st.warning("Please select two days from the same week.")
-                    else:
-                        try:
-                            d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
-                            d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
+                    try:
+                        week1 = int(current_sel[0].get("Week", "0"))
+                        week2 = int(current_sel[1].get("Week", "0"))
+                        
+                        if _is_debug():
+                            st.write(f"Week numbers: {week1} and {week2}")
                             
-                            # Perform the swap and clear selection
-                            success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                            st.session_state.plan_grid_sel = []
-                            
-                            # Force reload of the page to show updated plan
-                            if success:
-                                # Set both flags to force refresh
-                                st.session_state["plan_needs_refresh"] = True
-                                st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
-                                st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
-                                st.rerun()
-                            else:
-                                st.error("Swap failed. Check debug output for details.")
-                        except Exception as e:
-                            st.error(f"Swap failed: {e}")
+                        if week1 != week2:
+                            st.warning("Please select two days from the same week.")
+                        else:
+                            try:
+                                if _is_debug():
+                                    st.write(f"DateISO values: {current_sel[0].get('DateISO')} and {current_sel[1].get('DateISO')}")
+                                    
+                                d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
+                                d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
+                                
+                                if _is_debug():
+                                    st.write(f"Parsed dates: {d1} and {d2}")
+                                
+                                # Perform the swap and clear selection
+                                success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                                
+                                # Clear selection after swap
+                                st.session_state.plan_grid_sel = []
+                                
+                                # Force reload of the page to show updated plan
+                                if success:
+                                    # Set both flags to force refresh
+                                    st.session_state["plan_needs_refresh"] = True
+                                    st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
+                                    
+                                    if _is_debug():
+                                        st.write("**SWAP SUCCESS - RERUNNING PAGE**")
+                                        
+                                    st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
+                                    st.rerun()
+                                else:
+                                    st.error("Swap failed. Check debug output for details.")
+                            except Exception as e:
+                                st.error(f"Swap failed during date processing: {e}")
+                                if _is_debug():
+                                    import traceback
+                                    st.code(traceback.format_exc())
+                    except Exception as e:
+                        st.error(f"Swap failed during week validation: {e}")
+                        if _is_debug():
+                            import traceback
+                            st.code(traceback.format_exc())
         with c2:
             st.caption("Tip: select two days in the same week to swap their planned workouts. Weekly summary rows are not selectable.")
 
