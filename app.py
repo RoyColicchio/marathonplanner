@@ -1991,6 +1991,27 @@ def show_training_plan_table(settings):
     grid_options = gb.build()
 
     st.markdown('<div class="mp-card">', unsafe_allow_html=True)
+    
+    # Determine if we have pre-selected rows
+    pre_selected_rows = []
+    if st.session_state.get("plan_grid_sel"):
+        # Need to find the row indices in the grid_df that match the selected rows
+        for sel in st.session_state["plan_grid_sel"]:
+            date_iso = sel.get("DateISO")
+            if date_iso:
+                # Find the matching row indices
+                matches = grid_df.index[grid_df['DateISO'] == date_iso].tolist()
+                if matches:
+                    pre_selected_rows.extend(matches)
+                    
+        if _is_debug() and pre_selected_rows:
+            st.write(f"Pre-selecting rows at indices: {pre_selected_rows}")
+            
+    # Update grid options with pre-selected rows
+    grid_options = gb.build()
+    if pre_selected_rows:
+        grid_options['preSelectedRows'] = pre_selected_rows
+    
     grid_resp = AgGrid(
         grid_df,
         gridOptions=grid_options,
@@ -1998,10 +2019,10 @@ def show_training_plan_table(settings):
         fit_columns_on_grid_load=True,
         height=600,
         data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
         enable_enterprise_modules=False,
         theme="streamlit",
-        key="plan_grid",
+        key=f"plan_grid_{datetime.now().strftime('%H%M%S%f')}",  # Unique key to force refresh
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -2012,9 +2033,37 @@ def show_training_plan_table(settings):
     # Process selection from grid response
     sel_now = []
     try:
-        if isinstance(grid_resp, dict):
+        # First check if selection exists in session state
+        if "plan_grid_sel" in st.session_state and st.session_state.plan_grid_sel:
+            sel_now = st.session_state.plan_grid_sel
             if _is_debug():
-                st.write("### Grid Response Analysis")
+                st.write("### Using existing selection from session state")
+                st.write(f"Found {len(sel_now)} rows in session state")
+        
+        # Special handling for AgGridReturn object
+        if hasattr(grid_resp, 'selected_rows'):
+            if _is_debug():
+                st.write("### AgGridReturn object detected")
+                st.write(f"Type: {type(grid_resp)}")
+                
+            sr = grid_resp.selected_rows
+            if sr:
+                if _is_debug():
+                    st.write(f"selected_rows type: {type(sr)}")
+                    st.write(f"selected_rows content: {sr}")
+                
+                if isinstance(sr, pd.DataFrame):
+                    sel_now = sr.to_dict("records")
+                elif isinstance(sr, list):
+                    sel_now = sr
+                
+                if _is_debug():
+                    st.write(f"Processed {len(sel_now)} selected rows from AgGridReturn")
+        
+        # Traditional dict response handling
+        elif isinstance(grid_resp, dict):
+            if _is_debug():
+                st.write("### Grid Response Analysis (dict)")
                 st.write(f"Grid response keys: {list(grid_resp.keys())}")
                 
             if "selected_rows" in grid_resp and grid_resp["selected_rows"]:
@@ -2029,65 +2078,40 @@ def show_training_plan_table(settings):
                 elif isinstance(sr, list):
                     sel_now = sr
                     
-                # Log what got filtered out
                 if _is_debug():
-                    st.write("### Selection filtering analysis")
-                    for i, row in enumerate(sel_now):
-                        st.write(f"Row {i} before filtering:")
-                        st.write(f"- DateISO: {row.get('DateISO', 'MISSING')}")
-                        st.write(f"- Week: {row.get('Week', 'MISSING')}")
-                        st.write(f"- is_summary: {row.get('is_summary', 'MISSING')}")
-                        st.write(f"- is_past: {row.get('is_past', 'MISSING')}")
-                        
-                # Keep only rows that are not summary rows and not past
-                sel_now = [
-                    r for r in sel_now 
-                    if r.get("DateISO") and not r.get("is_summary", False) and not r.get("is_past", False)
-                ]
-                
-                if _is_debug():
-                    st.write(f"After filtering: {len(sel_now)} rows remain")
-            else:
-                if _is_debug():
-                    if "selected_rows" in grid_resp:
-                        st.write("'selected_rows' exists but is empty")
-                    else:
-                        st.write("No 'selected_rows' key in grid_resp")
-                        
-            # Also check the data field for selection info (sometimes needed)
-            if not sel_now and "data" in grid_resp and isinstance(grid_resp["data"], pd.DataFrame):
-                if _is_debug():
-                    st.write("Checking 'data' field for selection")
-                    
-                data_df = grid_resp["data"]
-                if "_selectedRowNodeInfo" in data_df.columns:
-                    selected_data = data_df[data_df["_selectedRowNodeInfo"].notna()]
-                    if not selected_data.empty:
-                        sel_now = selected_data.to_dict("records")
-                        if _is_debug():
-                            st.write(f"Found {len(sel_now)} selected rows in data field")
-            
-            # Always update session state with current selection
-            if sel_now:
-                st.session_state.plan_grid_sel = sel_now
-                if _is_debug():
-                    st.write(f"Updated session state with {len(sel_now)} selected rows")
-            
-        else:
+                    st.write(f"Processed {len(sel_now)} selected rows from dict")
+        
+        # Keep only rows that are not summary rows and not past
+        filtered_sel = []
+        if sel_now:
             if _is_debug():
-                st.write("### Grid Response is not a dict")
-                st.write(f"Type: {type(grid_resp)}")
+                st.write("### Selection filtering")
+                st.write(f"Before filtering: {len(sel_now)} rows")
+                
+            for r in sel_now:
+                if not r.get("is_summary", False) and not r.get("is_past", False) and r.get("DateISO"):
+                    filtered_sel.append(r)
+                elif _is_debug():
+                    st.write(f"Filtered out row: {r.get('Date')} ({r.get('DateISO')})")
+                    st.write(f"- is_summary: {r.get('is_summary')}")
+                    st.write(f"- is_past: {r.get('is_past')}")
+                    st.write(f"- has DateISO: {bool(r.get('DateISO'))}")
+                    
+            sel_now = filtered_sel
+            if _is_debug():
+                st.write(f"After filtering: {len(sel_now)} rows")
+        
+        # Always update session state if we have a valid selection
+        if sel_now:
+            st.session_state.plan_grid_sel = sel_now
+            if _is_debug():
+                st.write(f"Updated session state with {len(sel_now)} selected rows")
+                
     except Exception as e:
         if _is_debug():
             st.write(f"### Error in Selection Processing: {e}")
             import traceback
             st.code(traceback.format_exc())
-        
-    # If no selection was found in this run, check session state
-    if not sel_now and "plan_grid_sel" in st.session_state:
-        sel_now = st.session_state.plan_grid_sel
-        if _is_debug():
-            st.write(f"Using {len(sel_now)} rows from session state")
             
     # Debug the final selection
     if _is_debug():
@@ -2095,6 +2119,39 @@ def show_training_plan_table(settings):
         
     # Always use the final selection
     current_sel = sel_now
+    
+    # Selection indicator - make it very visible
+    if current_sel:
+        with st.sidebar:
+            st.subheader("🔄 Selected for Swap")
+            for i, row in enumerate(current_sel):
+                col = "🟢" if i < 2 else "🟠"  # Green for first two, orange for extras
+                st.markdown(f"{col} **{row.get('Day', 'Unknown')} {row.get('Date', 'Unknown')}**: {row.get('Activity', 'Unknown')}")
+            
+            if len(current_sel) == 2:
+                if st.button("Confirm Swap", key="sidebar_swap", use_container_width=True):
+                    # Same swap logic as the main button
+                    try:
+                        d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
+                        d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
+                        
+                        # Perform the swap and clear selection
+                        success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                        
+                        # Clear selection after swap
+                        st.session_state.plan_grid_sel = []
+                        
+                        # Force reload of the page to show updated plan
+                        if success:
+                            # Set both flags to force refresh
+                            st.session_state["plan_needs_refresh"] = True
+                            st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
+                            st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Swap failed: {e}")
+            elif len(current_sel) > 2:
+                st.warning("Please select exactly 2 days to swap")
     
     # Debug: show what is being selected
     if _is_debug():
