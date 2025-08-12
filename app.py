@@ -1230,9 +1230,10 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
                 continue
             mask = (out["Date"] == dt) if "Date" in out.columns else None
             if mask is not None and mask.any():
-                for k in ("Activity_Abbr", "Activity", "Plan_Miles"):
-                    if k in out.columns and k in payload:
-                        out.loc[mask, k] = payload[k]
+                # Update all relevant display fields if present in payload
+                for k, v in payload.items():
+                    if k in out.columns:
+                        out.loc[mask, k] = v
         return out
     except Exception:
         return plan_df
@@ -1261,8 +1262,10 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         if row_a.empty or row_b.empty:
             st.warning("Selected dates are not in the plan.")
             return
-        pa = _override_payload_from_row(row_a.iloc[0])
-        pb = _override_payload_from_row(row_b.iloc[0])
+        # Only swap workout fields, not date/day
+        workout_fields = ["Activity_Abbr", "Activity", "Plan_Miles"]
+        pa = {k: row_a.iloc[0].get(k, None) for k in workout_fields}
+        pb = {k: row_b.iloc[0].get(k, None) for k in workout_fields}
         overrides = _get_overrides_for_plan(settings)
         overrides[date_a.strftime("%Y-%m-%d")] = pb
         overrides[date_b.strftime("%Y-%m-%d")] = pa
