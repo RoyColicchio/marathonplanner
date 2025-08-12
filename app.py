@@ -2036,31 +2036,37 @@ def show_training_plan_table(settings):
     # Track current selections
     current_selections = [r.get('DateISO') for r in st.session_state.get('plan_grid_sel', [])]
     
-    # Create a container for the selection UI with a clear title
+    # Create a container for the selection UI with a clean, modern design
     selection_container = st.container()
     
     with selection_container:
-        st.markdown("### 🔄 Select Days to Swap")
-        st.caption("Choose exactly two days from the same week to swap their workouts.")
+        # Use a card-like container for the swap functionality
+        st.markdown("""
+        <style>
+        .swap-card {
+            border: 1px solid rgba(49, 51, 63, 0.2);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            background-color: rgba(247, 248, 249, 0.8);
+        }
+        </style>
+        <div class="swap-card">
+        """, unsafe_allow_html=True)
         
-        # Display a visual indicator of how many days are selected
+        st.markdown("### 🔄 Swap Training Days")
+        st.write("Select two days from the same week to swap their workouts.")
+        
+        # Calculate selection count
         selected_count = len(current_selections)
-        col1, col2, col3 = st.columns(3)
+        
+        # Create a clean status display
+        col1, col2 = st.columns([1, 3])
         with col1:
-            st.metric("Days Selected", f"{selected_count}/2", delta=None)
+            st.metric("Selected", f"{selected_count}/2", delta=None)
             
         with col2:
-            # Show status indicator based on selection count
-            if selected_count == 0:
-                st.info("Select two days to swap")
-            elif selected_count == 1:
-                st.info("Select one more day")
-            elif selected_count == 2:
-                st.success("Ready to swap!")
-            else:
-                st.warning("Too many days selected")
-                
-        with col3:
+            # Only show the swap/clear buttons when we have selections
             if selected_count == 2:
                 # Check same week requirement
                 try:
@@ -2071,15 +2077,20 @@ def show_training_plan_table(settings):
                     same_week = False
                     
                 if same_week:
-                    # Create a separate form for the swap button to avoid unwanted re-renders
-                    with st.form(key="swap_form"):
-                        st.write("✅ Ready to swap these days:")
-                        st.write(f"1. **{st.session_state.plan_grid_sel[0].get('Day')} {st.session_state.plan_grid_sel[0].get('Date')}**: {st.session_state.plan_grid_sel[0].get('Activity')}")
-                        st.write(f"2. **{st.session_state.plan_grid_sel[1].get('Day')} {st.session_state.plan_grid_sel[1].get('Date')}**: {st.session_state.plan_grid_sel[1].get('Activity')}")
-                        
-                        swap_submitted = st.form_submit_button("Swap Selected Days", type="primary", use_container_width=True)
-                        
-                        if swap_submitted:
+                    # Create a clean swap interface
+                    swap_col1, swap_col2 = st.columns([3, 1])
+                    with swap_col1:
+                        st.success("✓ Selected days are in the same week")
+                        st.write("**Days to swap:**")
+                        st.markdown(f"1. **{st.session_state.plan_grid_sel[0].get('Day')} {st.session_state.plan_grid_sel[0].get('Date')}**: {st.session_state.plan_grid_sel[0].get('Activity')}")
+                        st.markdown(f"2. **{st.session_state.plan_grid_sel[1].get('Day')} {st.session_state.plan_grid_sel[1].get('Date')}**: {st.session_state.plan_grid_sel[1].get('Activity')}")
+                    
+                    with swap_col2:
+                        # Add some spacing to align button with content
+                        st.write("")
+                        st.write("")
+                        # Use a regular button for better UI flow
+                        if st.button("Swap These Days", type="primary", key="swap_btn", use_container_width=True):
                             try:
                                 # Make sure we have the user_hash for the swap operation
                                 d1 = datetime.strptime(st.session_state.plan_grid_sel[0].get("DateISO"), "%Y-%m-%d").date()
@@ -2100,58 +2111,80 @@ def show_training_plan_table(settings):
                                     st.rerun()
                             except Exception as e:
                                 st.error(f"Swap failed: {e}")
+                        
+                        # Add a clear button
+                        if st.button("Clear Selection", key="clear_btn", use_container_width=True):
+                            st.session_state.plan_grid_sel = []
+                            st.rerun()
                 else:
-                    st.warning("Selected days must be in the same week")
-            else:
-                with st.form(key="clear_form"):
-                    st.write("Clear your current selection?")
-                    if st.form_submit_button("Clear Selection", use_container_width=True):
+                    st.error("⚠️ Selected days must be in the same week")
+                    # Add a clear button
+                    if st.button("Clear Selection", key="clear_btn_error", use_container_width=True):
                         st.session_state.plan_grid_sel = []
                         st.rerun()
+            elif selected_count > 0:
+                st.info(f"Select {2-selected_count} more day{'s' if 2-selected_count > 1 else ''} from the same week")
+                # Add a clear button if we have any selections
+                if st.button("Clear Selection", key="clear_btn_partial", use_container_width=True):
+                    st.session_state.plan_grid_sel = []
+                    st.rerun()
         
-        # Display the weeks with selectable days
-        st.markdown("#### Select days to swap:")
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        # Show week-by-week training days that can be selected
+        days_tabs = st.tabs([f"Week {week}" for week, _ in week_groups])
         
         # Track if selection has changed to avoid unnecessary reruns
         selection_changed = False
         
-        for week_num, group in week_groups:
-            week_expanded = len(current_selections) == 0 or any(row['DateISO'] in current_selections for _, row in group.iterrows())
-            
-            with st.expander(f"Week {week_num}", expanded=week_expanded):
-                for _, row in group.iterrows():
-                    date_iso = row['DateISO']
-                    label = f"{row['Day']} {row['Date']}: {row['Activity']}"
-                    is_selected = date_iso in current_selections
-                    
-                    # Use checkbox without immediate rerun
-                    checkbox_selected = st.checkbox(label, value=is_selected, key=f"sel_{date_iso}")
-                    
-                    # Handle selection state changes
-                    if checkbox_selected and not is_selected:
-                        # Add to selection if not already there
-                        if 'plan_grid_sel' not in st.session_state:
-                            st.session_state.plan_grid_sel = []
+        for i, (week_num, group) in enumerate(week_groups):
+            with days_tabs[i]:
+                st.write(f"Select training days from Week {week_num}:")
+                
+                # Create a clean grid layout for the days
+                cols = st.columns(min(3, len(group)))
+                for j, (_, row) in enumerate(group.iterrows()):
+                    col_idx = j % len(cols)
+                    with cols[col_idx]:
+                        date_iso = row['DateISO']
+                        label = f"{row['Day']} {row['Date']}"
+                        description = row['Activity']
+                        is_selected = date_iso in current_selections
                         
-                        # Get the full row data and add it
-                        row_data = row.to_dict()
-                        st.session_state.plan_grid_sel.append(row_data)
-                        selection_changed = True
+                        # Create a more compact checkbox with better formatting
+                        checkbox_selected = st.checkbox(label, value=is_selected, key=f"sel_{date_iso}")
                         
-                    elif not checkbox_selected and is_selected:
-                        # Remove from selection
-                        st.session_state.plan_grid_sel = [
-                            r for r in st.session_state.get('plan_grid_sel', []) 
-                            if r.get('DateISO') != date_iso
-                        ]
-                        selection_changed = True
+                        # Handle selection state changes
+                        if checkbox_selected and not is_selected:
+                            # Add to selection if not already there
+                            if 'plan_grid_sel' not in st.session_state:
+                                st.session_state.plan_grid_sel = []
+                            
+                            # Get the full row data and add it
+                            row_data = row.to_dict()
+                            st.session_state.plan_grid_sel.append(row_data)
+                            selection_changed = True
+                            
+                        elif not checkbox_selected and is_selected:
+                            # Remove from selection
+                            st.session_state.plan_grid_sel = [
+                                r for r in st.session_state.get('plan_grid_sel', []) 
+                                if r.get('DateISO') != date_iso
+                            ]
+                            selection_changed = True
+                        
+                        # Show the workout description below the checkbox
+                        st.caption(description)
+        
+        # Close the card container
+        st.markdown("</div>", unsafe_allow_html=True)
         
         # Only rerun once after all checkboxes are processed, and only if something changed
         if selection_changed:
             # Check if we've reached exactly 2 selections after the changes
             if len(st.session_state.get('plan_grid_sel', [])) == 2:
                 # Don't rerun immediately - let the user see both selections
-                st.info("Two days selected. Ready to swap!")
+                st.success("Two days selected! Use the buttons above to swap or clear.")
             else:
                 # Rerun to update the UI for other selection counts
                 st.rerun()
