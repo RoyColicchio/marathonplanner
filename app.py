@@ -328,20 +328,7 @@ def get_strava_credentials():
     if not client_secret:
         client_secret = os.getenv("STRAVA_CLIENT_SECRET")
 
-    # Debug output - let's know where we found credentials
-    sources = []
-    if st.secrets.get("strava"):
-        sources.append("st.secrets[strava]")
-    elif st.secrets.get("strava_client_id"):
-        sources.append("st.secrets (top level)")
-    elif os.path.exists(os.path.join(os.getcwd(), ".streamlit", "secrets.toml")):
-        sources.append("secrets.toml file")
-    elif os.path.exists(os.path.join(os.getcwd(), "secrets.json")):
-        sources.append("secrets.json file")
-    elif os.getenv("STRAVA_CLIENT_ID"):
-        sources.append("environment variables")
-    if sources:
-        st.caption(f"Strava credentials found in: {', '.join(sources)}")
+    # We could add debug output here if needed in the future
     
     # Normalize
     if isinstance(client_id, str):
@@ -830,18 +817,8 @@ def get_strava_auth_url():
         client_id, client_secret = get_strava_credentials()
         if not client_id or not client_secret:
             st.error("Missing Strava client_id/client_secret. Add them to secrets or env.")
-            try:
-                st.caption(f"Available secret keys: {list(st.secrets.keys())}")
-                if 'strava' in st.secrets:
-                    st.caption(f"Strava section keys: {list(st.secrets.strava.keys())}")
-                else:
-                    st.caption("No 'strava' section found in secrets")
-            except Exception as e:
-                st.caption(f"Error inspecting secrets: {str(e)}")
+            # We don't want to expose secret keys information to users
             return None
-
-        # Debug output
-        st.caption(f"Using Strava client_id: {client_id[:4]}... (truncated)")
         
         scope = "read,activity:read_all"
         params = {
