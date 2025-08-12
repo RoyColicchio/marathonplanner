@@ -668,14 +668,48 @@ def load_user_settings(user_hash):
     """Load user-specific settings from JSON file."""
     try:
         settings_path = Path("user_settings.json")
+        settings = {}
+        
         if settings_path.exists():
             with settings_path.open("r") as f:
                 all_settings = json.load(f)
-            return all_settings.get(user_hash, {})
-        return {}
+            settings = all_settings.get(user_hash, {})
+        
+        # Initialize default settings structure if missing keys
+        if "goal_time" not in settings:
+            settings["goal_time"] = "4:00:00"
+            
+        if "start_date" not in settings:
+            settings["start_date"] = datetime.now().strftime("%Y-%m-%d")
+            
+        if "plan_file" not in settings:
+            settings["plan_file"] = "run_plan.csv"
+            
+        # Make sure overrides structure exists
+        if "overrides_by_plan" not in settings:
+            settings["overrides_by_plan"] = {}
+            
+        # Ensure plan signature exists as a key in overrides_by_plan
+        plan_sig = _plan_signature(settings)
+        if plan_sig not in settings["overrides_by_plan"]:
+            settings["overrides_by_plan"][plan_sig] = {}
+            
+        # Also initialize session state if needed
+        if "plan_overrides_by_plan" not in st.session_state:
+            st.session_state["plan_overrides_by_plan"] = {}
+            
+        if plan_sig not in st.session_state.get("plan_overrides_by_plan", {}):
+            st.session_state["plan_overrides_by_plan"][plan_sig] = {}
+            
+        return settings
     except Exception as e:
         st.error(f"Error loading user settings: {e}")
-        return {}
+        return {
+            "goal_time": "4:00:00",
+            "start_date": datetime.now().strftime("%Y-%m-%d"),
+            "plan_file": "run_plan.csv",
+            "overrides_by_plan": {}
+        }
 
 
 def save_user_settings(user_hash, settings):
