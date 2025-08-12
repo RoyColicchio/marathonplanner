@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import sys
+import numpy as np
 
 # Enable debugging if needed - for local development only
 DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
@@ -1557,11 +1558,22 @@ def show_training_plan_table(settings):
             grid_df[col] = False
         else:
             grid_df[col] = grid_df[col].fillna(False)
+            
+    # Make sure DateISO column exists
+    if 'DateISO' not in grid_df.columns:
+        grid_df['DateISO'] = ''
+        
     # Debug: show grid_df and which rows are selectable
     if _is_debug():
         st.write('grid_df for AgGrid:')
         st.dataframe(grid_df)
-        selectable_rows = grid_df[(grid_df['is_summary'] == False) & (grid_df['is_past'] == False) & (grid_df['DateISO'] != '')]
+        # Only filter on columns we're sure exist
+        selectable_filters = [(grid_df['is_summary'] == False)]
+        if 'is_past' in grid_df.columns:
+            selectable_filters.append(grid_df['is_past'] == False)
+        if 'DateISO' in grid_df.columns:
+            selectable_filters.append(grid_df['DateISO'] != '')
+        selectable_rows = grid_df[np.logical_and.reduce(selectable_filters)]
         st.write(f"Selectable rows (should be today/future, not summary): {len(selectable_rows)}")
         st.dataframe(selectable_rows)
 
@@ -1593,20 +1605,24 @@ def show_training_plan_table(settings):
             """
             function (params) {
                 // Only allow selection for non-summary, non-past rows
-                return !params.data.is_summary && !params.data.is_past;
+                if (!params.data) return false;
+                const isSummary = params.data.is_summary === true;
+                const isPast = params.data.is_past === true;
+                return !isSummary && !isPast;
             }
             """
         ),
         getRowStyle=JsCode(
             """
             function (params) {
-              if (params.data && params.data.is_summary) {
+              if (!params.data) return null;
+              if (params.data.is_summary === true) {
                 return {fontWeight: '700', backgroundColor: 'rgba(34,197,94,0.10)'};
               }
-              if (params.data && params.data.is_today) {
+              if (params.data.is_today === true) {
                 return {fontStyle: 'italic', backgroundColor: 'rgba(6,182,212,0.12)'};
               }
-              if (params.data && params.data.is_past) {
+              if (params.data.is_past === true) {
                 return {color: '#888', backgroundColor: 'rgba(100,100,100,0.07)'};
               }
               return null;
