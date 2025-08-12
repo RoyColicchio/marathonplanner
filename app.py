@@ -1248,23 +1248,43 @@ def _get_overrides_for_plan(settings: dict) -> dict:
     try:
         sig = _plan_signature(settings)
         
-        # Get session overrides
-        session_overrides = st.session_state.get("plan_overrides_by_plan", {}) or {}
-        sess = session_overrides.get(sig, {}) or {}
+        if _is_debug():
+            st.write("### _get_overrides_for_plan debug")
+            st.write(f"Plan signature: {sig}")
+            st.write(f"Settings contains overrides_by_plan: {'overrides_by_plan' in settings}")
+            st.write(f"Settings overrides_by_plan type: {type(settings.get('overrides_by_plan', {}))}")
+            st.write(f"Settings overrides_by_plan: {settings.get('overrides_by_plan', {})}")
+            st.write(f"Session has plan_overrides_by_plan: {'plan_overrides_by_plan' in st.session_state}")
+            if 'plan_overrides_by_plan' in st.session_state:
+                st.write(f"Session plan_overrides_by_plan type: {type(st.session_state['plan_overrides_by_plan'])}")
+                st.write(f"Session plan_overrides_by_plan: {st.session_state['plan_overrides_by_plan']}")
         
-        # Get saved overrides from settings
-        by_plan = settings.get("overrides_by_plan", {}) or {}
-        saved = by_plan.get(sig, {}) or {}
+        # Get session overrides - simplified logic
+        session_overrides = {}
+        if 'plan_overrides_by_plan' in st.session_state:
+            if sig in st.session_state['plan_overrides_by_plan']:
+                session_overrides = st.session_state['plan_overrides_by_plan'][sig] or {}
+        
+        # Get saved overrides from settings - simplified logic
+        saved_overrides = {}
+        if 'overrides_by_plan' in settings:
+            if sig in settings['overrides_by_plan']:
+                saved_overrides = settings['overrides_by_plan'][sig] or {}
         
         # Combine them, session overrides win
-        combined = {**saved, **sess}
+        combined = {**saved_overrides, **session_overrides}
+        
+        if _is_debug():
+            st.write(f"Session overrides: {session_overrides}")
+            st.write(f"Saved overrides: {saved_overrides}")
+            st.write(f"Combined overrides: {combined}")
         
         # Debug output
         if _is_debug():
             st.session_state["_debug_override_source"] = {
                 "sig": sig,
-                "session": sess,
-                "saved": saved,
+                "session": session_overrides,
+                "saved": saved_overrides,
                 "combined": combined
             }
             
@@ -1272,6 +1292,8 @@ def _get_overrides_for_plan(settings: dict) -> dict:
     except Exception as e:
         if _is_debug():
             st.error(f"Error getting overrides: {e}")
+            import traceback
+            st.code(traceback.format_exc())
         return {}
 
 
@@ -1280,10 +1302,19 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
     try:
         sig = _plan_signature(settings)
         
+        if _is_debug():
+            st.write("### _save_overrides_for_plan debug")
+            st.write(f"Signature: {sig}")
+            st.write(f"Overrides to save: {overrides}")
+            st.write(f"Settings before update: {settings.get('overrides_by_plan', {})}")
+        
         # First update the settings dictionary
         by_plan = settings.get("overrides_by_plan", {}) or {}
         by_plan[sig] = overrides
         settings["overrides_by_plan"] = by_plan
+        
+        if _is_debug():
+            st.write(f"Settings after update: {settings.get('overrides_by_plan', {})}")
         
         # Save to persistent storage
         save_user_settings(user_hash, settings)
@@ -1293,6 +1324,9 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
             st.session_state["plan_overrides_by_plan"] = {}
             
         st.session_state["plan_overrides_by_plan"][sig] = overrides
+        
+        if _is_debug():
+            st.write(f"Session state after update: {st.session_state.get('plan_overrides_by_plan', {})}")
         
         # Debug info
         if _is_debug():
@@ -1304,6 +1338,9 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
             
     except Exception as e:
         st.error(f"Error saving overrides: {e}")
+        if _is_debug():
+            import traceback
+            st.code(traceback.format_exc())
 
 
 def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
