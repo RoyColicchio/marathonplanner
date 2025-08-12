@@ -1694,19 +1694,14 @@ def show_training_plan_table(settings):
     
     # Initialize view preference in session state if not already set
     if "plan_view" not in st.session_state:
-        st.session_state.plan_view = "next_2_weeks"
+        st.session_state.plan_view = "full_plan"
         
-    # Add view toggle options
+    # Always using full plan view - no need for toggle
     with col2:
-        view_options = {
-            "next_2_weeks": "Two Weeks", 
-            "full_plan": "Full Plan"
-        }
-        selected_view = st.radio("View", options=list(view_options.keys()), 
-                               format_func=lambda x: view_options[x],
-                               horizontal=True,
-                               label_visibility="collapsed")
-        st.session_state.plan_view = selected_view
+        # Set the view to full plan
+        st.session_state.plan_view = "full_plan"
+        # Add a spacer for layout balance
+        st.write("")
     
     goal_time = settings.get("goal_time", "4:00:00")
     start_date = settings.get("start_date", datetime.now().strftime("%Y-%m-%d"))
@@ -1934,21 +1929,8 @@ def show_training_plan_table(settings):
 
     grid_df = pd.DataFrame(display_rows)
     
-    # Filter based on the selected view
-    if st.session_state.plan_view == "next_2_weeks":
-        # Calculate the current week number
-        today = datetime.now().date()
-        for _, row in grid_df.iterrows():
-            if not pd.isna(row.get("Date")) and row.get("DateISO") and not row.get("is_summary"):
-                # Found a date in the current week, get its week number
-                current_week = row.get("Week")
-                break
-                
-        # Filter to show only current week and next week
-        grid_df = grid_df[
-            ((grid_df["Week"] >= current_week) & (grid_df["Week"] <= current_week + 1)) |
-            (grid_df["is_summary"] & (grid_df["Week"] >= current_week) & (grid_df["Week"] <= current_week + 1))
-        ]
+    # No filtering needed - always show full plan
+    # (Code removed - we now always show the full plan)
         
     # Format display Date and keep ISO for actions
     grid_df["Date"] = grid_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
