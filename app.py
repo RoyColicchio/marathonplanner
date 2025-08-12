@@ -2119,17 +2119,23 @@ def show_training_plan_table(settings):
             st.markdown("### 🔄 Swap Training Days")
             st.write("Select two days from the same week to swap their workouts.")
         
-        # Calculate selection count - ensure it's accurate by using the session state
+        # Force refresh session state to ensure we have the latest data
+        # This is crucial when Streamlit reruns parts of the app but not others
+        st.session_state.plan_grid_sel = st.session_state.get('plan_grid_sel', [])
+        
+        # Calculate selection count directly from session state
         selected_count = len(st.session_state.plan_grid_sel)
         
-        # Add debug output if needed
+        # Add debug output
         if _is_debug():
             st.write(f"Selection count: {selected_count}")
-            st.write(f"Selected items: {st.session_state.plan_grid_sel}")
+            st.write(f"Selected items: {[item.get('DateISO') for item in st.session_state.plan_grid_sel]}")
+            st.write(f"Raw selections: {st.session_state.plan_grid_sel}")
         
         # Create a clean status display
         col1, col2 = st.columns([1, 3])
         with col1:
+            # Ensure this is in sync with actual data
             st.metric("Selected", f"{selected_count}/2", delta=None)
             
         with col2:
@@ -2224,10 +2230,23 @@ def show_training_plan_table(settings):
                         date_iso = row['DateISO']
                         label = f"{row['Day']} {row['Date']}"
                         description = row['Activity']
-                        is_selected = date_iso in current_selections
                         
+                        # Directly check session state for a more reliable check
+                        is_selected = False
+                        for item in st.session_state.get('plan_grid_sel', []):
+                            if item.get('DateISO') == date_iso:
+                                is_selected = True
+                                break
+                                
                         # Create a more compact checkbox with better formatting
-                        checkbox_selected = st.checkbox(label, value=is_selected, key=f"sel_{date_iso}")
+                        # Add the on_change parameter to force updates
+                        checkbox_key = f"sel_{date_iso}"
+                        checkbox_selected = st.checkbox(
+                            label, 
+                            value=is_selected, 
+                            key=checkbox_key,
+                            help=description
+                        )
                         
                         # Handle selection state changes
                         if checkbox_selected and not is_selected:
@@ -2247,6 +2266,9 @@ def show_training_plan_table(settings):
                                 # Ensure swap UI remains visible after selecting an item
                                 st.session_state.show_swap_ui = True
                                 selection_changed = True
+                                # Force rerun if needed
+                                if len(st.session_state.plan_grid_sel) >= 2:
+                                    st.rerun()
                             
                         elif not checkbox_selected and is_selected:
                             # Remove from selection
@@ -2267,11 +2289,14 @@ def show_training_plan_table(settings):
             # Make sure swap UI stays visible on rerun
             st.session_state.show_swap_ui = True
             
+            # Force a full state refresh to ensure consistent UI
+            selected_count_final = len(st.session_state.get('plan_grid_sel', []))
+            
             # Check if we've reached exactly 2 selections after the changes
-            if len(st.session_state.get('plan_grid_sel', [])) == 2:
+            if selected_count_final == 2:
                 # Don't rerun immediately - let the user see both selections
                 st.success("Two days selected! Use the buttons above to swap or clear.")
-            elif len(st.session_state.get('plan_grid_sel', [])) == 1:
+            elif selected_count_final == 1:
                 # Only one day selected, provide guidance but don't rerun
                 st.info("Select one more day from the same week to swap")
             else:
