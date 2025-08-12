@@ -889,9 +889,11 @@ def exchange_strava_code_for_token(code):
             return True
         else:
             st.error(f"Failed to get Strava token: {response.status_code} - {response.text}")
+            st.info("This error occurred when connecting to Strava. Please try connecting again or contact support if the issue persists.")
             return False
     except Exception as e:
         st.error(f"Error exchanging Strava code: {e}")
+        st.info("This error occurred when connecting to Strava. Please try connecting again or contact support if the issue persists.")
         return False
 
 
@@ -915,7 +917,8 @@ def strava_connect():
     if "code" in query_params:
         code = query_params["code"]
         if exchange_strava_code_for_token(code):
-            st.success("Successfully connected to Strava!")
+            st.success("✅ Successfully connected to your Strava account! Your Strava activities will now appear in the dashboard.")
+            st.info("Your Strava data will refresh automatically when you visit the dashboard.")
             st.query_params.clear()
             st.rerun()
 
@@ -926,7 +929,30 @@ def strava_connect():
     st.warning("Connect your Strava account to see your training data.")
     auth_url = get_strava_auth_url()
     if auth_url:
-        st.link_button("Connect to Strava", auth_url, use_container_width=True)
+        st.info("⚠️ **Note:** The next step will take you to Strava's website. You'll need to log in with your **Strava** credentials, not your app credentials.")
+        
+        # Add a custom button with clearer instructions
+        st.markdown("""
+        <style>
+        .strava-btn {
+            background-color: #FC4C02;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            text-align: center;
+            margin: 10px 0;
+            display: block;
+            text-decoration: none;
+        }
+        </style>
+        <a href="{}" class="strava-btn">
+            Connect to Strava Account
+            <div style="font-size: 0.8em; font-weight: normal; margin-top: 5px;">
+                (You'll need to log in with your Strava credentials)
+            </div>
+        </a>
+        """.format(auth_url), unsafe_allow_html=True)
     return False
 
 
@@ -2022,40 +2048,53 @@ def show_training_plan_table(settings):
     # Group by week for better organization
     week_groups = filtered_df.groupby('Week')
     
-    # Display full plan first for reference
-    with st.expander("View Full Training Plan", expanded=False):
-        # Display full plan as a clean dataframe
-        display_cols = ["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]
-        st.dataframe(
-            grid_df[display_cols],
-            height=500,
-            use_container_width=True,
-            hide_index=True,
-        )
+    # Display full plan always visible for reference
+    st.subheader("Training Plan")
+    display_cols = ["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]
+    st.dataframe(
+        grid_df[display_cols],
+        height=500,
+        use_container_width=True,
+        hide_index=True,
+    )
     
     # Track current selections
     current_selections = [r.get('DateISO') for r in st.session_state.get('plan_grid_sel', [])]
     
+    # Add a button to show/hide the swap functionality
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        show_swap = st.button("🔄 Show Swap Tools", type="secondary", use_container_width=True)
+    
+    # Show a clear button if there are selections but swap UI is not shown
+    with col2:
+        if not show_swap and len(st.session_state.get('plan_grid_sel', [])) > 0:
+            if st.button("❌ Clear Selection", type="secondary", use_container_width=True):
+                st.session_state.plan_grid_sel = []
+                st.rerun()
+    
     # Create a container for the selection UI with a clean, modern design
     selection_container = st.container()
     
-    with selection_container:
-        # Use a card-like container for the swap functionality
-        st.markdown("""
-        <style>
-        .swap-card {
-            border: 1px solid rgba(49, 51, 63, 0.2);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            background-color: rgba(247, 248, 249, 0.8);
-        }
-        </style>
-        <div class="swap-card">
-        """, unsafe_allow_html=True)
-        
-        st.markdown("### 🔄 Swap Training Days")
-        st.write("Select two days from the same week to swap their workouts.")
+    # Only show swap functionality if the button is clicked
+    if show_swap:
+        with selection_container:
+            # Use a card-like container for the swap functionality
+            st.markdown("""
+            <style>
+            .swap-card {
+                border: 1px solid rgba(49, 51, 63, 0.2);
+                border-radius: 0.5rem;
+                padding: 1rem;
+                margin-bottom: 1rem;
+                background-color: rgba(247, 248, 249, 0.8);
+            }
+            </style>
+            <div class="swap-card">
+            """, unsafe_allow_html=True)
+            
+            st.markdown("### 🔄 Swap Training Days")
+            st.write("Select two days from the same week to swap their workouts.")
         
         # Calculate selection count
         selected_count = len(current_selections)
@@ -2184,6 +2223,7 @@ def show_training_plan_table(settings):
             # Check if we've reached exactly 2 selections after the changes
             if len(st.session_state.get('plan_grid_sel', [])) == 2:
                 # Don't rerun immediately - let the user see both selections
+                pass
                 st.success("Two days selected! Use the buttons above to swap or clear.")
             else:
                 # Rerun to update the UI for other selection counts
