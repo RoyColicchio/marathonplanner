@@ -1199,7 +1199,15 @@ def _get_overrides_for_plan(settings: dict) -> dict:
         by_plan = settings.get("overrides_by_plan", {}) or {}
         saved = by_plan.get(sig, {}) or {}
         # Session overrides win over saved
-        return {**saved, **sess}
+        combined = {**saved, **sess}
+        if _is_debug():
+            st.session_state["_debug_override_source"] = {
+                "sig": sig,
+                "session": sess,
+                "saved": saved,
+                "combined": combined
+            }
+        return combined
     except Exception:
         return {}
 
@@ -1207,14 +1215,28 @@ def _get_overrides_for_plan(settings: dict) -> dict:
 def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
     try:
         sig = _plan_signature(settings)
+        
+        # First update the settings dictionary
         by_plan = settings.get("overrides_by_plan", {}) or {}
         by_plan[sig] = overrides
         settings["overrides_by_plan"] = by_plan
-        # Mirror into session_state for immediate UI update
+        
+        # Save to persistent storage
+        save_user_settings(user_hash, settings)
+        
+        # Also update session_state for immediate UI update
         store = st.session_state.get("plan_overrides_by_plan", {}) or {}
         store[sig] = overrides
         st.session_state["plan_overrides_by_plan"] = store
-        save_user_settings(user_hash, settings)
+        
+        # Debug info
+        if _is_debug():
+            st.session_state["_debug_saved_overrides"] = {
+                "sig": sig,
+                "overrides": overrides,
+                "session_store": store
+            }
+            
     except Exception as e:
         st.error(f"Error saving overrides: {e}")
 
@@ -1223,24 +1245,42 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
     try:
         overrides = _get_overrides_for_plan(settings)
         st.session_state["_debug_overrides"] = overrides if _is_debug() else None
+        
         if not overrides or plan_df is None or plan_df.empty:
             return plan_df
+            
+        # Make a fresh copy to avoid modifying the original
         out = plan_df.copy()
+        
+        # Make sure Date is in proper datetime format
         if "Date" in out.columns:
             out["Date"] = pd.to_datetime(out["Date"]).dt.date
+            
+        # For each date with an override, apply the changes
+        applied_overrides = []
         for date_iso, payload in overrides.items():
             try:
                 dt = datetime.strptime(str(date_iso), "%Y-%m-%d").date()
-            except Exception:
+                mask = (out["Date"] == dt) if "Date" in out.columns else None
+                
+                if mask is not None and mask.any():
+                    # Apply each field from the override to the matching row
+                    for k, v in payload.items():
+                        if k in out.columns:
+                            out.loc[mask, k] = v
+                    applied_overrides.append(date_iso)
+            except Exception as e:
+                if _is_debug():
+                    st.error(f"Override apply error for {date_iso}: {e}")
                 continue
-            mask = (out["Date"] == dt) if "Date" in out.columns else None
-            if mask is not None and mask.any():
-                # Update all relevant display fields if present in payload
-                for k, v in payload.items():
-                    if k in out.columns:
-                        out.loc[mask, k] = v
+                
+        if _is_debug():
+            st.session_state["_debug_applied_overrides"] = applied_overrides
+            
         return out
-    except Exception:
+    except Exception as e:
+        if _is_debug():
+            st.error(f"Override apply error: {e}")
         return plan_df
 
 
@@ -1257,30 +1297,59 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         # Use merged_df with DateISO to ensure correct row selection
         df = plan_df.copy()
         df["Date"] = pd.to_datetime(df["Date"]).dt.date
-        # If DateISO exists, use it for robust matching
+        
+        # Find the rows for the two selected dates
         if "DateISO" in df.columns:
-            row_a = df[df["DateISO"] == date_a.strftime("%Y-%m-%d")]
-            row_b = df[df["DateISO"] == date_b.strftime("%Y-%m-%d")]
+            date_a_str = date_a.strftime("%Y-%m-%d")
+            date_b_str = date_b.strftime("%Y-%m-%d")
+            row_a = df[df["DateISO"] == date_a_str]
+            row_b = df[df["DateISO"] == date_b_str]
         else:
             row_a = df[df["Date"] == date_a]
             row_b = df[df["Date"] == date_b]
+            
         if row_a.empty or row_b.empty:
-            raise ValueError("Selected dates are not in the plan.")
+            raise ValueError(f"Selected dates are not in the plan: {date_a}, {date_b}")
+            
+        # Debug output
+        if _is_debug():
+            st.session_state["_debug_swap_rows"] = {
+                "date_a": date_a_str if "DateISO" in df.columns else str(date_a),
+                "date_b": date_b_str if "DateISO" in df.columns else str(date_b),
+                "row_a_found": not row_a.empty,
+                "row_b_found": not row_b.empty,
+            }
             
         # Only swap workout fields, not date/day
         workout_fields = ["Activity_Abbr", "Activity", "Plan_Miles"]
-        pa = {k: row_a.iloc[0].get(k, None) for k in workout_fields}
-        pb = {k: row_b.iloc[0].get(k, None) for k in workout_fields}
+        
+        # Extract the workout details from each row
+        pa = {k: row_a.iloc[0].get(k, None) for k in workout_fields if k in row_a.iloc[0]}
+        pb = {k: row_b.iloc[0].get(k, None) for k in workout_fields if k in row_b.iloc[0]}
+        
+        # Debug the extracted payloads
+        if _is_debug():
+            st.session_state["_debug_swap_payloads"] = {
+                "pa": pa,
+                "pb": pb
+            }
         
         # Get existing overrides and update with new swaps
         overrides = _get_overrides_for_plan(settings)
-        overrides[date_a.strftime("%Y-%m-%d")] = pb
-        overrides[date_b.strftime("%Y-%m-%d")] = pa
         
+        # Store the workouts swapped (b's workout goes to a's date, a's workout goes to b's date)
+        overrides[date_a_str if "DateISO" in df.columns else date_a.strftime("%Y-%m-%d")] = pb
+        overrides[date_b_str if "DateISO" in df.columns else date_b.strftime("%Y-%m-%d")] = pa
+        
+        # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
+        
+        # Log success
         st.success(f"Swapped {date_a.strftime('%a %m-%d')} and {date_b.strftime('%a %m-%d')}")
+        return True
     except Exception as e:
         st.error(f"Swap failed: {e}")
+        return False
 
 
 def clear_override_day(user_hash: str, settings: dict, date_x):
@@ -1598,8 +1667,26 @@ def show_training_plan_table(settings):
     # Debug: show what is being selected
     if _is_debug():
         st.info(f"Selected rows: {current_sel}")
+        
+        # Show override debug info
         if st.session_state.get("_debug_overrides"):
-            st.write("Current overrides:", st.session_state["_debug_overrides"])
+            st.write("### Debug: Swap Information")
+            st.write("**Current overrides:**", st.session_state["_debug_overrides"])
+            
+        if st.session_state.get("_debug_override_source"):
+            st.write("**Override sources:**", st.session_state["_debug_override_source"])
+            
+        if st.session_state.get("_debug_applied_overrides"):
+            st.write("**Applied to dates:**", st.session_state["_debug_applied_overrides"])
+            
+        if st.session_state.get("_debug_swap_rows"):
+            st.write("**Last swap rows:**", st.session_state["_debug_swap_rows"])
+            
+        if st.session_state.get("_debug_swap_payloads"):
+            st.write("**Last swap payloads:**", st.session_state["_debug_swap_payloads"])
+            
+        if st.session_state.get("_debug_saved_overrides"):
+            st.write("**Last saved overrides:**", st.session_state["_debug_saved_overrides"])
 
     # Render the top action bar now that we have (persisted) selection info
     with top_bar:
@@ -1618,12 +1705,18 @@ def show_training_plan_table(settings):
                         try:
                             d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
                             d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
-                            swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                            
+                            # Perform the swap and clear selection
+                            success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
                             st.session_state.plan_grid_sel = []
+                            
                             # Force reload of the page to show updated plan
-                            st.session_state["plan_needs_refresh"] = True
-                            st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
-                            st.rerun()
+                            if success:
+                                st.session_state["plan_needs_refresh"] = True
+                                st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
+                                st.rerun()
+                            else:
+                                st.error("Swap failed. Check debug output for details.")
                         except Exception as e:
                             st.error(f"Swap failed: {e}")
         with c2:
