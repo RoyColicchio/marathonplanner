@@ -1813,8 +1813,7 @@ def show_training_plan_table(settings):
     # Format display Date and keep ISO for actions
     grid_df["Date"] = grid_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
 
-    # Placeholder for a top action bar (will render above the grid)
-    top_bar = st.container()
+    # The selection UI is now below the table (after AgGrid)
 
     # Reorder columns so a visible column (Date) is first; keep technical fields at the end
     ordered_cols = [
@@ -2026,134 +2025,112 @@ def show_training_plan_table(settings):
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Persist selection across reruns
-    if "plan_grid_sel" not in st.session_state:
-        st.session_state.plan_grid_sel = []
-
-    # Process selection from grid response
-    sel_now = []
-    try:
-        # First check if selection exists in session state
-        if "plan_grid_sel" in st.session_state and st.session_state.plan_grid_sel:
-            sel_now = st.session_state.plan_grid_sel
-            if _is_debug():
-                st.write("### Using existing selection from session state")
-                st.write(f"Found {len(sel_now)} rows in session state")
-        
-        # Special handling for AgGridReturn object
-        if hasattr(grid_resp, 'selected_rows'):
-            if _is_debug():
-                st.write("### AgGridReturn object detected")
-                st.write(f"Type: {type(grid_resp)}")
-                
-            sr = grid_resp.selected_rows
-            if sr:
-                if _is_debug():
-                    st.write(f"selected_rows type: {type(sr)}")
-                    st.write(f"selected_rows content: {sr}")
-                
-                if isinstance(sr, pd.DataFrame):
-                    sel_now = sr.to_dict("records")
-                elif isinstance(sr, list):
-                    sel_now = sr
-                
-                if _is_debug():
-                    st.write(f"Processed {len(sel_now)} selected rows from AgGridReturn")
-        
-        # Traditional dict response handling
-        elif isinstance(grid_resp, dict):
-            if _is_debug():
-                st.write("### Grid Response Analysis (dict)")
-                st.write(f"Grid response keys: {list(grid_resp.keys())}")
-                
-            if "selected_rows" in grid_resp and grid_resp["selected_rows"]:
-                sr = grid_resp["selected_rows"]
-                
-                if _is_debug():
-                    st.write(f"selected_rows type: {type(sr)}")
-                    st.write(f"selected_rows content: {sr}")
-                    
-                if isinstance(sr, pd.DataFrame):
-                    sel_now = sr.to_dict("records")
-                elif isinstance(sr, list):
-                    sel_now = sr
-                    
-                if _is_debug():
-                    st.write(f"Processed {len(sel_now)} selected rows from dict")
-        
-        # Keep only rows that are not summary rows and not past
-        filtered_sel = []
-        if sel_now:
-            if _is_debug():
-                st.write("### Selection filtering")
-                st.write(f"Before filtering: {len(sel_now)} rows")
-                
-            for r in sel_now:
-                if not r.get("is_summary", False) and not r.get("is_past", False) and r.get("DateISO"):
-                    filtered_sel.append(r)
-                elif _is_debug():
-                    st.write(f"Filtered out row: {r.get('Date')} ({r.get('DateISO')})")
-                    st.write(f"- is_summary: {r.get('is_summary')}")
-                    st.write(f"- is_past: {r.get('is_past')}")
-                    st.write(f"- has DateISO: {bool(r.get('DateISO'))}")
-                    
-            sel_now = filtered_sel
-            if _is_debug():
-                st.write(f"After filtering: {len(sel_now)} rows")
-        
-        # Always update session state if we have a valid selection
-        if sel_now:
-            st.session_state.plan_grid_sel = sel_now
-            if _is_debug():
-                st.write(f"Updated session state with {len(sel_now)} selected rows")
-                
-    except Exception as e:
-        if _is_debug():
-            st.write(f"### Error in Selection Processing: {e}")
-            import traceback
-            st.code(traceback.format_exc())
-            
-    # Debug the final selection
-    if _is_debug():
-        st.write(f"**Final selection for swap logic:** {sel_now}")
-        
-    # Always use the final selection
-    current_sel = sel_now
+    # Create a manual selection mechanism with checkboxes
+    filtered_df = grid_df[(~grid_df['is_summary']) & (~grid_df['is_past']) & (grid_df['DateISO'] != '')].copy()
     
-    # Selection indicator - make it very visible
-    if current_sel:
-        with st.sidebar:
-            st.subheader("🔄 Selected for Swap")
-            for i, row in enumerate(current_sel):
-                col = "🟢" if i < 2 else "🟠"  # Green for first two, orange for extras
-                st.markdown(f"{col} **{row.get('Day', 'Unknown')} {row.get('Date', 'Unknown')}**: {row.get('Activity', 'Unknown')}")
+    # Group by week for better organization
+    week_groups = filtered_df.groupby('Week')
+    
+    # Track current selections
+    current_selections = [r.get('DateISO') for r in st.session_state.get('plan_grid_sel', [])]
+    
+    # Create a container for the selection UI with a clear title
+    selection_container = st.container()
+    
+    with selection_container:
+        st.markdown("### 🔄 Select Days to Swap")
+        st.caption("Choose exactly two days from the same week to swap their workouts.")
+        
+        # Display a visual indicator of how many days are selected
+        selected_count = len(current_selections)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Days Selected", f"{selected_count}/2", delta=None)
             
-            if len(current_sel) == 2:
-                if st.button("Confirm Swap", key="sidebar_swap", use_container_width=True):
-                    # Same swap logic as the main button
-                    try:
-                        d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
-                        d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
-                        
-                        # Perform the swap and clear selection
-                        success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                        
-                        # Clear selection after swap
-                        st.session_state.plan_grid_sel = []
-                        
-                        # Force reload of the page to show updated plan
-                        if success:
-                            # Set both flags to force refresh
-                            st.session_state["plan_needs_refresh"] = True
-                            st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
-                            st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
+        with col2:
+            # Show status indicator based on selection count
+            if selected_count == 0:
+                st.info("Select two days to swap")
+            elif selected_count == 1:
+                st.info("Select one more day")
+            elif selected_count == 2:
+                st.success("Ready to swap!")
+            else:
+                st.warning("Too many days selected")
+                
+        with col3:
+            if selected_count == 2:
+                # Check same week requirement
+                try:
+                    week1 = int(st.session_state.plan_grid_sel[0].get("Week", 0))
+                    week2 = int(st.session_state.plan_grid_sel[1].get("Week", 0))
+                    same_week = week1 == week2 and week1 > 0
+                except (ValueError, TypeError):
+                    same_week = False
+                    
+                if same_week:
+                    if st.button("Swap Selected Days", type="primary", use_container_width=True):
+                        try:
+                            d1 = datetime.strptime(st.session_state.plan_grid_sel[0].get("DateISO"), "%Y-%m-%d").date()
+                            d2 = datetime.strptime(st.session_state.plan_grid_sel[1].get("DateISO"), "%Y-%m-%d").date()
+                            
+                            # Perform the swap and clear selection
+                            success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
+                            
+                            # Clear selection after swap
+                            st.session_state.plan_grid_sel = []
+                            
+                            # Force reload of the page to show updated plan
+                            if success:
+                                # Set both flags to force refresh
+                                st.session_state["plan_needs_refresh"] = True
+                                st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
+                                st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Swap failed: {e}")
+                else:
+                    st.warning("Selected days must be in the same week")
+            else:
+                if st.button("Clear Selection", use_container_width=True):
+                    st.session_state.plan_grid_sel = []
+                    st.rerun()
+        
+        # Display the weeks with selectable days
+        st.markdown("#### Select days to swap:")
+        for week_num, group in week_groups:
+            week_expanded = len(current_selections) == 0 or any(row['DateISO'] in current_selections for _, row in group.iterrows())
+            
+            with st.expander(f"Week {week_num}", expanded=week_expanded):
+                for _, row in group.iterrows():
+                    date_iso = row['DateISO']
+                    label = f"{row['Day']} {row['Date']}: {row['Activity']}"
+                    is_selected = date_iso in current_selections
+                    
+                    if st.checkbox(label, value=is_selected, key=f"sel_{date_iso}"):
+                        # Add to selection if not already there
+                        if date_iso not in current_selections:
+                            # Get the full row data
+                            row_data = row.to_dict()
+                            
+                            # Add to session state
+                            if 'plan_grid_sel' not in st.session_state:
+                                st.session_state.plan_grid_sel = []
+                            st.session_state.plan_grid_sel.append(row_data)
                             st.rerun()
-                    except Exception as e:
-                        st.error(f"Swap failed: {e}")
-            elif len(current_sel) > 2:
-                st.warning("Please select exactly 2 days to swap")
+                    else:
+                        # Remove from selection if it was there
+                        if date_iso in current_selections:
+                            st.session_state.plan_grid_sel = [
+                                r for r in st.session_state.get('plan_grid_sel', []) 
+                                if r.get('DateISO') != date_iso
+                            ]
+                            st.rerun()
     
-    # Debug: show what is being selected
+    # Get the current selection from session state
+    current_sel = st.session_state.get('plan_grid_sel', [])
+    
+    # Debug info (only show in sidebar if _is_debug is active)
     if _is_debug():
         st.info(f"Selected rows (persisted in session): {current_sel}")
         
@@ -2176,132 +2153,11 @@ def show_training_plan_table(settings):
             
         if st.session_state.get("_debug_saved_overrides"):
             st.write("**Last saved overrides:**", st.session_state["_debug_saved_overrides"])
-
-    # Render the top action bar now that we have (persisted) selection info
-    with top_bar:
-        c1, c2 = st.columns([1, 6])
-        with c1:
-            # Determine if selection is valid for swapping
-            has_valid_selection = len(current_sel) == 2
-            
-            # Debugging selection state before swap button display
-            if _is_debug():
-                st.write("### Swap Button State")
-                st.write(f"Current selection count: {len(current_sel)}")
-                if current_sel:
-                    for i, sel in enumerate(current_sel):
-                        st.write(f"Selection {i+1} details:")
-                        for key in ['DateISO', 'Week', 'is_summary', 'is_past', 'Date', 'Day']:
-                            st.write(f"- {key}: {sel.get(key, 'MISSING')}")
-            
-            # Week comparison logic
-            same_week = False
-            if has_valid_selection:
-                try:
-                    # Extract week values safely
-                    week1 = current_sel[0].get("Week")
-                    week2 = current_sel[1].get("Week")
-                    
-                    # Handle type conversion safely
-                    if week1 is not None and week2 is not None:
-                        week1 = int(week1) if str(week1).isdigit() else 0
-                        week2 = int(week2) if str(week2).isdigit() else 0
-                        same_week = week1 == week2 and week1 > 0
-                        
-                    if _is_debug():
-                        st.write(f"Week values: {week1} and {week2}")
-                        st.write(f"Same week: {same_week}")
-                except Exception as e:
-                    if _is_debug():
-                        st.write(f"Error in week comparison: {e}")
-                    same_week = False
-                    
-                has_valid_selection = same_week
                 
-            # Make the button disabled if selection isn't valid
-            swap_button = st.button(
-                "Swap selected", 
-                key="swap_button",
-                use_container_width=True,
-                disabled=(not has_valid_selection),
-                help="Select exactly two days in the same week to swap activities"
-            )
-                
-            if swap_button:
-                if _is_debug():
-                    st.write("### Swap button clicked")
-                    st.write(f"Current selection: {current_sel}")
-                    
-                if len(current_sel) != 2:
-                    st.warning("Select exactly two days.")
-                elif any(r.get("is_past") for r in current_sel):
-                    st.warning("You can only swap today or future activities.")
-                else:
-                    # Enforce same-week
-                    try:
-                        week1 = int(current_sel[0].get("Week", "0"))
-                        week2 = int(current_sel[1].get("Week", "0"))
-                        
-                        if _is_debug():
-                            st.write(f"Week numbers: {week1} and {week2}")
-                            
-                        if week1 != week2:
-                            st.warning("Please select two days from the same week.")
-                        else:
-                            try:
-                                if _is_debug():
-                                    st.write(f"DateISO values: {current_sel[0].get('DateISO')} and {current_sel[1].get('DateISO')}")
-                                    
-                                d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
-                                d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
-                                
-                                if _is_debug():
-                                    st.write(f"Parsed dates: {d1} and {d2}")
-                                
-                                # Perform the swap and clear selection
-                                success = swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                                
-                                # Clear selection after swap
-                                st.session_state.plan_grid_sel = []
-                                
-                                # Force reload of the page to show updated plan
-                                if success:
-                                    # Set both flags to force refresh
-                                    st.session_state["plan_needs_refresh"] = True
-                                    st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
-                                    
-                                    if _is_debug():
-                                        st.write("**SWAP SUCCESS - RERUNNING PAGE**")
-                                        
-                                    st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
-                                    st.rerun()
-                                else:
-                                    st.error("Swap failed. Check debug output for details.")
-                            except Exception as e:
-                                st.error(f"Swap failed during date processing: {e}")
-                                if _is_debug():
-                                    import traceback
-                                    st.code(traceback.format_exc())
-                    except Exception as e:
-                        st.error(f"Swap failed during week validation: {e}")
-                        if _is_debug():
-                            import traceback
-                            st.code(traceback.format_exc())
-        with c2:
-            # Dynamic instructions based on selection state
-            if len(current_sel) == 0:
-                st.caption("Select two days in the same week to swap their planned workouts.")
-            elif len(current_sel) == 1:
-                st.caption("Select one more day in the same week to swap workouts.")
-            elif len(current_sel) == 2:
-                week1 = int(current_sel[0].get("Week", "0"))
-                week2 = int(current_sel[1].get("Week", "0"))
-                if week1 != week2:
-                    st.caption("⚠️ Selected days must be in the same week. Please reselect.")
-                else:
-                    st.caption("✅ Ready to swap! Click the 'Swap selected' button.")
-            else:
-                st.caption("⚠️ Too many days selected. Please select exactly two days to swap.")
+            # This section used to contain swap_button handling code
+            # It has been replaced by the swap_selected button in the new interface
+        # This section used to contain the helper text for the old selection method
+        # Now replaced by inline helper text in the new interface
 
     if _is_debug():
         with st.expander("Strava connection details"):
