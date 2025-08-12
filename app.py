@@ -1189,18 +1189,43 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
 # -------- Per-user plan overrides (swap days) --------
 
 def _plan_signature(settings: dict) -> str:
-    return f"{settings.get('plan_file', 'run_plan.csv')}|{settings.get('start_date', '')}"
+    """Create a unique signature for the current plan to store overrides."""
+    plan_file = settings.get('plan_file', 'run_plan.csv')
+    start_date = settings.get('start_date', '')
+    
+    # If start_date is a datetime, convert to string
+    if hasattr(start_date, 'strftime'):
+        start_date = start_date.strftime('%Y-%m-%d')
+        
+    # Fallback to today if no start date (shouldn't happen)
+    if not start_date:
+        start_date = datetime.now().strftime('%Y-%m-%d')
+    
+    signature = f"{plan_file}|{start_date}"
+    
+    if _is_debug():
+        print(f"DEBUG: Plan signature = {signature}, from {plan_file} and {start_date}")
+        
+    return signature
 
 
 def _get_overrides_for_plan(settings: dict) -> dict:
+    """Get overrides for the current plan, combining session and saved overrides."""
     try:
         sig = _plan_signature(settings)
-        # Prefer in-memory session overrides for immediate effect
-        sess = (st.session_state.get("plan_overrides_by_plan", {}) or {}).get(sig, {})
+        
+        # Get session overrides
+        session_overrides = st.session_state.get("plan_overrides_by_plan", {}) or {}
+        sess = session_overrides.get(sig, {}) or {}
+        
+        # Get saved overrides from settings
         by_plan = settings.get("overrides_by_plan", {}) or {}
         saved = by_plan.get(sig, {}) or {}
-        # Session overrides win over saved
+        
+        # Combine them, session overrides win
         combined = {**saved, **sess}
+        
+        # Debug output
         if _is_debug():
             st.session_state["_debug_override_source"] = {
                 "sig": sig,
@@ -1208,12 +1233,16 @@ def _get_overrides_for_plan(settings: dict) -> dict:
                 "saved": saved,
                 "combined": combined
             }
+            
         return combined
-    except Exception:
+    except Exception as e:
+        if _is_debug():
+            st.error(f"Error getting overrides: {e}")
         return {}
 
 
 def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
+    """Save overrides for the current plan, both to settings and session state."""
     try:
         sig = _plan_signature(settings)
         
@@ -1226,16 +1255,17 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
         save_user_settings(user_hash, settings)
         
         # Also update session_state for immediate UI update
-        store = st.session_state.get("plan_overrides_by_plan", {}) or {}
-        store[sig] = overrides
-        st.session_state["plan_overrides_by_plan"] = store
+        if "plan_overrides_by_plan" not in st.session_state:
+            st.session_state["plan_overrides_by_plan"] = {}
+            
+        st.session_state["plan_overrides_by_plan"][sig] = overrides
         
         # Debug info
         if _is_debug():
             st.session_state["_debug_saved_overrides"] = {
                 "sig": sig,
                 "overrides": overrides,
-                "session_store": store
+                "session_overrides": st.session_state["plan_overrides_by_plan"]
             }
             
     except Exception as e:
