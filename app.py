@@ -305,12 +305,44 @@ def get_strava_credentials():
         except Exception:
             pass
 
+    # Try loading from secrets.json file directly
+    if not client_id or not client_secret:
+        try:
+            secrets_path = os.path.join(os.getcwd(), "secrets.json")
+            if os.path.exists(secrets_path):
+                with open(secrets_path, "r", encoding="utf-8") as f:
+                    secrets_data = json.load(f)
+                    # Try to get from strava section
+                    if "strava" in secrets_data:
+                        client_id = client_id or secrets_data["strava"].get("client_id")
+                        client_secret = client_secret or secrets_data["strava"].get("client_secret")
+                    # Also try top-level keys
+                    client_id = client_id or secrets_data.get("strava_client_id") or secrets_data.get("client_id")
+                    client_secret = client_secret or secrets_data.get("strava_client_secret") or secrets_data.get("client_secret")
+        except Exception as e:
+            st.warning(f"Error reading secrets.json: {str(e)}")
+
     # Environment fallback
     if not client_id:
         client_id = os.getenv("STRAVA_CLIENT_ID")
     if not client_secret:
         client_secret = os.getenv("STRAVA_CLIENT_SECRET")
 
+    # Debug output - let's know where we found credentials
+    sources = []
+    if st.secrets.get("strava"):
+        sources.append("st.secrets[strava]")
+    elif st.secrets.get("strava_client_id"):
+        sources.append("st.secrets (top level)")
+    elif os.path.exists(os.path.join(os.getcwd(), ".streamlit", "secrets.toml")):
+        sources.append("secrets.toml file")
+    elif os.path.exists(os.path.join(os.getcwd(), "secrets.json")):
+        sources.append("secrets.json file")
+    elif os.getenv("STRAVA_CLIENT_ID"):
+        sources.append("environment variables")
+    if sources:
+        st.caption(f"Strava credentials found in: {', '.join(sources)}")
+    
     # Normalize
     if isinstance(client_id, str):
         client_id = client_id.strip("\"' ")
@@ -799,11 +831,18 @@ def get_strava_auth_url():
         if not client_id or not client_secret:
             st.error("Missing Strava client_id/client_secret. Add them to secrets or env.")
             try:
-                st.caption(f"Secrets keys: {list(st.secrets.keys())}")
-            except Exception:
-                pass
+                st.caption(f"Available secret keys: {list(st.secrets.keys())}")
+                if 'strava' in st.secrets:
+                    st.caption(f"Strava section keys: {list(st.secrets.strava.keys())}")
+                else:
+                    st.caption("No 'strava' section found in secrets")
+            except Exception as e:
+                st.caption(f"Error inspecting secrets: {str(e)}")
             return None
 
+        # Debug output
+        st.caption(f"Using Strava client_id: {client_id[:4]}... (truncated)")
+        
         scope = "read,activity:read_all"
         params = {
             "client_id": client_id,
@@ -815,7 +854,9 @@ def get_strava_auth_url():
         auth_url = "https://www.strava.com/oauth/authorize?" + urlencode(params)
         return auth_url
     except Exception as e:
-        st.error(f"Error generating Strava auth URL: {e}")
+        st.error(f"Error generating Strava auth URL: {str(e)}")
+        import traceback
+        st.caption(f"Exception traceback: {traceback.format_exc()}")
         return None
 
 
@@ -932,9 +973,9 @@ def strava_connect():
         st.info("⚠️ **Note:** The next step will take you to Strava's website. You'll need to log in with your **Strava** credentials, not your app credentials.")
         
         # Add a custom button with clearer instructions
-        st.markdown("""
+        button_html = f"""
         <style>
-        .strava-btn {
+        .strava-btn {{
             background-color: #FC4C02;
             color: white;
             padding: 10px 15px;
@@ -944,15 +985,18 @@ def strava_connect():
             margin: 10px 0;
             display: block;
             text-decoration: none;
-        }
+        }}
         </style>
-        <a href="{}" class="strava-btn">
+        <a href="{auth_url}" class="strava-btn">
             Connect to Strava Account
             <div style="font-size: 0.8em; font-weight: normal; margin-top: 5px;">
                 (You'll need to log in with your Strava credentials)
             </div>
         </a>
-        """.format(auth_url), unsafe_allow_html=True)
+        """
+        st.markdown(button_html, unsafe_allow_html=True)
+    else:
+        st.error("Unable to generate Strava authorization URL. Please check your Strava API credentials.")
     return False
 
 
