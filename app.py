@@ -2058,7 +2058,23 @@ def show_training_plan_table(settings):
         hide_index=True,
     )
     
-    # Track current selections
+    # Track current selections - ensure we have no duplicates
+    # First ensure plan_grid_sel is properly initialized
+    if "plan_grid_sel" not in st.session_state:
+        st.session_state.plan_grid_sel = []
+    
+    # Remove any duplicate selections by DateISO
+    if len(st.session_state.plan_grid_sel) > 0:
+        seen_dates = set()
+        unique_selections = []
+        for r in st.session_state.plan_grid_sel:
+            date_iso = r.get('DateISO')
+            if date_iso and date_iso not in seen_dates:
+                seen_dates.add(date_iso)
+                unique_selections.append(r)
+        st.session_state.plan_grid_sel = unique_selections
+    
+    # Now get the current selections after de-duplication
     current_selections = [r.get('DateISO') for r in st.session_state.get('plan_grid_sel', [])]
     
     # Initialize swap UI visibility in session state if not already set
@@ -2103,8 +2119,13 @@ def show_training_plan_table(settings):
             st.markdown("### 🔄 Swap Training Days")
             st.write("Select two days from the same week to swap their workouts.")
         
-        # Calculate selection count
-        selected_count = len(current_selections)
+        # Calculate selection count - ensure it's accurate by using the session state
+        selected_count = len(st.session_state.plan_grid_sel)
+        
+        # Add debug output if needed
+        if _is_debug():
+            st.write(f"Selection count: {selected_count}")
+            st.write(f"Selected items: {st.session_state.plan_grid_sel}")
         
         # Create a clean status display
         col1, col2 = st.columns([1, 3])
@@ -2113,7 +2134,7 @@ def show_training_plan_table(settings):
             
         with col2:
             # Only show the swap/clear buttons when we have selections
-            if selected_count == 2:
+            if len(st.session_state.plan_grid_sel) == 2:
                 # Check same week requirement
                 try:
                     week1 = int(st.session_state.plan_grid_sel[0].get("Week", 0))
@@ -2214,12 +2235,18 @@ def show_training_plan_table(settings):
                             if 'plan_grid_sel' not in st.session_state:
                                 st.session_state.plan_grid_sel = []
                             
-                            # Get the full row data and add it
-                            row_data = row.to_dict()
-                            st.session_state.plan_grid_sel.append(row_data)
-                            # Ensure swap UI remains visible after selecting an item
-                            st.session_state.show_swap_ui = True
-                            selection_changed = True
+                            # First check if we already have 2 selections
+                            if len(st.session_state.plan_grid_sel) >= 2:
+                                # Too many selections - don't add more
+                                st.warning(f"You can only select 2 days. Please clear your selection first.")
+                                # Don't mark as changed - we're ignoring this selection
+                            else:
+                                # Get the full row data and add it
+                                row_data = row.to_dict()
+                                st.session_state.plan_grid_sel.append(row_data)
+                                # Ensure swap UI remains visible after selecting an item
+                                st.session_state.show_swap_ui = True
+                                selection_changed = True
                             
                         elif not checkbox_selected and is_selected:
                             # Remove from selection
