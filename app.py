@@ -1638,6 +1638,13 @@ def show_training_plan_table(settings):
     except Exception:
         pass
     st.header(f"{first_name}'s Training Plan")
+    
+    # Get user hash at the beginning of the function to avoid UnboundLocalError
+    user_hash = get_user_hash(st.session_state.current_user["email"])
+    
+    goal_time = settings.get("goal_time", "4:00:00")
+    start_date = settings.get("start_date", datetime.now().strftime("%Y-%m-%d"))
+    plan_file = settings.get("plan_file", "run_plan.csv")
 
     start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
     goal_time = settings["goal_time"]
@@ -2006,62 +2013,25 @@ def show_training_plan_table(settings):
             'rowSelection': 'multiple',
         }
 
-    st.markdown('<div class="mp-card">', unsafe_allow_html=True)
-    
-    # Determine if we have pre-selected rows
-    pre_selected_rows = []
-    if st.session_state.get("plan_grid_sel"):
-        # Need to find the row indices in the grid_df that match the selected rows
-        for sel in st.session_state["plan_grid_sel"]:
-            date_iso = sel.get("DateISO")
-            if date_iso:
-                # Find the matching row indices
-                matches = grid_df.index[grid_df['DateISO'] == date_iso].tolist()
-                if matches:
-                    pre_selected_rows.extend(matches)
-                    
-        if _is_debug() and pre_selected_rows:
-            st.write(f"Pre-selecting rows at indices: {pre_selected_rows}")
-            
-    # Update grid options with pre-selected rows safely
-    if pre_selected_rows and 'preSelectedRows' in grid_options:
-        try:
-            grid_options['preSelectedRows'] = pre_selected_rows
-        except Exception as e:
-            if _is_debug():
-                st.error(f"Error setting pre-selected rows: {e}")
-    
-    # Use AgGrid with error handling
-    try:
-        grid_resp = AgGrid(
-            grid_df,
-            gridOptions=grid_options,
-            allow_unsafe_jscode=True,
-            fit_columns_on_grid_load=True,
-            height=600,
-            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-            update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-            enable_enterprise_modules=False,
-            theme="streamlit",
-            key=f"plan_grid_{datetime.now().strftime('%H%M%S%f')}",  # Unique key to force refresh
-        )
-    except Exception as e:
-        if _is_debug():
-            st.error(f"Error rendering AgGrid: {e}")
-        # Fallback to basic table if AgGrid fails
-        st.dataframe(
-            grid_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]],
-            height=600,
-            use_container_width=True,
-        )
-        st.warning("Enhanced grid view is not available. Using basic table instead.")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # We're skipping the AgGrid display entirely since we're using our custom UI now
+    # The code to display AgGrid has been removed to avoid duplicated display
 
     # Create a manual selection mechanism with checkboxes
     filtered_df = grid_df[(~grid_df['is_summary']) & (~grid_df['is_past']) & (grid_df['DateISO'] != '')].copy()
     
     # Group by week for better organization
     week_groups = filtered_df.groupby('Week')
+    
+    # Display full plan first for reference
+    with st.expander("View Full Training Plan", expanded=False):
+        # Display full plan as a clean dataframe
+        display_cols = ["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]
+        st.dataframe(
+            grid_df[display_cols],
+            height=500,
+            use_container_width=True,
+            hide_index=True,
+        )
     
     # Track current selections
     current_selections = [r.get('DateISO') for r in st.session_state.get('plan_grid_sel', [])]
@@ -2111,6 +2081,7 @@ def show_training_plan_table(settings):
                         
                         if swap_submitted:
                             try:
+                                # Make sure we have the user_hash for the swap operation
                                 d1 = datetime.strptime(st.session_state.plan_grid_sel[0].get("DateISO"), "%Y-%m-%d").date()
                                 d2 = datetime.strptime(st.session_state.plan_grid_sel[1].get("DateISO"), "%Y-%m-%d").date()
                                 
