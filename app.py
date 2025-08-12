@@ -1673,13 +1673,12 @@ def show_training_plan_table(settings):
     
     # Initialize view preference in session state if not already set
     if "plan_view" not in st.session_state:
-        st.session_state.plan_view = "current_week"
+        st.session_state.plan_view = "next_2_weeks"
         
     # Add view toggle options
     with col2:
         view_options = {
-            "current_week": "Current Week",
-            "next_2_weeks": "Next 2 Weeks", 
+            "next_2_weeks": "Two Weeks", 
             "full_plan": "Full Plan"
         }
         selected_view = st.radio("View", options=list(view_options.keys()), 
@@ -1915,22 +1914,7 @@ def show_training_plan_table(settings):
     grid_df = pd.DataFrame(display_rows)
     
     # Filter based on the selected view
-    if st.session_state.plan_view == "current_week":
-        # Calculate the current week number
-        today = datetime.now().date()
-        for _, row in grid_df.iterrows():
-            if not pd.isna(row.get("Date")) and row.get("DateISO") and not row.get("is_summary"):
-                # Found a date in the current week, get its week number
-                current_week = row.get("Week")
-                break
-        
-        # Filter to show only the current week
-        grid_df = grid_df[
-            (grid_df["Week"] == current_week) | 
-            (grid_df["is_summary"] & (grid_df["Week"] == current_week))
-        ]
-        
-    elif st.session_state.plan_view == "next_2_weeks":
+    if st.session_state.plan_view == "next_2_weeks":
         # Calculate the current week number
         today = datetime.now().date()
         for _, row in grid_df.iterrows():
@@ -2257,7 +2241,7 @@ def show_training_plan_table(settings):
     # Add a button to show/hide the swap functionality
     col1, col2 = st.columns([3, 1])
     with col1:
-        if st.button("� Need to adjust this week's schedule?" if not st.session_state.show_swap_ui else "� Hide schedule adjustment tools", 
+        if st.button("Need to adjust this week's schedule?" if not st.session_state.show_swap_ui else "Hide schedule adjustment tools", 
                     type="secondary", use_container_width=True):
             # Toggle the state
             st.session_state.show_swap_ui = not st.session_state.show_swap_ui
