@@ -1825,29 +1825,42 @@ def show_training_plan_table(settings):
     if 'DateISO' not in grid_df.columns:
         grid_df['DateISO'] = ''
         
+    # Add a column to indicate which rows are selectable (for visual indicator)
+    grid_df['is_selectable'] = False
+    selectable_filters = [(grid_df['is_summary'] == False)]
+    if 'is_past' in grid_df.columns:
+        selectable_filters.append(grid_df['is_past'] == False)
+    if 'DateISO' in grid_df.columns:
+        selectable_filters.append(grid_df['DateISO'] != '')
+    
+    if len(selectable_filters) > 0:
+        grid_df.loc[np.logical_and.reduce(selectable_filters), 'is_selectable'] = True
+        
     # Debug: show grid_df and which rows are selectable
     if _is_debug():
         st.write('grid_df for AgGrid:')
         st.dataframe(grid_df)
-        # Only filter on columns we're sure exist
-        selectable_filters = [(grid_df['is_summary'] == False)]
-        if 'is_past' in grid_df.columns:
-            selectable_filters.append(grid_df['is_past'] == False)
-        if 'DateISO' in grid_df.columns:
-            selectable_filters.append(grid_df['DateISO'] != '')
-        selectable_rows = grid_df[np.logical_and.reduce(selectable_filters)]
+        
+        selectable_rows = grid_df[grid_df['is_selectable'] == True]
         st.write(f"Selectable rows (should be today/future, not summary): {len(selectable_rows)}")
         st.dataframe(selectable_rows)
 
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
-    gb.configure_selection(selection_mode="multiple", use_checkbox=True, rowMultiSelectWithClick=True)
+    gb.configure_selection(
+        selection_mode="multiple", 
+        use_checkbox=True, 
+        rowMultiSelectWithClick=True,
+        header_checkbox=False,  # No header checkbox to avoid selecting all rows
+        pre_selected_rows=[]    # Clear pre-selections
+    )
     gb.configure_column(
         "Date",
         header_name="Date ⓘ",
         headerTooltip="Calendar date (MM-DD). Use the checkbox to select rows for swapping.",
         width=100,
         checkboxSelection=True,
+        pinned="left"
     )
     # Add informative tooltip to Suggested Pace column
     pace_tip = (
@@ -1861,16 +1874,54 @@ def show_training_plan_table(settings):
         headerTooltip=pace_tip,
         tooltipValueGetter=JsCode(f"function(params){{ return '{pace_tip}'; }}"),
     )
+    
+    # Custom CSS for row styling
+    custom_css = {
+        ".selectable-row": {
+            "border-left": "3px solid #22c55e !important",
+            "background-color": "rgba(34, 197, 94, 0.05) !important",
+            "cursor": "pointer !important"
+        },
+        ".non-selectable-row": {
+            "cursor": "not-allowed !important"
+        },
+        ".ag-row-selected": {
+            "background-color": "rgba(34, 197, 94, 0.15) !important"
+        }
+    }
+    
+    # Add onRowClicked event to ensure row selection by clicking anywhere in the row
+    js_row_clicked = JsCode("""
+    function(event) {
+        // Only allow selection of selectable rows
+        if (event.data.is_selectable === true) {
+            const isSelected = event.node.isSelected();
+            event.node.setSelected(!isSelected);
+            console.log('Row clicked, toggling selection:', !isSelected);
+        } else {
+            console.log('Non-selectable row clicked, ignoring');
+        }
+    }
+    """)
+    
     gb.configure_grid_options(
-        suppressRowClickSelection=True,
+        suppressRowClickSelection=True,  # We'll handle selection manually
+        rowSelection='multiple',
+        onRowClicked=js_row_clicked,
         isRowSelectable=JsCode(
             """
             function (params) {
-                // Only allow selection for non-summary, non-past rows
+                // Only allow selection for selectable rows (non-summary, non-past with DateISO)
                 if (!params.data) return false;
-                const isSummary = params.data.is_summary === true;
-                const isPast = params.data.is_past === true;
-                return !isSummary && !isPast;
+                return params.data.is_selectable === true;
+            }
+            """
+        ),
+        getRowClass=JsCode(
+            """
+            function (params) {
+                if (!params.data) return '';
+                return params.data.is_selectable ? 'selectable-row' : 'non-selectable-row';
             }
             """
         ),
@@ -1892,6 +1943,7 @@ def show_training_plan_table(settings):
             """
         ),
         tooltipShowDelay=100,
+        css=custom_css,
     )
     # Hide technical columns
     for c in ["DateISO", "Week", "is_summary", "is_today"]:
@@ -1925,26 +1977,50 @@ def show_training_plan_table(settings):
     if "plan_grid_sel" not in st.session_state:
         st.session_state.plan_grid_sel = []
 
+    # Process selection from grid response
     sel_now = []
     try:
         if isinstance(grid_resp, dict) and "selected_rows" in grid_resp:
             sr = grid_resp["selected_rows"]
+            
+            if _is_debug():
+                st.write("### Grid Selection Debug")
+                st.write(f"grid_resp type: {type(grid_resp)}")
+                st.write(f"selected_rows type: {type(sr)}")
+                st.write(f"selected_rows content: {sr}")
+                
             if isinstance(sr, pd.DataFrame):
                 sel_now = sr.to_dict("records")
             elif isinstance(sr, list):
                 sel_now = sr
-    except Exception:
+                
+            # Ensure selected rows have DateISO and are selectable
+            sel_now = [
+                r for r in sel_now 
+                if r.get("DateISO") and r.get("is_selectable", False) == True
+            ]
+        else:
+            if _is_debug():
+                st.write("### No Selection in Grid Response")
+                st.write(f"grid_resp keys: {grid_resp.keys() if isinstance(grid_resp, dict) else 'Not a dict'}")
+    except Exception as e:
+        if _is_debug():
+            st.write(f"### Error in Selection Processing: {e}")
+            import traceback
+            st.code(traceback.format_exc())
         sel_now = []
-
-    # Filter out summary and past rows from selection
-    sel_now = [r for r in sel_now if not r.get("is_summary") and not r.get("is_past") and r.get("DateISO")]  # must have DateISO
-    
+        
     # Debug the selected rows before updating session state
     if _is_debug():
-        st.write("**Current selection from grid:**", sel_now)
+        st.write(f"**Current selection from grid (filtered for selectable):** {sel_now}")
+        st.write(f"**Previous selection in session:** {st.session_state.get('plan_grid_sel', [])}")
         
-    # Only update session selection if non-empty, otherwise preserve previous
-    if len(sel_now) > 0:
+    # Update session selection if we have a valid selection from the grid
+    # or if we need to clear it (sel_now is empty but we have a previous selection)
+    previous_sel = st.session_state.get("plan_grid_sel", [])
+    if len(sel_now) > 0 or (len(sel_now) == 0 and len(previous_sel) > 0):
+        if _is_debug():
+            st.write(f"**Updating session selection from {len(previous_sel)} to {len(sel_now)} items**")
         st.session_state.plan_grid_sel = sel_now
         
     current_sel = st.session_state.get("plan_grid_sel", [])
@@ -1977,7 +2053,22 @@ def show_training_plan_table(settings):
     with top_bar:
         c1, c2 = st.columns([1, 6])
         with c1:
-            swap_button = st.button("Swap selected", use_container_width=True)
+            # Determine if selection is valid for swapping
+            has_valid_selection = len(current_sel) == 2
+            if has_valid_selection:
+                # Check same week requirement
+                week1 = int(current_sel[0].get("Week", "0"))
+                week2 = int(current_sel[1].get("Week", "0"))
+                has_valid_selection = week1 == week2
+                
+            # Make the button disabled if selection isn't valid
+            swap_button = st.button(
+                "Swap selected", 
+                use_container_width=True,
+                disabled=(not has_valid_selection),
+                help="Select exactly two days in the same week to swap activities"
+            )
+                
             if swap_button:
                 if _is_debug():
                     st.write("### Swap button clicked")
@@ -2039,7 +2130,20 @@ def show_training_plan_table(settings):
                             import traceback
                             st.code(traceback.format_exc())
         with c2:
-            st.caption("Tip: select two days in the same week to swap their planned workouts. Weekly summary rows are not selectable.")
+            # Dynamic instructions based on selection state
+            if len(current_sel) == 0:
+                st.caption("Select two days in the same week to swap their planned workouts.")
+            elif len(current_sel) == 1:
+                st.caption("Select one more day in the same week to swap workouts.")
+            elif len(current_sel) == 2:
+                week1 = int(current_sel[0].get("Week", "0"))
+                week2 = int(current_sel[1].get("Week", "0"))
+                if week1 != week2:
+                    st.caption("⚠️ Selected days must be in the same week. Please reselect.")
+                else:
+                    st.caption("✅ Ready to swap! Click the 'Swap selected' button.")
+            else:
+                st.caption("⚠️ Too many days selected. Please select exactly two days to swap.")
 
     if _is_debug():
         with st.expander("Strava connection details"):
