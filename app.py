@@ -2061,14 +2061,21 @@ def show_training_plan_table(settings):
     # Track current selections
     current_selections = [r.get('DateISO') for r in st.session_state.get('plan_grid_sel', [])]
     
+    # Initialize swap UI visibility in session state if not already set
+    if "show_swap_ui" not in st.session_state:
+        st.session_state.show_swap_ui = False
+    
     # Add a button to show/hide the swap functionality
     col1, col2 = st.columns([3, 1])
     with col1:
-        show_swap = st.button("🔄 Show Swap Tools", type="secondary", use_container_width=True)
+        if st.button("🔄 Show Swap Tools" if not st.session_state.show_swap_ui else "🔄 Hide Swap Tools", 
+                    type="secondary", use_container_width=True):
+            # Toggle the state
+            st.session_state.show_swap_ui = not st.session_state.show_swap_ui
     
     # Show a clear button if there are selections but swap UI is not shown
     with col2:
-        if not show_swap and len(st.session_state.get('plan_grid_sel', [])) > 0:
+        if not st.session_state.show_swap_ui and len(st.session_state.get('plan_grid_sel', [])) > 0:
             if st.button("❌ Clear Selection", type="secondary", use_container_width=True):
                 st.session_state.plan_grid_sel = []
                 st.rerun()
@@ -2077,7 +2084,7 @@ def show_training_plan_table(settings):
     selection_container = st.container()
     
     # Only show swap functionality if the button is clicked
-    if show_swap:
+    if st.session_state.show_swap_ui:
         with selection_container:
             # Use a card-like container for the swap functionality
             st.markdown("""
@@ -2146,6 +2153,8 @@ def show_training_plan_table(settings):
                                     # Set both flags to force refresh
                                     st.session_state["plan_needs_refresh"] = True
                                     st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
+                                    # Keep swap UI visible after refresh
+                                    st.session_state.show_swap_ui = True
                                     st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
                                     st.rerun()
                             except Exception as e:
@@ -2154,18 +2163,24 @@ def show_training_plan_table(settings):
                         # Add a clear button
                         if st.button("Clear Selection", key="clear_btn", use_container_width=True):
                             st.session_state.plan_grid_sel = []
+                            # Keep swap UI visible
+                            st.session_state.show_swap_ui = True
                             st.rerun()
                 else:
                     st.error("⚠️ Selected days must be in the same week")
                     # Add a clear button
                     if st.button("Clear Selection", key="clear_btn_error", use_container_width=True):
                         st.session_state.plan_grid_sel = []
+                        # Keep swap UI visible
+                        st.session_state.show_swap_ui = True
                         st.rerun()
             elif selected_count > 0:
                 st.info(f"Select {2-selected_count} more day{'s' if 2-selected_count > 1 else ''} from the same week")
                 # Add a clear button if we have any selections
                 if st.button("Clear Selection", key="clear_btn_partial", use_container_width=True):
                     st.session_state.plan_grid_sel = []
+                    # Keep swap UI visible
+                    st.session_state.show_swap_ui = True
                     st.rerun()
         
         st.markdown("<hr>", unsafe_allow_html=True)
@@ -2202,6 +2217,8 @@ def show_training_plan_table(settings):
                             # Get the full row data and add it
                             row_data = row.to_dict()
                             st.session_state.plan_grid_sel.append(row_data)
+                            # Ensure swap UI remains visible after selecting an item
+                            st.session_state.show_swap_ui = True
                             selection_changed = True
                             
                         elif not checkbox_selected and is_selected:
@@ -2220,13 +2237,18 @@ def show_training_plan_table(settings):
         
         # Only rerun once after all checkboxes are processed, and only if something changed
         if selection_changed:
+            # Make sure swap UI stays visible on rerun
+            st.session_state.show_swap_ui = True
+            
             # Check if we've reached exactly 2 selections after the changes
             if len(st.session_state.get('plan_grid_sel', [])) == 2:
                 # Don't rerun immediately - let the user see both selections
-                pass
                 st.success("Two days selected! Use the buttons above to swap or clear.")
+            elif len(st.session_state.get('plan_grid_sel', [])) == 1:
+                # Only one day selected, provide guidance but don't rerun
+                st.info("Select one more day from the same week to swap")
             else:
-                # Rerun to update the UI for other selection counts
+                # No selections or invalid number, we can rerun
                 st.rerun()
     
     # Get the current selection from session state
