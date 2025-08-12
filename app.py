@@ -1350,9 +1350,13 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
         
         if _is_debug():
             st.write("#### Applying Plan Overrides")
-            st.write("**Retrieved overrides:**", overrides or "None")
+            st.write(f"**Retrieved overrides:** {overrides}")
             st.session_state["_debug_overrides"] = overrides
         
+        # Fix for None vs empty dict confusion
+        if overrides is None:
+            overrides = {}
+            
         if not overrides or plan_df is None or plan_df.empty:
             if _is_debug():
                 st.write("**No overrides to apply or empty DataFrame**")
@@ -1495,9 +1499,11 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             }
             st.write("**Extracted workout details:**", st.session_state["_debug_swap_payloads"])
         
-        # Get existing overrides and update with new swaps
+        # Get existing overrides 
         overrides = _get_overrides_for_plan(settings)
-        
+        if overrides is None:
+            overrides = {}
+            
         if _is_debug():
             st.write("**Current overrides before swap:**", overrides)
         
@@ -1510,6 +1516,29 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         
         # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
+        
+        # Also apply the overrides directly to the global plan DataFrame for immediate effect
+        if 'DateISO' in plan_df.columns:
+            a_mask = (plan_df['DateISO'] == date_a_str)
+            b_mask = (plan_df['DateISO'] == date_b_str)
+        else:
+            a_mask = (plan_df['Date'] == date_a)
+            b_mask = (plan_df['Date'] == date_b)
+            
+        # Swap the values directly in the DataFrame for each field
+        for field in workout_fields:
+            if field in plan_df.columns:
+                # Save the original values
+                a_val = plan_df.loc[a_mask, field].values[0] if any(a_mask) else None
+                b_val = plan_df.loc[b_mask, field].values[0] if any(b_mask) else None
+                
+                # Swap them if both exist
+                if a_val is not None and b_val is not None:
+                    plan_df.loc[a_mask, field] = b_val
+                    plan_df.loc[b_mask, field] = a_val
+                    
+                    if _is_debug():
+                        st.write(f"**Directly swapped {field} in DataFrame**")
         
         if _is_debug():
             st.write("**SWAP SUCCESS:**", f"Swapped {date_a_str} and {date_b_str}")
@@ -1589,9 +1618,20 @@ def show_training_plan_table(settings):
     plan_file = settings.get("plan_file", "run_plan.csv")
     
     # Check if we need to clear selection after a swap
-    if st.session_state.get("plan_needs_refresh", False):
-        st.session_state.plan_grid_sel = []
-        st.session_state.pop("plan_needs_refresh", None)
+    refresh_needed = st.session_state.get("plan_needs_refresh", False)
+    force_refresh_key = st.session_state.get("_force_plan_refresh", "")
+    
+    if refresh_needed:
+        if _is_debug():
+            st.write(f"**REFRESH triggered by plan_needs_refresh: {refresh_needed}, force key: {force_refresh_key}**")
+        st.session_state.plan_grid_sel = []  # Clear selection
+        st.session_state.pop("plan_needs_refresh", None)  # Clear flag
+
+    # Reload user settings each time to get latest overrides
+    if refresh_needed or force_refresh_key:
+        if _is_debug():
+            st.write("**Reloading user settings due to refresh flag**")
+        settings = load_user_settings(user_hash)  # Reload settings 
 
     plan_df = generate_training_plan(start_date, plan_file=plan_file)
     plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
@@ -1924,7 +1964,9 @@ def show_training_plan_table(settings):
                             
                             # Force reload of the page to show updated plan
                             if success:
+                                # Set both flags to force refresh
                                 st.session_state["plan_needs_refresh"] = True
+                                st.session_state["_force_plan_refresh"] = datetime.now().isoformat()
                                 st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
                                 st.rerun()
                             else:
