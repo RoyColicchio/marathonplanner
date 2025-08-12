@@ -1987,7 +1987,24 @@ def show_training_plan_table(settings):
     gb.configure_column("Actual Miles", header_name="Actual Miles ⓘ", headerTooltip="Miles recorded from Strava on that date.", width=120, type=["numericColumn", "numberColumnFilter"])
     gb.configure_column("Actual Pace", header_name="Actual Pace ⓘ", headerTooltip="Average pace from the Strava activity (min/mi).", width=120)
 
-    grid_options = gb.build()
+    # Build grid options safely
+    try:
+        grid_options = gb.build()
+    except Exception as e:
+        if _is_debug():
+            st.error(f"Error building grid options: {e}")
+        # Fallback to simpler grid options to avoid errors
+        grid_options = {
+            'columnDefs': [
+                {'field': 'Date', 'headerName': 'Date', 'width': 100, 'pinned': 'left'},
+                {'field': 'Day', 'headerName': 'Day', 'width': 120},
+                {'field': 'Activity', 'headerName': 'Activity', 'flex': 2},
+                {'field': 'Suggested Pace', 'headerName': 'Suggested Pace', 'width': 200},
+                {'field': 'Actual Miles', 'headerName': 'Actual Miles', 'width': 120},
+                {'field': 'Actual Pace', 'headerName': 'Actual Pace', 'width': 120}
+            ],
+            'rowSelection': 'multiple',
+        }
 
     st.markdown('<div class="mp-card">', unsafe_allow_html=True)
     
@@ -2006,23 +2023,38 @@ def show_training_plan_table(settings):
         if _is_debug() and pre_selected_rows:
             st.write(f"Pre-selecting rows at indices: {pre_selected_rows}")
             
-    # Update grid options with pre-selected rows
-    grid_options = gb.build()
-    if pre_selected_rows:
-        grid_options['preSelectedRows'] = pre_selected_rows
+    # Update grid options with pre-selected rows safely
+    if pre_selected_rows and 'preSelectedRows' in grid_options:
+        try:
+            grid_options['preSelectedRows'] = pre_selected_rows
+        except Exception as e:
+            if _is_debug():
+                st.error(f"Error setting pre-selected rows: {e}")
     
-    grid_resp = AgGrid(
-        grid_df,
-        gridOptions=grid_options,
-        allow_unsafe_jscode=True,
-        fit_columns_on_grid_load=True,
-        height=600,
-        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-        update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
-        enable_enterprise_modules=False,
-        theme="streamlit",
-        key=f"plan_grid_{datetime.now().strftime('%H%M%S%f')}",  # Unique key to force refresh
-    )
+    # Use AgGrid with error handling
+    try:
+        grid_resp = AgGrid(
+            grid_df,
+            gridOptions=grid_options,
+            allow_unsafe_jscode=True,
+            fit_columns_on_grid_load=True,
+            height=600,
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.VALUE_CHANGED,
+            enable_enterprise_modules=False,
+            theme="streamlit",
+            key=f"plan_grid_{datetime.now().strftime('%H%M%S%f')}",  # Unique key to force refresh
+        )
+    except Exception as e:
+        if _is_debug():
+            st.error(f"Error rendering AgGrid: {e}")
+        # Fallback to basic table if AgGrid fails
+        st.dataframe(
+            grid_df[["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]],
+            height=600,
+            use_container_width=True,
+        )
+        st.warning("Enhanced grid view is not available. Using basic table instead.")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Create a manual selection mechanism with checkboxes
