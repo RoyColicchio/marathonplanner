@@ -1764,8 +1764,17 @@ def show_training_plan_table(settings):
     work["Date"] = pd.to_datetime(work["Date"]).dt.date
     base_date = plan_min
     work.sort_values("Date", inplace=True)
+    
+    # Calculate week numbers from base date
     work["_week"] = ((pd.to_datetime(work["Date"]) - pd.to_datetime(base_date)).dt.days // 7) + 1
-
+    
+    if _is_debug():
+        st.write("### Week Calculation Debug")
+        st.write(f"Base date: {base_date}")
+        st.write(f"Date range: {plan_min} to {plan_max}")
+        st.write("First 5 rows with week calculation:")
+        st.dataframe(work[["Date", "_week"]].head())
+        
     display_rows = []
     today = datetime.now().date()
 
@@ -1946,8 +1955,11 @@ def show_training_plan_table(settings):
         css=custom_css,
     )
     # Hide technical columns
-    for c in ["DateISO", "Week", "is_summary", "is_today"]:
+    for c in ["DateISO", "is_summary", "is_today", "is_past", "is_selectable"]:
         gb.configure_column(c, hide=True)
+        
+    # Week column is needed for swap validation but should be hidden in the UI
+    gb.configure_column("Week", hide=True)
 
     # Friendlier column sizing and header tooltips
     gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout.", width=120)
@@ -1997,8 +2009,12 @@ def show_training_plan_table(settings):
             # Ensure selected rows have DateISO and are selectable
             sel_now = [
                 r for r in sel_now 
-                if r.get("DateISO") and r.get("is_selectable", False) == True
+                if r.get("DateISO") and not r.get("is_summary", False) and not r.get("is_past", False)
             ]
+            
+            # Always update session state with current selection
+            st.session_state.plan_grid_sel = sel_now
+            
         else:
             if _is_debug():
                 st.write("### No Selection in Grid Response")
@@ -2010,20 +2026,12 @@ def show_training_plan_table(settings):
             st.code(traceback.format_exc())
         sel_now = []
         
-    # Debug the selected rows before updating session state
+    # Debug the selected rows
     if _is_debug():
-        st.write(f"**Current selection from grid (filtered for selectable):** {sel_now}")
-        st.write(f"**Previous selection in session:** {st.session_state.get('plan_grid_sel', [])}")
+        st.write(f"**Current selection from grid:** {sel_now}")
         
-    # Update session selection if we have a valid selection from the grid
-    # or if we need to clear it (sel_now is empty but we have a previous selection)
-    previous_sel = st.session_state.get("plan_grid_sel", [])
-    if len(sel_now) > 0 or (len(sel_now) == 0 and len(previous_sel) > 0):
-        if _is_debug():
-            st.write(f"**Updating session selection from {len(previous_sel)} to {len(sel_now)} items**")
-        st.session_state.plan_grid_sel = sel_now
-        
-    current_sel = st.session_state.get("plan_grid_sel", [])
+    # Always use the current selection from this run    
+    current_sel = sel_now
     
     # Debug: show what is being selected
     if _is_debug():
@@ -2055,11 +2063,36 @@ def show_training_plan_table(settings):
         with c1:
             # Determine if selection is valid for swapping
             has_valid_selection = len(current_sel) == 2
+            
+            # Debug selection for swap validation
+            if _is_debug():
+                st.write("### Swap Button Validation Debug")
+                st.write(f"Current selection count: {len(current_sel)}")
+                for i, sel in enumerate(current_sel):
+                    st.write(f"Selection {i+1}:")
+                    st.write(f"- DateISO: {sel.get('DateISO')}")
+                    st.write(f"- Week: {sel.get('Week')}")
+                    st.write(f"- is_selectable: {sel.get('is_selectable')}")
+                    st.write(f"- is_past: {sel.get('is_past')}")
+                    st.write(f"- is_summary: {sel.get('is_summary')}")
+            
             if has_valid_selection:
                 # Check same week requirement
-                week1 = int(current_sel[0].get("Week", "0"))
-                week2 = int(current_sel[1].get("Week", "0"))
-                has_valid_selection = week1 == week2
+                week1 = current_sel[0].get("Week")
+                week2 = current_sel[1].get("Week")
+                
+                # Convert to integers for comparison, using 0 as default
+                try:
+                    week1 = int(week1) if week1 is not None else 0
+                    week2 = int(week2) if week2 is not None else 0
+                    has_valid_selection = week1 == week2 and week1 > 0
+                except (ValueError, TypeError):
+                    has_valid_selection = False
+                
+                if _is_debug():
+                    st.write(f"Week comparison: {week1} vs {week2}")
+                    st.write(f"Same week: {week1 == week2}")
+                    st.write(f"Final has_valid_selection: {has_valid_selection}")
                 
             # Make the button disabled if selection isn't valid
             swap_button = st.button(
