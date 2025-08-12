@@ -1859,10 +1859,17 @@ def show_training_plan_table(settings):
     gb.configure_selection(
         selection_mode="multiple", 
         use_checkbox=True, 
-        rowMultiSelectWithClick=True,
-        header_checkbox=False,  # No header checkbox to avoid selecting all rows
-        pre_selected_rows=[]    # Clear pre-selections
+        rowMultiSelectWithClick=False,      # Disable multiple select with click
+        header_checkbox=False,              # No header checkbox to avoid selecting all rows
+        pre_selected_rows=[],               # Clear pre-selections
+        suppressRowDeselection=False,       # Allow deselection by clicking
+        suppressRowClickSelection=False     # Allow row click to select
     )
+    
+    # Add selection checkpoint using grid update
+    if st.session_state.get("plan_grid_sel") and _is_debug():
+        st.write(f"Pre-selected rows from session: {st.session_state['plan_grid_sel']}")
+        
     gb.configure_column(
         "Date",
         header_name="Date ⓘ",
@@ -1902,27 +1909,40 @@ def show_training_plan_table(settings):
     # Add onRowClicked event to ensure row selection by clicking anywhere in the row
     js_row_clicked = JsCode("""
     function(event) {
-        // Only allow selection of selectable rows
-        if (event.data.is_selectable === true) {
-            const isSelected = event.node.isSelected();
-            event.node.setSelected(!isSelected);
-            console.log('Row clicked, toggling selection:', !isSelected);
+        console.log('Row clicked:', event.data);
+        // Only process clicks on selectable rows
+        if (!event.data.is_summary && !event.data.is_past && event.data.DateISO) {
+            // Toggle selection
+            const selected = event.node.isSelected();
+            event.node.setSelected(!selected);
+            console.log('Selection set to:', !selected);
         } else {
-            console.log('Non-selectable row clicked, ignoring');
+            console.log('Row is not selectable');
         }
     }
     """)
     
+    # Add onSelectionChanged to log selection changes
+    js_selection_changed = JsCode("""
+    function() {
+        console.log('Selection changed!');
+        var selectedRows = this.api.getSelectedRows();
+        console.log('Selected rows:', selectedRows);
+    }
+    """)
+    
     gb.configure_grid_options(
-        suppressRowClickSelection=True,  # We'll handle selection manually
         rowSelection='multiple',
         onRowClicked=js_row_clicked,
+        onSelectionChanged=js_selection_changed,
         isRowSelectable=JsCode(
             """
             function (params) {
-                // Only allow selection for selectable rows (non-summary, non-past with DateISO)
-                if (!params.data) return false;
-                return params.data.is_selectable === true;
+                // Only allow selection for non-summary, non-past rows with DateISO
+                return params.data && 
+                       !params.data.is_summary && 
+                       !params.data.is_past && 
+                       params.data.DateISO;
             }
             """
         ),
@@ -1992,45 +2012,88 @@ def show_training_plan_table(settings):
     # Process selection from grid response
     sel_now = []
     try:
-        if isinstance(grid_resp, dict) and "selected_rows" in grid_resp:
-            sr = grid_resp["selected_rows"]
-            
+        if isinstance(grid_resp, dict):
             if _is_debug():
-                st.write("### Grid Selection Debug")
-                st.write(f"grid_resp type: {type(grid_resp)}")
-                st.write(f"selected_rows type: {type(sr)}")
-                st.write(f"selected_rows content: {sr}")
+                st.write("### Grid Response Analysis")
+                st.write(f"Grid response keys: {list(grid_resp.keys())}")
                 
-            if isinstance(sr, pd.DataFrame):
-                sel_now = sr.to_dict("records")
-            elif isinstance(sr, list):
-                sel_now = sr
+            if "selected_rows" in grid_resp and grid_resp["selected_rows"]:
+                sr = grid_resp["selected_rows"]
                 
-            # Ensure selected rows have DateISO and are selectable
-            sel_now = [
-                r for r in sel_now 
-                if r.get("DateISO") and not r.get("is_summary", False) and not r.get("is_past", False)
-            ]
+                if _is_debug():
+                    st.write(f"selected_rows type: {type(sr)}")
+                    st.write(f"selected_rows content: {sr}")
+                    
+                if isinstance(sr, pd.DataFrame):
+                    sel_now = sr.to_dict("records")
+                elif isinstance(sr, list):
+                    sel_now = sr
+                    
+                # Log what got filtered out
+                if _is_debug():
+                    st.write("### Selection filtering analysis")
+                    for i, row in enumerate(sel_now):
+                        st.write(f"Row {i} before filtering:")
+                        st.write(f"- DateISO: {row.get('DateISO', 'MISSING')}")
+                        st.write(f"- Week: {row.get('Week', 'MISSING')}")
+                        st.write(f"- is_summary: {row.get('is_summary', 'MISSING')}")
+                        st.write(f"- is_past: {row.get('is_past', 'MISSING')}")
+                        
+                # Keep only rows that are not summary rows and not past
+                sel_now = [
+                    r for r in sel_now 
+                    if r.get("DateISO") and not r.get("is_summary", False) and not r.get("is_past", False)
+                ]
+                
+                if _is_debug():
+                    st.write(f"After filtering: {len(sel_now)} rows remain")
+            else:
+                if _is_debug():
+                    if "selected_rows" in grid_resp:
+                        st.write("'selected_rows' exists but is empty")
+                    else:
+                        st.write("No 'selected_rows' key in grid_resp")
+                        
+            # Also check the data field for selection info (sometimes needed)
+            if not sel_now and "data" in grid_resp and isinstance(grid_resp["data"], pd.DataFrame):
+                if _is_debug():
+                    st.write("Checking 'data' field for selection")
+                    
+                data_df = grid_resp["data"]
+                if "_selectedRowNodeInfo" in data_df.columns:
+                    selected_data = data_df[data_df["_selectedRowNodeInfo"].notna()]
+                    if not selected_data.empty:
+                        sel_now = selected_data.to_dict("records")
+                        if _is_debug():
+                            st.write(f"Found {len(sel_now)} selected rows in data field")
             
             # Always update session state with current selection
-            st.session_state.plan_grid_sel = sel_now
+            if sel_now:
+                st.session_state.plan_grid_sel = sel_now
+                if _is_debug():
+                    st.write(f"Updated session state with {len(sel_now)} selected rows")
             
         else:
             if _is_debug():
-                st.write("### No Selection in Grid Response")
-                st.write(f"grid_resp keys: {grid_resp.keys() if isinstance(grid_resp, dict) else 'Not a dict'}")
+                st.write("### Grid Response is not a dict")
+                st.write(f"Type: {type(grid_resp)}")
     except Exception as e:
         if _is_debug():
             st.write(f"### Error in Selection Processing: {e}")
             import traceback
             st.code(traceback.format_exc())
-        sel_now = []
         
-    # Debug the selected rows
+    # If no selection was found in this run, check session state
+    if not sel_now and "plan_grid_sel" in st.session_state:
+        sel_now = st.session_state.plan_grid_sel
+        if _is_debug():
+            st.write(f"Using {len(sel_now)} rows from session state")
+            
+    # Debug the final selection
     if _is_debug():
-        st.write(f"**Current selection from grid:** {sel_now}")
+        st.write(f"**Final selection for swap logic:** {sel_now}")
         
-    # Always use the current selection from this run    
+    # Always use the final selection
     current_sel = sel_now
     
     # Debug: show what is being selected
@@ -2064,39 +2127,44 @@ def show_training_plan_table(settings):
             # Determine if selection is valid for swapping
             has_valid_selection = len(current_sel) == 2
             
-            # Debug selection for swap validation
+            # Debugging selection state before swap button display
             if _is_debug():
-                st.write("### Swap Button Validation Debug")
+                st.write("### Swap Button State")
                 st.write(f"Current selection count: {len(current_sel)}")
-                for i, sel in enumerate(current_sel):
-                    st.write(f"Selection {i+1}:")
-                    st.write(f"- DateISO: {sel.get('DateISO')}")
-                    st.write(f"- Week: {sel.get('Week')}")
-                    st.write(f"- is_selectable: {sel.get('is_selectable')}")
-                    st.write(f"- is_past: {sel.get('is_past')}")
-                    st.write(f"- is_summary: {sel.get('is_summary')}")
+                if current_sel:
+                    for i, sel in enumerate(current_sel):
+                        st.write(f"Selection {i+1} details:")
+                        for key in ['DateISO', 'Week', 'is_summary', 'is_past', 'Date', 'Day']:
+                            st.write(f"- {key}: {sel.get(key, 'MISSING')}")
             
+            # Week comparison logic
+            same_week = False
             if has_valid_selection:
-                # Check same week requirement
-                week1 = current_sel[0].get("Week")
-                week2 = current_sel[1].get("Week")
-                
-                # Convert to integers for comparison, using 0 as default
                 try:
-                    week1 = int(week1) if week1 is not None else 0
-                    week2 = int(week2) if week2 is not None else 0
-                    has_valid_selection = week1 == week2 and week1 > 0
-                except (ValueError, TypeError):
-                    has_valid_selection = False
-                
-                if _is_debug():
-                    st.write(f"Week comparison: {week1} vs {week2}")
-                    st.write(f"Same week: {week1 == week2}")
-                    st.write(f"Final has_valid_selection: {has_valid_selection}")
+                    # Extract week values safely
+                    week1 = current_sel[0].get("Week")
+                    week2 = current_sel[1].get("Week")
+                    
+                    # Handle type conversion safely
+                    if week1 is not None and week2 is not None:
+                        week1 = int(week1) if str(week1).isdigit() else 0
+                        week2 = int(week2) if str(week2).isdigit() else 0
+                        same_week = week1 == week2 and week1 > 0
+                        
+                    if _is_debug():
+                        st.write(f"Week values: {week1} and {week2}")
+                        st.write(f"Same week: {same_week}")
+                except Exception as e:
+                    if _is_debug():
+                        st.write(f"Error in week comparison: {e}")
+                    same_week = False
+                    
+                has_valid_selection = same_week
                 
             # Make the button disabled if selection isn't valid
             swap_button = st.button(
                 "Swap selected", 
+                key="swap_button",
                 use_container_width=True,
                 disabled=(not has_valid_selection),
                 help="Select exactly two days in the same week to swap activities"
