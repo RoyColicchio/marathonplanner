@@ -344,6 +344,10 @@ if "goal_coach_cons" not in st.session_state:
     st.session_state.goal_coach_cons = None
 if "goal_coach_amb" not in st.session_state:
     st.session_state.goal_coach_amb = None
+if "plan_grid_sel" not in st.session_state:
+    st.session_state.plan_grid_sel = []
+if "plan_needs_refresh" not in st.session_state:
+    st.session_state.plan_needs_refresh = False
 
 # --- Goal Time Coach helpers ---
 import re as _re_gc
@@ -1218,6 +1222,7 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
 def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
     try:
         overrides = _get_overrides_for_plan(settings)
+        st.session_state["_debug_overrides"] = overrides if _is_debug() else None
         if not overrides or plan_df is None or plan_df.empty:
             return plan_df
         out = plan_df.copy()
@@ -1260,15 +1265,18 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             row_a = df[df["Date"] == date_a]
             row_b = df[df["Date"] == date_b]
         if row_a.empty or row_b.empty:
-            st.warning("Selected dates are not in the plan.")
-            return
+            raise ValueError("Selected dates are not in the plan.")
+            
         # Only swap workout fields, not date/day
         workout_fields = ["Activity_Abbr", "Activity", "Plan_Miles"]
         pa = {k: row_a.iloc[0].get(k, None) for k in workout_fields}
         pb = {k: row_b.iloc[0].get(k, None) for k in workout_fields}
+        
+        # Get existing overrides and update with new swaps
         overrides = _get_overrides_for_plan(settings)
         overrides[date_a.strftime("%Y-%m-%d")] = pb
         overrides[date_b.strftime("%Y-%m-%d")] = pa
+        
         _save_overrides_for_plan(user_hash, settings, overrides)
         st.success(f"Swapped {date_a.strftime('%a %m-%d')} and {date_b.strftime('%a %m-%d')}")
     except Exception as e:
@@ -1337,6 +1345,11 @@ def show_training_plan_table(settings):
     start_date = datetime.strptime(settings["start_date"], "%Y-%m-%d").date()
     goal_time = settings["goal_time"]
     plan_file = settings.get("plan_file", "run_plan.csv")
+    
+    # Check if we need to clear selection after a swap
+    if st.session_state.get("plan_needs_refresh", False):
+        st.session_state.plan_grid_sel = []
+        st.session_state.pop("plan_needs_refresh", None)
 
     plan_df = generate_training_plan(start_date, plan_file=plan_file)
     plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
@@ -1581,10 +1594,12 @@ def show_training_plan_table(settings):
     # Only update session selection if non-empty, otherwise preserve previous
     if len(sel_now) > 0:
         st.session_state.plan_grid_sel = sel_now
-    current_sel = st.session_state.plan_grid_sel
+    current_sel = st.session_state.get("plan_grid_sel", [])
     # Debug: show what is being selected
     if _is_debug():
         st.info(f"Selected rows: {current_sel}")
+        if st.session_state.get("_debug_overrides"):
+            st.write("Current overrides:", st.session_state["_debug_overrides"])
 
     # Render the top action bar now that we have (persisted) selection info
     with top_bar:
@@ -1604,8 +1619,9 @@ def show_training_plan_table(settings):
                             d1 = datetime.strptime(current_sel[0].get("DateISO"), "%Y-%m-%d").date()
                             d2 = datetime.strptime(current_sel[1].get("DateISO"), "%Y-%m-%d").date()
                             swap_plan_days(user_hash, settings, plan_df, d1, d2)
-                            tmp = apply_plan_overrides(plan_df.copy(), settings)
                             st.session_state.plan_grid_sel = []
+                            # Force reload of the page to show updated plan
+                            st.session_state["plan_needs_refresh"] = True
                             st.toast(f"Swapped {d1.strftime('%a %m-%d')} and {d2.strftime('%a %m-%d')}")
                             st.rerun()
                         except Exception as e:
