@@ -2043,6 +2043,10 @@ def show_training_plan_table(settings):
         ".ag-row-selected": {
             "background-color": "rgba(34, 197, 94, 0.15) !important"
         },
+        ".today-cell": {
+            "font-style": "italic !important",
+            "font-weight": "600 !important"
+        },
         # Mobile responsiveness
         "@media screen and (max-width: 768px)": {
             ".ag-header-cell, .ag-cell": {
@@ -2117,6 +2121,7 @@ def show_training_plan_table(settings):
               if (params.data.is_today === true) {
                 return {
                   fontWeight: '600', 
+                  fontStyle: 'italic',
                   backgroundColor: 'rgba(6,182,212,0.18)',
                   border: '2px solid rgba(6,182,212,0.6)',
                   borderRadius: '4px',
@@ -2157,7 +2162,18 @@ def show_training_plan_table(settings):
     
     # Hide the original Date column and show the DateLabel instead
     gb.configure_column("Date", hide=True)
-    gb.configure_column("DateLabel", header_name="Date ⓘ", headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.)", width=100)
+    gb.configure_column("DateLabel", 
+                     header_name="Date ⓘ", 
+                     headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.)", 
+                     width=100,
+                     cellRenderer=JsCode("""
+                     function(params) {
+                         if (params.data && params.data.is_today) {
+                             return '<span style="font-style: italic;">' + params.value + '</span>';
+                         }
+                         return params.value;
+                     }
+                     """))
 
     # Friendlier column sizing and header tooltips
     gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout.", width=100)
