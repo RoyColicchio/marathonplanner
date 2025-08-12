@@ -1813,6 +1813,15 @@ def show_training_plan_table(settings):
 
     for wk, grp in work.groupby("_week", sort=True):
         for _, row in grp.iterrows():
+            # Handle None values for actual data
+            actual_miles = row.get("Actual Miles", None)
+            actual_pace = row.get("Actual Pace", None)
+            
+            # Convert None to empty string for future days
+            if row["Date"] >= today:
+                actual_miles = "" if actual_miles is None else actual_miles
+                actual_pace = "" if actual_pace is None else actual_pace
+                
             display_rows.append({
                 "DateISO": row["Date"].strftime("%Y-%m-%d"),
                 "Week": int(wk),
@@ -1823,8 +1832,8 @@ def show_training_plan_table(settings):
                 "Day": row["Day"],
                 "Activity": row["Activity"],
                 "Suggested Pace": row["Suggested Pace"],
-                "Actual Miles": row.get("Actual Miles", None),
-                "Actual Pace": row.get("Actual Pace", None),
+                "Actual Miles": actual_miles,
+                "Actual Pace": actual_pace,
             })
         planned_sum = pd.to_numeric(grp.get("Plan_Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         actual_sum = pd.to_numeric(grp.get("Actual Miles", pd.Series([])), errors="coerce").fillna(0).sum()
@@ -2084,7 +2093,7 @@ def show_training_plan_table(settings):
     # Add a button to show/hide the swap functionality
     col1, col2 = st.columns([3, 1])
     with col1:
-        if st.button("🔄 Show Swap Tools" if not st.session_state.show_swap_ui else "🔄 Hide Swap Tools", 
+        if st.button("� Need to adjust this week's schedule?" if not st.session_state.show_swap_ui else "� Hide schedule adjustment tools", 
                     type="secondary", use_container_width=True):
             # Toggle the state
             st.session_state.show_swap_ui = not st.session_state.show_swap_ui
