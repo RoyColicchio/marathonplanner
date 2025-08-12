@@ -1663,10 +1663,30 @@ def show_training_plan_table(settings):
             first_name = user["email"].split("@")[0]
     except Exception:
         pass
-    st.header(f"{first_name}'s Training Plan")
+    # Create header with view options
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.header(f"{first_name}'s Training Plan")
     
     # Get user hash at the beginning of the function to avoid UnboundLocalError
     user_hash = get_user_hash(st.session_state.current_user["email"])
+    
+    # Initialize view preference in session state if not already set
+    if "plan_view" not in st.session_state:
+        st.session_state.plan_view = "current_week"
+        
+    # Add view toggle options
+    with col2:
+        view_options = {
+            "current_week": "Current Week",
+            "next_2_weeks": "Next 2 Weeks", 
+            "full_plan": "Full Plan"
+        }
+        selected_view = st.radio("View", options=list(view_options.keys()), 
+                               format_func=lambda x: view_options[x],
+                               horizontal=True,
+                               label_visibility="collapsed")
+        st.session_state.plan_view = selected_view
     
     goal_time = settings.get("goal_time", "4:00:00")
     start_date = settings.get("start_date", datetime.now().strftime("%Y-%m-%d"))
@@ -1822,18 +1842,59 @@ def show_training_plan_table(settings):
                 actual_miles = "" if actual_miles is None else actual_miles
                 actual_pace = "" if actual_pace is None else actual_pace
                 
+            # Improved date formatting
+            display_date = row["Date"]
+            date_label = display_date.strftime("%m-%d")
+            delta_days = (display_date - today).days
+            
+            if delta_days == 0:
+                date_label = "Today"
+            elif delta_days == 1:
+                date_label = "Tomorrow"
+            elif delta_days == -1:
+                date_label = "Yesterday"
+            elif 1 < delta_days < 7:
+                date_label = f"In {delta_days}d"
+            elif -7 < delta_days < -1:
+                date_label = f"{abs(delta_days)}d ago"
+                
+            # Calculate plan adherence for color coding
+            plan_adherence = ""
+            if row["Date"] < today and not pd.isna(row.get("Plan_Miles")) and not pd.isna(actual_miles) and actual_miles != "":
+                plan_miles = float(row.get("Plan_Miles", 0))
+                if isinstance(actual_miles, str) and actual_miles.strip():
+                    try:
+                        actual_miles_float = float(actual_miles)
+                    except:
+                        actual_miles_float = 0
+                else:
+                    actual_miles_float = float(actual_miles) if actual_miles else 0
+                
+                if plan_miles > 0:
+                    adherence_ratio = actual_miles_float / plan_miles
+                    if adherence_ratio >= 0.9:  # 90%+ of planned
+                        plan_adherence = "great"
+                    elif adherence_ratio >= 0.7:  # 70-90% of planned
+                        plan_adherence = "good"
+                    elif adherence_ratio > 0:  # Some miles, but less than 70%
+                        plan_adherence = "low"
+                    else:  # Zero miles when some were planned
+                        plan_adherence = "missed"
+                
             display_rows.append({
                 "DateISO": row["Date"].strftime("%Y-%m-%d"),
                 "Week": int(wk),
                 "is_summary": False,
                 "is_today": bool(row["Date"] == today),
                 "is_past": bool(row["Date"] < today),
-                "Date": row["Date"],
+                "Date": display_date,  # Keep original date for sorting
+                "DateLabel": date_label,  # Add new human-friendly label
                 "Day": row["Day"],
                 "Activity": row["Activity"],
                 "Suggested Pace": row["Suggested Pace"],
                 "Actual Miles": actual_miles,
                 "Actual Pace": actual_pace,
+                "plan_adherence": plan_adherence,  # New field for color coding
             })
         planned_sum = pd.to_numeric(grp.get("Plan_Miles", pd.Series([])), errors="coerce").fillna(0).sum()
         actual_sum = pd.to_numeric(grp.get("Actual Miles", pd.Series([])), errors="coerce").fillna(0).sum()
@@ -1852,6 +1913,38 @@ def show_training_plan_table(settings):
         })
 
     grid_df = pd.DataFrame(display_rows)
+    
+    # Filter based on the selected view
+    if st.session_state.plan_view == "current_week":
+        # Calculate the current week number
+        today = datetime.now().date()
+        for _, row in grid_df.iterrows():
+            if not pd.isna(row.get("Date")) and row.get("DateISO") and not row.get("is_summary"):
+                # Found a date in the current week, get its week number
+                current_week = row.get("Week")
+                break
+        
+        # Filter to show only the current week
+        grid_df = grid_df[
+            (grid_df["Week"] == current_week) | 
+            (grid_df["is_summary"] & (grid_df["Week"] == current_week))
+        ]
+        
+    elif st.session_state.plan_view == "next_2_weeks":
+        # Calculate the current week number
+        today = datetime.now().date()
+        for _, row in grid_df.iterrows():
+            if not pd.isna(row.get("Date")) and row.get("DateISO") and not row.get("is_summary"):
+                # Found a date in the current week, get its week number
+                current_week = row.get("Week")
+                break
+                
+        # Filter to show only current week and next week
+        grid_df = grid_df[
+            ((grid_df["Week"] >= current_week) & (grid_df["Week"] <= current_week + 1)) |
+            (grid_df["is_summary"] & (grid_df["Week"] >= current_week) & (grid_df["Week"] <= current_week + 1))
+        ]
+        
     # Format display Date and keep ISO for actions
     grid_df["Date"] = grid_df["Date"].apply(lambda d: "" if pd.isna(d) or d is None else pd.to_datetime(d).strftime("%m-%d"))
 
@@ -1932,7 +2025,7 @@ def show_training_plan_table(settings):
         tooltipValueGetter=JsCode(f"function(params){{ return '{pace_tip}'; }}"),
     )
     
-    # Custom CSS for row styling
+    # Custom CSS for row styling and responsiveness
     custom_css = {
         ".selectable-row": {
             "border-left": "3px solid #22c55e !important",
@@ -1944,6 +2037,20 @@ def show_training_plan_table(settings):
         },
         ".ag-row-selected": {
             "background-color": "rgba(34, 197, 94, 0.15) !important"
+        },
+        # Mobile responsiveness
+        "@media screen and (max-width: 768px)": {
+            ".ag-header-cell, .ag-cell": {
+                "padding-left": "4px !important",
+                "padding-right": "4px !important"
+            }
+        },
+        "@media screen and (max-width: 640px)": {
+            ".ag-header-cell, .ag-cell": {
+                "padding-left": "2px !important",
+                "padding-right": "2px !important",
+                "font-size": "0.9em !important"
+            }
         }
     }
     
@@ -2003,8 +2110,29 @@ def show_training_plan_table(settings):
                 return {fontWeight: '700', backgroundColor: 'rgba(34,197,94,0.10)'};
               }
               if (params.data.is_today === true) {
-                return {fontStyle: 'italic', backgroundColor: 'rgba(6,182,212,0.12)'};
+                return {
+                  fontWeight: '600', 
+                  backgroundColor: 'rgba(6,182,212,0.18)',
+                  border: '2px solid rgba(6,182,212,0.6)',
+                  borderRadius: '4px',
+                  boxShadow: '0 0 8px rgba(6,182,212,0.2)'
+                };
               }
+              
+              // Color-code based on plan adherence
+              if (params.data.plan_adherence === 'great') {
+                return {backgroundColor: 'rgba(34,197,94,0.15)', color: '#0f541e'};
+              }
+              if (params.data.plan_adherence === 'good') {
+                return {backgroundColor: 'rgba(250,204,21,0.15)', color: '#713f12'};
+              }
+              if (params.data.plan_adherence === 'low') {
+                return {backgroundColor: 'rgba(249,115,22,0.15)', color: '#7c2d12'};
+              }
+              if (params.data.plan_adherence === 'missed') {
+                return {backgroundColor: 'rgba(239,68,68,0.15)', color: '#7f1d1d'};
+              }
+              
               if (params.data.is_past === true) {
                 return {color: '#888', backgroundColor: 'rgba(100,100,100,0.07)'};
               }
@@ -2021,13 +2149,49 @@ def show_training_plan_table(settings):
         
     # Week column is needed for swap validation but should be hidden in the UI
     gb.configure_column("Week", hide=True)
+    
+    # Hide the original Date column and show the DateLabel instead
+    gb.configure_column("Date", hide=True)
+    gb.configure_column("DateLabel", header_name="Date ⓘ", headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.)", width=100)
 
     # Friendlier column sizing and header tooltips
-    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout.", width=120)
-    gb.configure_column("Activity", header_name="Activity ⓘ", headerTooltip="Planned workout description for the day.", flex=2)
+    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout.", width=100)
+    
+    # Add tooltips for workout descriptions
+    gb.configure_column("Activity", 
+                      header_name="Activity ⓘ", 
+                      headerTooltip="Planned workout description for the day.", 
+                      flex=2,
+                      tooltipField="Activity")  # Show tooltip with full workout description
+    
     # Suggested Pace already configured with tooltip above
-    gb.configure_column("Actual Miles", header_name="Actual Miles ⓘ", headerTooltip="Miles recorded from Strava on that date.", width=120, type=["numericColumn", "numberColumnFilter"])
-    gb.configure_column("Actual Pace", header_name="Actual Pace ⓘ", headerTooltip="Average pace from the Strava activity (min/mi).", width=120)
+    gb.configure_column("Suggested Pace",
+                      header_name="Target Pace ⓘ",
+                      headerTooltip="Target pace for this workout based on your goal time.",
+                      width=120,
+                      # Hide on small screens (mobile)
+                      hide=JsCode("""
+                      function(params) {
+                        return window.innerWidth < 768;
+                      }
+                      """))
+                      
+    gb.configure_column("Actual Miles", 
+                      header_name="Actual Miles ⓘ", 
+                      headerTooltip="Miles recorded from Strava on that date.", 
+                      width=120, 
+                      type=["numericColumn", "numberColumnFilter"])
+                      
+    gb.configure_column("Actual Pace", 
+                      header_name="Actual Pace ⓘ", 
+                      headerTooltip="Average pace from the Strava activity (min/mi).", 
+                      width=120,
+                      # Hide on small screens (mobile)
+                      hide=JsCode("""
+                      function(params) {
+                        return window.innerWidth < 640;
+                      }
+                      """))
 
     # Build grid options safely
     try:
