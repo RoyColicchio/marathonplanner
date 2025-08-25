@@ -765,65 +765,39 @@ def save_user_settings(user_hash, settings):
 
 
 def google_login():
-    """Handle Google OAuth login or a graceful dev fallback when creds are missing."""
+    """Handle Google OAuth login only. Stop if creds are missing or OAuth fails."""
     st.title("Marathon Training Dashboard")
-    st.markdown("### Sign in to get started")
+    st.markdown("### Sign in with your Google account to get started")
 
-    fallback_needed = False
-    fallback_error = None
+    if not google_client_id or not google_client_secret:
+        st.error("Missing Google OAuth credentials. Set google_client_id and google_client_secret in Streamlit Secrets.")
+        st.stop()
 
-    if _missing_google_creds:
-        fallback_needed = True
-        fallback_error = "Google sign-in is temporarily unavailable because credentials are not configured."
-    else:
-        oauth2 = get_google_oauth_component()
-        redirect_uri = "https://marathonplanner.streamlit.app"
-        if "google_redirect_uri" in st.secrets:
-            redirect_uri = st.secrets.get("google_redirect_uri")
-        if _is_debug():
-            st.write(f"Using Google redirect URI: {redirect_uri}")
-            st.write("Note: This exact URI must be registered in Google Cloud Console.")
-            client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id or "") > 16 else google_client_id
-            st.write(f"Using client ID: {client_id_masked}")
-        try:
-            if oauth2 is None:
-                raise RuntimeError("OAuth component not initialized")
-            result = oauth2.authorize_button(
-                name="Continue with Google",
-                icon="https://developers.google.com/identity/images/g-logo.png",
-                redirect_uri=redirect_uri,
-                scope="openid email profile",
-                key="google_oauth",
-                use_container_width=True,
-            )
-            if result and "token" in result:
-                user_info = get_user_info(result["token"]["access_token"])
-                if user_info:
-                    st.session_state.current_user = {
-                        "email": user_info.get("email"),
-                        "name": user_info.get("name", user_info.get("email")),
-                        "picture": user_info.get("picture", ""),
-                        "access_token": result["token"]["access_token"],
-                    }
-                    st.rerun()
-        except Exception as e:
-            fallback_needed = True
-            fallback_error = f"Google sign-in failed to initialize: {e}"
+    oauth2 = get_google_oauth_component()
 
-    if fallback_needed:
-        if fallback_error:
-            st.error(fallback_error)
-        with st.expander("Sign in without Google", expanded=True):
-            dev_email = st.text_input("Email", value="demo@local")
-            dev_name = st.text_input("Name", value="Demo User")
-            if st.button("Continue"):
-                st.session_state.current_user = {
-                    "email": dev_email.strip() or "demo@local",
-                    "name": dev_name.strip() or "Demo User",
-                    "picture": "",
-                    "access_token": None,
-                }
-                st.rerun()
+    redirect_uri = "https://marathonplanner.streamlit.app"
+    if "google_redirect_uri" in st.secrets:
+        redirect_uri = st.secrets.get("google_redirect_uri")
+
+    result = oauth2.authorize_button(
+        name="Continue with Google",
+        icon="https://developers.google.com/identity/images/g-logo.png",
+        redirect_uri=redirect_uri,
+        scope="openid email profile",
+        key="google_oauth",
+        use_container_width=True,
+    )
+
+    if result and "token" in result:
+        user_info = get_user_info(result["token"]["access_token"])
+        if user_info:
+            st.session_state.current_user = {
+                "email": user_info.get("email"),
+                "name": user_info.get("name", user_info.get("email")),
+                "picture": user_info.get("picture", ""),
+                "access_token": result["token"]["access_token"],
+            }
+            st.rerun()
 
 
 def show_header():
@@ -2459,7 +2433,7 @@ def show_training_plan_table(settings):
                         st.session_state.show_swap_ui = True
                         st.rerun()
             elif selected_count > 0:
-                st.info(f"Select {2-selected_count} more day{'s' if 2-selected_count > 1 else ''} from the same week to swap")
+                st.info(f"Select one more day from the same week to swap")
                 # Add a clear button if we have any selections
                 if st.button("Clear Selection", key="clear_btn_partial", use_container_width=True):
                     st.session_state.plan_grid_sel = []
