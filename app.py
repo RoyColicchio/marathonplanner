@@ -169,6 +169,8 @@ def plan_display_name(p: str) -> str:
         return "18 Weeks, 55 Mile/Week Peak"
     if lname in ("unofficial-pfitz-18-63.ics", "pfitz-18-63.ics"):
         return "18 Weeks, 63 Mile/Week Peak"
+    if lname in ("18-weeks-50-miles-peak-hal.csv",):
+        return "18 Weeks, 50 Miles/Week Peak (Hal)"
     if lname.endswith(".ics") and "63" in lname:
         return "18 Weeks, 63 Mile/Week Peak"
     return name
@@ -1061,7 +1063,185 @@ def replace_primary_miles(text: str, new_miles: float) -> str:
     return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
 
 
-def generate_training_plan(start_date, plan_file: str | None = None):
+def get_activity_tooltip(activity_description):
+    """Generate detailed tooltip explanations based on Hal Higdon guidelines."""
+    desc_lower = activity_description.lower()
+    
+    if 'rest' in desc_lower:
+        return "Complete rest day. No running or cross-training. Rest is crucial for muscle recovery and injury prevention."
+    
+    elif 'easy' in desc_lower:
+        return "Easy pace: 30-90 seconds per mile slower than marathon pace. Should allow comfortable conversation throughout."
+    
+    elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
+        return "General aerobic pace: Comfortable effort building aerobic capacity. Slightly faster than easy pace but still conversational."
+    
+    elif 'hill repeat' in desc_lower:
+        return "Hill training: Run hard uphill (like 400m track repeat pace), jog down easy. Builds quadriceps strength and speed with less impact than track work."
+    
+    elif 'tempo' in desc_lower:
+        return "Tempo run: Build gradually to near 10K race pace for 3-6 minutes in the middle, then ease back. Should feel 'comfortably hard' at peak."
+    
+    elif '800m interval' in desc_lower or '800' in desc_lower:
+        return "800m intervals: Run each 800m faster than marathon pace with 400m recovery jog between. Try 'Yasso 800s' - run time matching your marathon goal (3:10 marathon = 3:10 800s)."
+    
+    elif '400m interval' in desc_lower or '400' in desc_lower:
+        return "400m intervals: Short, fast repeats at mile pace or faster. Focus on speed and running form with full recovery between repeats."
+    
+    elif 'marathon pace' in desc_lower:
+        return "Marathon pace: The exact pace you plan to run in your goal marathon. Practice race-day rhythm and fueling strategy."
+    
+    elif 'long run' in desc_lower:
+        return "Long run: Run 30-90 seconds per mile slower than marathon pace. Focus on time on feet, not speed. Save energy for weekday speed work."
+    
+    elif 'half marathon' in desc_lower:
+        return "Half marathon race: Goal race to assess fitness and practice race-day strategies. Use as a training run, not an all-out effort."
+    
+    elif 'marathon' in desc_lower and 'pace' not in desc_lower:
+        return "Marathon race: Your goal race! Trust your training and stick to your planned pace strategy."
+    
+    else:
+        return f"Planned workout: {activity_description}. Follow your training plan and listen to your body."
+
+
+def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
+    """Calculate suggested pace based on activity type and goal marathon time."""
+    try:
+        # Parse goal marathon time
+        time_parts = goal_marathon_time_str.split(":")
+        goal_seconds = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
+        marathon_pace_seconds = goal_seconds / 26.2  # seconds per mile
+        
+        desc_lower = activity_description.lower()
+        
+        if 'rest' in desc_lower:
+            return "—"
+        
+        elif 'easy' in desc_lower:
+            # Easy: 30-90 seconds slower than marathon pace
+            easy_seconds = marathon_pace_seconds + 60  # Use middle of range
+            return f"{int(easy_seconds//60)}:{int(easy_seconds%60):02d}"
+        
+        elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
+            # GA: 15-45 seconds slower than marathon pace  
+            ga_seconds = marathon_pace_seconds + 30
+            return f"{int(ga_seconds//60)}:{int(ga_seconds%60):02d}"
+        
+        elif 'hill repeat' in desc_lower:
+            return "Hard uphill effort"
+        
+        elif 'tempo' in desc_lower:
+            # Tempo: Near 10K pace (roughly 15-30 seconds faster than marathon pace)
+            tempo_seconds = marathon_pace_seconds - 20
+            return f"{int(tempo_seconds//60)}:{int(tempo_seconds%60):02d}"
+        
+        elif '800m interval' in desc_lower or '800' in desc_lower:
+            return "Yasso 800s pace"
+        
+        elif '400m interval' in desc_lower or '400' in desc_lower:
+            return "Mile pace or faster"
+        
+        elif 'marathon pace' in desc_lower:
+            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
+        
+        elif 'long run' in desc_lower:
+            # Long run: 30-90 seconds slower than marathon pace
+            long_seconds = marathon_pace_seconds + 60
+            return f"{int(long_seconds//60)}:{int(long_seconds%60):02d}"
+        
+        elif 'half marathon' in desc_lower:
+            # Half marathon: ~15 seconds faster than marathon pace
+            hm_seconds = marathon_pace_seconds - 15
+            return f"{int(hm_seconds//60)}:{int(hm_seconds%60):02d}"
+        
+        elif 'marathon' in desc_lower and 'pace' not in desc_lower:
+            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
+        
+        else:
+            # Default to general aerobic
+            default_seconds = marathon_pace_seconds + 30
+            return f"{int(default_seconds//60)}:{int(default_seconds%60):02d}"
+            
+    except Exception:
+        return "See plan"
+
+
+def enhance_activity_description(activity_string):
+    """Convert raw activity string to enhanced, user-friendly description with tooltips."""
+    orig = activity_string.strip()
+    
+    # Handle rest days
+    if orig.lower() in ['rest', 'off']:
+        return "Rest Day"
+    
+    # Handle specific workout patterns from new Hal plan
+    if 'x hill' in orig.lower():
+        num = re.search(r'(\d+)\s*x\s*hill', orig.lower())
+        count = num.group(1) if num else 'Hill'
+        return f"{count} Hill Repeats"
+    
+    if 'tempo' in orig.lower():
+        time_match = re.search(r'(\d+)\s*tempo', orig.lower())
+        if time_match:
+            minutes = time_match.group(1)
+            return f"{minutes}-Minute Tempo Run"
+        return "Tempo Run"
+    
+    if 'x 800' in orig.lower():
+        num = re.search(r'(\d+)\s*x\s*800', orig.lower())
+        count = num.group(1) if num else '800m'
+        return f"{count} × 800m Intervals"
+    
+    if 'x 400' in orig.lower():
+        num = re.search(r'(\d+)\s*x\s*400', orig.lower())
+        count = num.group(1) if num else '400m'
+        return f"{count} × 400m Intervals"
+    
+    if 'pace' in orig.lower():
+        miles_match = re.search(r'(\d+(?:\.\d+)?)\s*mi.*pace', orig.lower())
+        if miles_match:
+            miles = miles_match.group(1)
+            return f"{miles} Miles at Marathon Pace"
+        return "Marathon Pace Run"
+    
+    if 'half marathon' in orig.lower():
+        return "Half Marathon Race"
+    
+    if 'marathon' in orig.lower() and 'half' not in orig.lower():
+        return "Marathon Race"
+    
+    # Handle simple distance runs
+    miles_match = re.search(r'(\d+(?:\.\d+)?)\s*mi(?:\s+run)?', orig.lower())
+    if miles_match:
+        miles = miles_match.group(1)
+        if float(miles) <= 4:
+            return f"{miles} Miles Easy"
+        elif float(miles) <= 8:
+            return f"{miles} Miles General Aerobic"
+        else:
+            return f"{miles} Miles Long Run"
+    
+    # Fallback: use basic expansion
+    activity_map = {
+        "GA": "General Aerobic",
+        "Rec": "Recovery", 
+        "MLR": "Medium-Long Run",
+        "LR": "Long Run",
+        "SP": "Sprints",
+        "V8": "VO₂Max",
+        "LT": "Lactate Threshold",
+        "HMP": "Half Marathon Pace",
+        "MP": "Marathon Pace",
+    }
+    
+    sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
+    for abbr in sorted_keys:
+        orig = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], orig)
+    
+    return orig
+
+
+def generate_training_plan(start_date, plan_file: str | None = None, goal_time: str = "4:00:00"):
     """Loads the training plan from a CSV or ICS and adjusts dates. plan_file defaults to run_plan.csv."""
     try:
         csv_path = plan_file or "run_plan.csv"
@@ -1080,24 +1260,7 @@ def generate_training_plan(start_date, plan_file: str | None = None):
         if len(activities):
             activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
 
-        activity_map = {
-            "GA": "General Aerobic",
-            "Rec": "Recovery",
-            "MLR": "Medium-Long Run",
-            "LR": "Long Run",
-            "SP": "Sprints",
-            "V8": "VO₂Max",
-            "LT": "Lactate Threshold",
-            "HMP": "Half Marathon Pace",
-            "MP": "Marathon Pace",
-        }
-        def expand_abbreviations(activity_string):
-            sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
-            for abbr in sorted_keys:
-                activity_string = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], activity_string)
-            return activity_string
-
-        expanded_activities = activities.apply(expand_abbreviations)
+        enhanced_activities = activities.apply(enhance_activity_description)
         planned_miles = activities.apply(extract_primary_miles)
 
         num_days = len(activities)
@@ -1108,9 +1271,14 @@ def generate_training_plan(start_date, plan_file: str | None = None):
             'Date': dates,
             'Day': days_of_week,
             'Activity_Abbr': activities,
-            'Activity': expanded_activities,
+            'Activity': enhanced_activities,
             'Plan_Miles': planned_miles,
         })
+        
+        # Add activity tooltips and suggested paces
+        new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
+        new_plan_df['Suggested_Pace'] = new_plan_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
+        
         return new_plan_df
 
     except FileNotFoundError:
@@ -1727,7 +1895,7 @@ def show_training_plan_table(settings):
             st.write("**Reloading user settings due to refresh flag**")
         settings = load_user_settings(user_hash)  # Reload settings 
 
-    plan_df = generate_training_plan(start_date, plan_file=plan_file)
+    plan_df = generate_training_plan(start_date, plan_file=plan_file, goal_time=goal_time)
     plan_df = apply_user_plan_adjustments(plan_df, settings, start_date)
 
     # Apply any saved per-user overrides (e.g., swaps)
@@ -1822,8 +1990,17 @@ def show_training_plan_table(settings):
     # Reapply overrides to ensure the displayed table reflects latest swaps
     merged_df = apply_plan_overrides(merged_df, settings)
 
+    # Use the enhanced suggested pace if available, otherwise fall back to get_pace_range
     gmp_sec = marathon_pace_seconds(goal_time)
-    merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
+    if 'Suggested_Pace' not in merged_df.columns:
+        merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
+    else:
+        # Update paces with current goal time for enhanced activities
+        def update_pace_with_goal(row):
+            if hasattr(row, 'Activity') and row['Activity']:
+                return get_suggested_pace(row['Activity'], goal_time)
+            return get_pace_range(row['Activity_Abbr'], gmp_sec)
+        merged_df["Suggested Pace"] = merged_df.apply(update_pace_with_goal, axis=1)
 
     # Build display rows with week grouping and flags for styling/selection
     work = merged_df[[
@@ -1906,6 +2083,7 @@ def show_training_plan_table(settings):
                 "DateLabel": date_label,  # Add new human-friendly label
                 "Day": row["Day"],
                 "Activity": row["Activity"],
+                "Activity_Tooltip": row.get("Activity_Tooltip", ""),  # Add tooltip data
                 "Suggested Pace": row["Suggested Pace"],
                 "Actual Miles": actual_miles,
                 "Actual Pace": actual_pace,
@@ -1922,6 +2100,7 @@ def show_training_plan_table(settings):
             "Date": None,
             "Day": f"Week {int(wk)} Summary",
             "Activity": f"Total planned miles: {planned_sum:.1f} mi",
+            "Activity_Tooltip": f"Weekly summary for week {int(wk)}. This shows your planned vs actual mileage for the week.",
             "Suggested Pace": "",
             "Actual Miles": float(actual_sum),
             "Actual Pace": "",
@@ -2136,7 +2315,7 @@ def show_training_plan_table(settings):
         css=custom_css,
     )
     # Hide technical columns
-    for c in ["DateISO", "is_summary", "is_today", "is_past", "is_selectable"]:
+    for c in ["DateISO", "is_summary", "is_today", "is_past", "is_selectable", "Activity_Tooltip"]:
         gb.configure_column(c, hide=True)
         
     # Week column is needed for swap validation but should be hidden in the UI
@@ -2146,7 +2325,7 @@ def show_training_plan_table(settings):
     gb.configure_column("Date", hide=True)
     gb.configure_column("DateLabel", 
                      header_name="Date ⓘ", 
-                     headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.)", 
+                     headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.). Use the checkbox to select rows for swapping.", 
                      width=100,
                      cellRenderer=JsCode("""
                      function(params) {
@@ -2158,20 +2337,20 @@ def show_training_plan_table(settings):
                      """))
 
     # Friendlier column sizing and header tooltips
-    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout.", width=100)
+    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout. Monday/Wednesday are typically easy runs, Thursday is speed work, Saturday is pace work, Sunday is long runs.", width=100)
     
     # Add tooltips for workout descriptions
     gb.configure_column("Activity", 
-                      header_name="Activity ⓘ", 
-                      headerTooltip="Planned workout description for the day.", 
+                      header_name="Workout ⓘ", 
+                      headerTooltip="Planned workout for the day. Hover over any activity for detailed guidance on effort level and pacing.", 
                       flex=2,
-                      tooltipField="Activity")  # Show tooltip with full workout description
+                      tooltipField="Activity_Tooltip")  # Show detailed tooltip from Activity_Tooltip field
     
-    # Suggested Pace already configured with tooltip above
+    # Suggested Pace with enhanced tooltip
     gb.configure_column("Suggested Pace",
                       header_name="Target Pace ⓘ",
-                      headerTooltip="Target pace for this workout based on your goal time.",
-                      width=120,
+                      headerTooltip="Target pace for this workout based on your marathon goal time and Hal Higdon's pacing guidelines.",
+                      width=140,
                       # Hide on small screens (mobile)
                       hide=JsCode("""
                       function(params) {
@@ -2181,13 +2360,13 @@ def show_training_plan_table(settings):
                       
     gb.configure_column("Actual Miles", 
                       header_name="Actual Miles ⓘ", 
-                      headerTooltip="Miles recorded from Strava on that date.", 
+                      headerTooltip="Miles you actually ran, pulled from your Strava activities. Compare with planned miles to track your training adherence.", 
                       width=120, 
                       type=["numericColumn", "numberColumnFilter"])
                       
     gb.configure_column("Actual Pace", 
                       header_name="Actual Pace ⓘ", 
-                      headerTooltip="Average pace from the Strava activity (min/mi).", 
+                      headerTooltip="Your actual average pace from Strava (min/mile). Compare with target pace to gauge your workout intensity.", 
                       width=120,
                       # Hide on small screens (mobile)
                       hide=JsCode("""

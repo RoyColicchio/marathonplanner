@@ -1,0 +1,16 @@
+        st.session_state.show_swap_ui = False
+    
+    # Add a button to show/hide the swap functionality
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("Need to adjust this week's schedule?" if not st.session_state.show_swap_ui else "Hide schedule adjustment tools", 
+                    type="secondary", use_container_width=True):
+            # Toggle the state
+            st.session_state.show_swap_ui = not st.session_state.show_swap_ui
+    
+    # Show a clear button if there are selections but swap UI is not shown
+    with col2:
+        if not st.session_state.show_swap_ui and len(st.session_state.get('plan_grid_sel', [])) > 0:
+            if st.button("❌ Clear Selection", type="secondary", use_container_width=True):
+                st.session_state.plan_grid_sel = []
+                st.rerun()
