@@ -123,23 +123,10 @@ def list_available_plans():
                 if "Plan" in cols:
                     candidates.append(str(p))
                     seen.add(p.name)
-            except Exception:
-                # ignore unreadable files silently
-                pass
-
-        def add_ics_if_valid(p: Path):
-            try:
-                if not p.exists() or p.suffix.lower() != ".ics":
-                    return
-                if p.name in seen:
-                    return
-                # quick validation: contains VEVENT and SUMMARY
-                with p.open("r", encoding="utf-8") as f:
-                    head = f.read(4096)
-                if "BEGIN:VEVENT" in head and "SUMMARY" in head:
-                    candidates.append(str(p))
-                    seen.add(p.name)
-            except Exception:
+                else:
+                    print(f"Skipping {p}: Missing 'Plan' column")
+            except Exception as e:
+                print(f"Error reading {p}: {e}")
                 pass
 
         add_if_valid(Path("run_plan.csv"))
@@ -1119,48 +1106,33 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         
         elif 'easy' in desc_lower:
             # Easy: 30-90 seconds slower than marathon pace
-            easy_seconds = marathon_pace_seconds + 60  # Use middle of range
-            return f"{int(easy_seconds//60)}:{int(easy_seconds%60):02d}"
+            easy_min = marathon_pace_seconds + 30
+            easy_max = marathon_pace_seconds + 90
+            return f"{int(easy_min//60)}:{int(easy_min%60):02d}-{int(easy_max//60)}:{int(easy_max%60):02d}"
         
         elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
             # GA: 15-45 seconds slower than marathon pace  
-            ga_seconds = marathon_pace_seconds + 30
-            return f"{int(ga_seconds//60)}:{int(ga_seconds%60):02d}"
-        
-        elif 'hill repeat' in desc_lower:
-            return "Hard uphill effort"
+            ga_min = marathon_pace_seconds + 15
+            ga_max = marathon_pace_seconds + 45
+            return f"{int(ga_min//60)}:{int(ga_min%60):02d}-{int(ga_max//60)}:{int(ga_max%60):02d}"
         
         elif 'tempo' in desc_lower:
             # Tempo: Near 10K pace (roughly 15-30 seconds faster than marathon pace)
-            tempo_seconds = marathon_pace_seconds - 20
-            return f"{int(tempo_seconds//60)}:{int(tempo_seconds%60):02d}"
-        
-        elif '800m interval' in desc_lower or '800' in desc_lower:
-            return "Yasso 800s pace"
-        
-        elif '400m interval' in desc_lower or '400' in desc_lower:
-            return "Mile pace or faster"
-        
-        elif 'marathon pace' in desc_lower:
-            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
+            tempo_min = marathon_pace_seconds - 30
+            tempo_max = marathon_pace_seconds - 15
+            return f"{int(tempo_min//60)}:{int(tempo_min%60):02d}-{int(tempo_max//60)}:{int(tempo_max%60):02d}"
         
         elif 'long run' in desc_lower:
             # Long run: 30-90 seconds slower than marathon pace
-            long_seconds = marathon_pace_seconds + 60
-            return f"{int(long_seconds//60)}:{int(long_seconds%60):02d}"
-        
-        elif 'half marathon' in desc_lower:
-            # Half marathon: ~15 seconds faster than marathon pace
-            hm_seconds = marathon_pace_seconds - 15
-            return f"{int(hm_seconds//60)}:{int(hm_seconds%60):02d}"
-        
-        elif 'marathon' in desc_lower and 'pace' not in desc_lower:
-            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
+            long_min = marathon_pace_seconds + 30
+            long_max = marathon_pace_seconds + 90
+            return f"{int(long_min//60)}:{int(long_min%60):02d}-{int(long_max//60)}:{int(long_max%60):02d}"
         
         else:
             # Default to general aerobic
-            default_seconds = marathon_pace_seconds + 30
-            return f"{int(default_seconds//60)}:{int(default_seconds%60):02d}"
+            default_min = marathon_pace_seconds + 15
+            default_max = marathon_pace_seconds + 45
+            return f"{int(default_min//60)}:{int(default_min%60):02d}-{int(default_max//60)}:{int(default_max%60):02d}"
             
     except Exception:
         return "See plan"
@@ -2150,7 +2122,7 @@ def show_training_plan_table(settings):
         st.write('grid_df for AgGrid:')
         st.dataframe(grid_df)
         
-        selectable_rows = grid_df[grid_df['is_selectable'] == True]
+        selectable_rows = grid_df[grid_df['is_selectable'] == true]
         st.write(f"Selectable rows (should be today/future, not summary): {len(selectable_rows)}")
         st.dataframe(selectable_rows)
 
@@ -2557,7 +2529,7 @@ def show_training_plan_table(settings):
                         st.session_state.show_swap_ui = True
                         st.rerun()
             elif selected_count > 0:
-                st.info(f"Select {2-selected_count} more day{'s' if 2-selected_count > 1 else ''} from the same week")
+                st.info(f"Select one more day from the same week to swap")
                 # Add a clear button if we have any selections
                 if st.button("Clear Selection", key="clear_btn_partial", use_container_width=True):
                     st.session_state.plan_grid_sel = []
@@ -2711,7 +2683,3 @@ def main():
 
     show_header()
     show_dashboard()
-
-
-if __name__ == "__main__":
-    main()
