@@ -120,13 +120,29 @@ def list_available_plans():
                 # validate columns
                 df = pd.read_csv(p, nrows=1, header=0)
                 cols = [str(c).strip() for c in df.columns]
-                if "Plan" in cols:
+                cols_lower = {c.lower() for c in cols}
+                # Accept either simple list CSV (with 'Plan' column) or weekly matrix CSVs (with weekday columns)
+                weekday_cols = {"monday","tuesday","wednesday","thursday","friday","saturday","sunday"}
+                if ("plan" in cols_lower) or (len(cols_lower.intersection(weekday_cols)) >= 3):
                     candidates.append(str(p))
                     seen.add(p.name)
-                else:
-                    print(f"Skipping {p}: Missing 'Plan' column")
-            except Exception as e:
-                print(f"Error reading {p}: {e}")
+            except Exception:
+                # ignore unreadable files silently
+                pass
+
+        def add_ics_if_valid(p: Path):
+            try:
+                if not p.exists() or p.suffix.lower() != ".ics":
+                    return
+                if p.name in seen:
+                    return
+                # quick validation: contains VEVENT and SUMMARY
+                with p.open("r", encoding="utf-8") as f:
+                    head = f.read(4096)
+                if "BEGIN:VEVENT" in head and "SUMMARY" in head:
+                    candidates.append(str(p))
+                    seen.add(p.name)
+            except Exception:
                 pass
 
         add_if_valid(Path("run_plan.csv"))
@@ -1106,33 +1122,48 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         
         elif 'easy' in desc_lower:
             # Easy: 30-90 seconds slower than marathon pace
-            easy_min = marathon_pace_seconds + 30
-            easy_max = marathon_pace_seconds + 90
-            return f"{int(easy_min//60)}:{int(easy_min%60):02d}-{int(easy_max//60)}:{int(easy_max%60):02d}"
+            easy_seconds = marathon_pace_seconds + 60  # Use middle of range
+            return f"{int(easy_seconds//60)}:{int(easy_seconds%60):02d}"
         
         elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
             # GA: 15-45 seconds slower than marathon pace  
-            ga_min = marathon_pace_seconds + 15
-            ga_max = marathon_pace_seconds + 45
-            return f"{int(ga_min//60)}:{int(ga_min%60):02d}-{int(ga_max//60)}:{int(ga_max%60):02d}"
+            ga_seconds = marathon_pace_seconds + 30
+            return f"{int(ga_seconds//60)}:{int(ga_seconds%60):02d}"
+        
+        elif 'hill repeat' in desc_lower:
+            return "Hard uphill effort"
         
         elif 'tempo' in desc_lower:
             # Tempo: Near 10K pace (roughly 15-30 seconds faster than marathon pace)
-            tempo_min = marathon_pace_seconds - 30
-            tempo_max = marathon_pace_seconds - 15
-            return f"{int(tempo_min//60)}:{int(tempo_min%60):02d}-{int(tempo_max//60)}:{int(tempo_max%60):02d}"
+            tempo_seconds = marathon_pace_seconds - 20
+            return f"{int(tempo_seconds//60)}:{int(tempo_seconds%60):02d}"
+        
+        elif '800m interval' in desc_lower or '800' in desc_lower:
+            return "Yasso 800s pace"
+        
+        elif '400m interval' in desc_lower or '400' in desc_lower:
+            return "Mile pace or faster"
+        
+        elif 'marathon pace' in desc_lower:
+            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
         
         elif 'long run' in desc_lower:
             # Long run: 30-90 seconds slower than marathon pace
-            long_min = marathon_pace_seconds + 30
-            long_max = marathon_pace_seconds + 90
-            return f"{int(long_min//60)}:{int(long_min%60):02d}-{int(long_max//60)}:{int(long_max%60):02d}"
+            long_seconds = marathon_pace_seconds + 60
+            return f"{int(long_seconds//60)}:{int(long_seconds%60):02d}"
+        
+        elif 'half marathon' in desc_lower:
+            # Half marathon: ~15 seconds faster than marathon pace
+            hm_seconds = marathon_pace_seconds - 15
+            return f"{int(hm_seconds//60)}:{int(hm_seconds%60):02d}"
+        
+        elif 'marathon' in desc_lower and 'pace' not in desc_lower:
+            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
         
         else:
             # Default to general aerobic
-            default_min = marathon_pace_seconds + 15
-            default_max = marathon_pace_seconds + 45
-            return f"{int(default_min//60)}:{int(default_min%60):02d}-{int(default_max//60)}:{int(default_max%60):02d}"
+            default_seconds = marathon_pace_seconds + 30
+            return f"{int(default_seconds//60)}:{int(default_seconds%60):02d}"
             
     except Exception:
         return "See plan"
@@ -1226,9 +1257,36 @@ def generate_training_plan(start_date, plan_file: str | None = None, goal_time: 
         else:
             plan_df = pd.read_csv(csv_path, header=0)
             plan_df.columns = [col.strip() for col in plan_df.columns]
-            plan_df.dropna(subset=['Plan'], inplace=True)
-            plan_df = plan_df[plan_df['Plan'].str.strip() != '']
-            activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
+            cols_lower = {c.lower() for c in plan_df.columns}
+            # Case 1: Simple list with 'Plan' column
+            if "plan" in cols_lower:
+                plan_df.dropna(subset=['Plan'], inplace=True)
+                plan_df = plan_df[plan_df['Plan'].str.strip() != '']
+                activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
+            else:
+                # Case 2: Weekly matrix with weekday columns; flatten Monday..Sunday rows
+                weekday_order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+                present_days = [d for d in weekday_order if d in plan_df.columns]
+                if not present_days:
+                    st.error(f"`{csv_path}` has no 'Plan' column or weekday columns.")
+                    return pd.DataFrame()
+                day_values = []
+                for _, row in plan_df.iterrows():
+                    for d in present_days:
+                        val = row.get(d)
+                        if pd.isna(val) or str(val).strip() == "":
+                            continue
+                        txt = str(val).strip()
+                        # Strip leading date like 'YYYY-MM-DD: '
+                        if ":" in txt:
+                            parts = txt.split(":", 1)
+                            # If left side looks like a date, keep only RHS
+                            left = parts[0].strip()
+                            rhs = parts[1].strip()
+                            if len(left) >= 8 and left[0:4].isdigit():
+                                txt = rhs
+                        day_values.append(txt)
+                activities = pd.Series(day_values, dtype="object")
         if len(activities):
             activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
 
@@ -1247,9 +1305,9 @@ def generate_training_plan(start_date, plan_file: str | None = None, goal_time: 
             'Plan_Miles': planned_miles,
         })
         
-        # Add activity tooltips and suggested paces
+        # Add activity tooltips
         new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
-        new_plan_df['Suggested_Pace'] = new_plan_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
+        # Do not add single-value pace here; we'll compute ranges later using get_pace_range
         
         return new_plan_df
 
@@ -1964,15 +2022,10 @@ def show_training_plan_table(settings):
 
     # Use the enhanced suggested pace if available, otherwise fall back to get_pace_range
     gmp_sec = marathon_pace_seconds(goal_time)
-    if 'Suggested_Pace' not in merged_df.columns:
-        merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
-    else:
-        # Update paces with current goal time for enhanced activities
-        def update_pace_with_goal(row):
-            if hasattr(row, 'Activity') and row['Activity']:
-                return get_suggested_pace(row['Activity'], goal_time)
-            return get_pace_range(row['Activity_Abbr'], gmp_sec)
-        merged_df["Suggested Pace"] = merged_df.apply(update_pace_with_goal, axis=1)
+    # Always compute a range using pace_utils.get_pace_range based on enhanced Activity text
+    merged_df["Suggested Pace"] = merged_df.apply(
+        lambda row: get_pace_range(row.get("Activity") or row.get("Activity_Abbr", ""), gmp_sec), axis=1
+    )
 
     # Build display rows with week grouping and flags for styling/selection
     work = merged_df[[
@@ -2090,7 +2143,7 @@ def show_training_plan_table(settings):
 
     # Reorder columns so a visible column (Date) is first; keep technical fields at the end
     ordered_cols = [
-        "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace",
+        "Date", "DateLabel", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace",
         "DateISO", "Week", "is_summary", "is_today"
     ]
     grid_df = grid_df[ordered_cols]
@@ -2122,20 +2175,20 @@ def show_training_plan_table(settings):
         st.write('grid_df for AgGrid:')
         st.dataframe(grid_df)
         
-        selectable_rows = grid_df[grid_df['is_selectable'] == true]
+        selectable_rows = grid_df[grid_df['is_selectable'] == True]
         st.write(f"Selectable rows (should be today/future, not summary): {len(selectable_rows)}")
         st.dataframe(selectable_rows)
 
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
+    # Disable selection in the grid (we use custom checkboxes below)
     gb.configure_selection(
-        selection_mode="multiple", 
-        use_checkbox=True, 
-        rowMultiSelectWithClick=False,      # Disable multiple select with click
-        header_checkbox=False,              # No header checkbox to avoid selecting all rows
-        pre_selected_rows=[],               # Clear pre-selections
-        suppressRowDeselection=False,       # Allow deselection by clicking
-        suppressRowClickSelection=False     # Allow row click to select
+        selection_mode="multiple",
+        use_checkbox=False,
+        rowMultiSelectWithClick=False,
+        header_checkbox=False,
+        suppressRowDeselection=True,
+        suppressRowClickSelection=True,
     )
     
     # Add selection checkpoint using grid update
@@ -2157,179 +2210,18 @@ def show_training_plan_table(settings):
     )
     gb.configure_column(
         "Suggested Pace",
-        header_name="Suggested Pace",
-        width=200,
-        headerTooltip=pace_tip,
-        tooltipValueGetter=JsCode(f"function(params){{ return '{pace_tip}'; }}"),
+        header_name="Target Pace ⓘ",
+        headerTooltip="Target pace range for this workout based on your marathon goal time.",
+        width=160,
+        # Hide on small screens (mobile)
+        hide=JsCode(
+        """
+        function(params) {
+          return window.innerWidth < 768;
+        }
+        """)
     )
     
-    # Custom CSS for row styling and responsiveness
-    custom_css = {
-        ".selectable-row": {
-            "border-left": "3px solid #22c55e !important",
-            "background-color": "rgba(34, 197, 94, 0.05) !important",
-            "cursor": "pointer !important"
-        },
-        ".non-selectable-row": {
-            "cursor": "not-allowed !important"
-        },
-        ".ag-row-selected": {
-            "background-color": "rgba(34, 197, 94, 0.15) !important"
-        },
-        ".today-cell": {
-            "font-style": "italic !important",
-            "font-weight": "600 !important"
-        },
-        # Mobile responsiveness
-        "@media screen and (max-width: 768px)": {
-            ".ag-header-cell, .ag-cell": {
-                "padding-left": "4px !important",
-                "padding-right": "4px !important"
-            }
-        },
-        "@media screen and (max-width: 640px)": {
-            ".ag-header-cell, .ag-cell": {
-                "padding-left": "2px !important",
-                "padding-right": "2px !important",
-                "font-size": "0.9em !important"
-            }
-        }
-    }
-    
-    # Add onRowClicked event to ensure row selection by clicking anywhere in the row
-    js_row_clicked = JsCode("""
-    function(event) {
-        console.log('Row clicked:', event.data);
-        // Only process clicks on selectable rows
-        if (!event.data.is_summary && !event.data.is_past && event.data.DateISO) {
-            // Toggle selection
-            const selected = event.node.isSelected();
-            event.node.setSelected(!selected);
-            console.log('Selection set to:', !selected);
-        } else {
-            console.log('Row is not selectable');
-        }
-    }
-    """)
-    
-    # Add onSelectionChanged to log selection changes
-    js_selection_changed = JsCode("""
-    function() {
-        console.log('Selection changed!');
-        var selectedRows = this.api.getSelectedRows();
-        console.log('Selected rows:', selectedRows);
-    }
-    """)
-    
-    gb.configure_grid_options(
-        rowSelection='multiple',
-        onRowClicked=js_row_clicked,
-        onSelectionChanged=js_selection_changed,
-        isRowSelectable=JsCode(
-            """
-            function (params) {
-                // Only allow selection for non-summary, non-past rows with DateISO
-                return params.data && 
-                       !params.data.is_summary && 
-                       !params.data.is_past && 
-                       params.data.DateISO;
-            }
-            """
-        ),
-        getRowClass=JsCode(
-            """
-            function (params) {
-                if (!params.data) return '';
-                return params.data.is_selectable ? 'selectable-row' : 'non-selectable-row';
-            }
-            """
-        ),
-        getRowStyle=JsCode(
-            """
-            function (params) {
-              if (!params.data) return null;
-              if (params.data.is_summary === true) {
-                return {fontWeight: '700', backgroundColor: 'rgba(34,197,94,0.10)'};
-              }
-              if (params.data.is_today === true) {
-                return {
-                  fontWeight: '600', 
-                  fontStyle: 'italic',
-                  backgroundColor: 'rgba(6,182,212,0.18)',
-                  border: '2px solid rgba(6,182,212,0.6)',
-                  borderRadius: '4px',
-                  boxShadow: '0 0 8px rgba(6,182,212,0.2)'
-                };
-              }
-              
-              // Color-code based on plan adherence
-              if (params.data.plan_adherence === 'great') {
-                return {backgroundColor: 'rgba(34,197,94,0.15)', color: '#0f541e'};
-              }
-              if (params.data.plan_adherence === 'good') {
-                return {backgroundColor: 'rgba(250,204,21,0.15)', color: '#713f12'};
-              }
-              if (params.data.plan_adherence === 'low') {
-                return {backgroundColor: 'rgba(249,115,22,0.15)', color: '#7c2d12'};
-              }
-              if (params.data.plan_adherence === 'missed') {
-                return {backgroundColor: 'rgba(239,68,68,0.15)', color: '#7f1d1d'};
-              }
-              
-              if (params.data.is_past === true) {
-                return {color: '#888', backgroundColor: 'rgba(100,100,100,0.07)'};
-              }
-              return null;
-            }
-            """
-        ),
-        tooltipShowDelay=100,
-        css=custom_css,
-    )
-    # Hide technical columns
-    for c in ["DateISO", "is_summary", "is_today", "is_past", "is_selectable", "Activity_Tooltip"]:
-        gb.configure_column(c, hide=True)
-        
-    # Week column is needed for swap validation but should be hidden in the UI
-    gb.configure_column("Week", hide=True)
-    
-    # Hide the original Date column and show the DateLabel instead
-    gb.configure_column("Date", hide=True)
-    gb.configure_column("DateLabel", 
-                     header_name="Date ⓘ", 
-                     headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.). Use the checkbox to select rows for swapping.", 
-                     width=100,
-                     cellRenderer=JsCode("""
-                     function(params) {
-                         if (params.data && params.data.is_today) {
-                             return '<span style="font-style: italic;">' + params.value + '</span>';
-                         }
-                         return params.value;
-                     }
-                     """))
-
-    # Friendlier column sizing and header tooltips
-    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout. Monday/Wednesday are typically easy runs, Thursday is speed work, Saturday is pace work, Sunday is long runs.", width=100)
-    
-    # Add tooltips for workout descriptions
-    gb.configure_column("Activity", 
-                      header_name="Workout ⓘ", 
-                      headerTooltip="Planned workout for the day. Hover over any activity for detailed guidance on effort level and pacing.", 
-                      flex=2,
-                      tooltipField="Activity_Tooltip")  # Show detailed tooltip from Activity_Tooltip field
-    
-    # Suggested Pace with enhanced tooltip
-    gb.configure_column("Suggested Pace",
-                      header_name="Target Pace ⓘ",
-                      headerTooltip="Target pace for this workout based on your marathon goal time and Hal Higdon's pacing guidelines.",
-                      width=140,
-                      # Hide on small screens (mobile)
-                      hide=JsCode("""
-                      function(params) {
-                        return window.innerWidth < 768;
-                      }
-                      """))
-                      
     gb.configure_column("Actual Miles", 
                       header_name="Actual Miles ⓘ", 
                       headerTooltip="Miles you actually ran, pulled from your Strava activities. Compare with planned miles to track your training adherence.", 
@@ -2353,37 +2245,39 @@ def show_training_plan_table(settings):
     except Exception as e:
         if _is_debug():
             st.error(f"Error building grid options: {e}")
-        # Fallback to simpler grid options to avoid errors
         grid_options = {
             'columnDefs': [
-                {'field': 'Date', 'headerName': 'Date', 'width': 100, 'pinned': 'left'},
+                {'field': 'DateLabel', 'headerName': 'Date', 'width': 120, 'pinned': 'left'},
                 {'field': 'Day', 'headerName': 'Day', 'width': 120},
-                {'field': 'Activity', 'headerName': 'Activity', 'flex': 2},
-                {'field': 'Suggested Pace', 'headerName': 'Suggested Pace', 'width': 200},
+                {'field': 'Activity', 'headerName': 'Workout', 'flex': 2},
+                {'field': 'Suggested Pace', 'headerName': 'Target Pace', 'width': 160},
                 {'field': 'Actual Miles', 'headerName': 'Actual Miles', 'width': 120},
                 {'field': 'Actual Pace', 'headerName': 'Actual Pace', 'width': 120}
             ],
-            'rowSelection': 'multiple',
+            'rowSelection': 'single',
         }
 
-    # We're skipping the AgGrid display entirely since we're using our custom UI now
-    # The code to display AgGrid has been removed to avoid duplicated display
+    # Render the plan table with AgGrid so header tooltips work
+    st.subheader("Training Plan")
+    AgGrid(
+        grid_df,
+        gridOptions=grid_options,
+        height=500,
+        data_return_mode=DataReturnMode.FILTERED,
+        update_mode=GridUpdateMode.NO_UPDATE,
+        fit_columns_on_grid_load=True,
+        allow_unsafe_jscode=True,
+        enable_enterprise_modules=False,
+    )
 
-    # Create a manual selection mechanism with checkboxes
+    # Create a manual selection mechanism with checkboxes (below the table)
     filtered_df = grid_df[(~grid_df['is_summary']) & (~grid_df['is_past']) & (grid_df['DateISO'] != '')].copy()
     
     # Group by week for better organization
     week_groups = filtered_df.groupby('Week')
     
     # Display full plan always visible for reference
-    st.subheader("Training Plan")
-    display_cols = ["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]
-    st.dataframe(
-        grid_df[display_cols],
-        height=500,
-        use_container_width=True,
-        hide_index=True,
-    )
+    # st.dataframe(...) removed in favor of AgGrid above
     
     # Track current selections - ensure we have no duplicates
     # First ensure plan_grid_sel is properly initialized
@@ -2529,7 +2423,7 @@ def show_training_plan_table(settings):
                         st.session_state.show_swap_ui = True
                         st.rerun()
             elif selected_count > 0:
-                st.info(f"Select one more day from the same week to swap")
+                st.info(f"Select {2-selected_count} more day{'s' if 2-selected_count > 1 else ''} from the same week to swap")
                 # Add a clear button if we have any selections
                 if st.button("Clear Selection", key="clear_btn_partial", use_container_width=True):
                     st.session_state.plan_grid_sel = []
