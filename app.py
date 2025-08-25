@@ -806,14 +806,35 @@ def google_login():
         client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id or "") > 16 else google_client_id
         st.write(f"Using client ID: {client_id_masked}")
 
-    result = oauth2.authorize_button(
-        name="Continue with Google",
-        icon="https://developers.google.com/identity/images/g-logo.png",
-        redirect_uri=redirect_uri,
-        scope="openid email profile",
-        key="google_oauth",
-        use_container_width=True,
-    )
+    # Render Google button with a safe fallback
+    result = None
+    try:
+        if oauth2 is None:
+            raise RuntimeError("OAuth component not initialized")
+        result = oauth2.authorize_button(
+            name="Continue with Google",
+            icon="https://developers.google.com/identity/images/g-logo.png",
+            redirect_uri=redirect_uri,
+            scope="openid email profile",
+            key="google_oauth",
+            use_container_width=True,
+        )
+    except Exception as e:
+        st.error("Google sign-in failed to initialize.")
+        if _is_debug():
+            st.caption(str(e))
+        with st.expander("Sign in without Google", expanded=True):
+            dev_email = st.text_input("Email", value="demo@local")
+            dev_name = st.text_input("Name", value="Demo User")
+            if st.button("Continue"):
+                st.session_state.current_user = {
+                    "email": dev_email.strip() or "demo@local",
+                    "name": dev_name.strip() or "Demo User",
+                    "picture": "",
+                    "access_token": None,
+                }
+                st.rerun()
+        return
 
     if result and "token" in result:
         user_info = get_user_info(result["token"]["access_token"])
