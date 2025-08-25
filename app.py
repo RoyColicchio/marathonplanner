@@ -120,10 +120,7 @@ def list_available_plans():
                 # validate columns
                 df = pd.read_csv(p, nrows=1, header=0)
                 cols = [str(c).strip() for c in df.columns]
-                cols_lower = {c.lower() for c in cols}
-                # Accept either simple list CSV (with 'Plan' column) or weekly matrix CSVs (with weekday columns)
-                weekday_cols = {"monday","tuesday","wednesday","thursday","friday","saturday","sunday"}
-                if ("plan" in cols_lower) or (len(cols_lower.intersection(weekday_cols)) >= 3):
+                if "Plan" in cols:
                     candidates.append(str(p))
                     seen.add(p.name)
             except Exception:
@@ -347,19 +344,9 @@ def get_strava_credentials():
 google_client_id = st.secrets.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID")
 google_client_secret = st.secrets.get("google_client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
 
-# Development mode toggle (allows local login without Google OAuth)
-DEV_MODE = (
-    os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
-    or bool(st.secrets.get("dev_mode", False))
-)
-
-_missing_google_creds = not google_client_id or not google_client_secret
-
-# Do not stop the app if creds are missing; we'll render a fallback login instead
-if _missing_google_creds and not DEV_MODE:
-    st.warning(
-        "Google OAuth is not configured. Set google_client_id and google_client_secret in Secrets or environment."
-    )
+if not google_client_id or not google_client_secret:
+    st.error("Missing Google OAuth credentials. Set google_client_id and google_client_secret in Streamlit Cloud Secrets.")
+    st.stop()
 
 # Initialize session state
 if "current_user" not in st.session_state:
@@ -672,9 +659,6 @@ def training_plan_setup():
 
 def get_google_oauth_component():
     """Initialize Google OAuth component."""
-    # If we don't have creds, return None so the caller can fall back
-    if _missing_google_creds:
-        return None
     if st.session_state.google_oauth_component is None:
         st.session_state.google_oauth_component = OAuth2Component(
             client_id=google_client_id,
@@ -765,19 +749,22 @@ def save_user_settings(user_hash, settings):
 
 
 def google_login():
-    """Handle Google OAuth login only. Stop if creds are missing or OAuth fails."""
+    """Handle Google OAuth login."""
     st.title("Marathon Training Dashboard")
     st.markdown("### Sign in with your Google account to get started")
 
-    if not google_client_id or not google_client_secret:
-        st.error("Missing Google OAuth credentials. Set google_client_id and google_client_secret in Streamlit Secrets.")
-        st.stop()
-
     oauth2 = get_google_oauth_component()
 
+    # Use a redirect URI that exactly matches what's registered in Google Cloud Console
     redirect_uri = "https://marathonplanner.streamlit.app"
     if "google_redirect_uri" in st.secrets:
         redirect_uri = st.secrets.get("google_redirect_uri")
+
+    if _is_debug():
+        st.write(f"Using Google redirect URI: {redirect_uri}")
+        st.write("Note: This exact URI must be registered in Google Cloud Console.")
+        client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
+        st.write(f"Using client ID: {client_id_masked}")
 
     result = oauth2.authorize_button(
         name="Continue with Google",
@@ -1267,36 +1254,9 @@ def generate_training_plan(start_date, plan_file: str | None = None, goal_time: 
         else:
             plan_df = pd.read_csv(csv_path, header=0)
             plan_df.columns = [col.strip() for col in plan_df.columns]
-            cols_lower = {c.lower() for c in plan_df.columns}
-            # Case 1: Simple list with 'Plan' column
-            if "plan" in cols_lower:
-                plan_df.dropna(subset=['Plan'], inplace=True)
-                plan_df = plan_df[plan_df['Plan'].str.strip() != '']
-                activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
-            else:
-                # Case 2: Weekly matrix with weekday columns; flatten Monday..Sunday rows
-                weekday_order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-                present_days = [d for d in weekday_order if d in plan_df.columns]
-                if not present_days:
-                    st.error(f"`{csv_path}` has no 'Plan' column or weekday columns.")
-                    return pd.DataFrame()
-                day_values = []
-                for _, row in plan_df.iterrows():
-                    for d in present_days:
-                        val = row.get(d)
-                        if pd.isna(val) or str(val).strip() == "":
-                            continue
-                        txt = str(val).strip()
-                        # Strip leading date like 'YYYY-MM-DD: '
-                        if ":" in txt:
-                            parts = txt.split(":", 1)
-                            # If left side looks like a date, keep only RHS
-                            left = parts[0].strip()
-                            rhs = parts[1].strip()
-                            if len(left) >= 8 and left[0:4].isdigit():
-                                txt = rhs
-                        day_values.append(txt)
-                activities = pd.Series(day_values, dtype="object")
+            plan_df.dropna(subset=['Plan'], inplace=True)
+            plan_df = plan_df[plan_df['Plan'].str.strip() != '']
+            activities = plan_df['Plan'].str.strip().copy().reset_index(drop=True)
         if len(activities):
             activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
 
@@ -1315,9 +1275,9 @@ def generate_training_plan(start_date, plan_file: str | None = None, goal_time: 
             'Plan_Miles': planned_miles,
         })
         
-        # Add activity tooltips
+        # Add activity tooltips and suggested paces
         new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
-        # Do not add single-value pace here; we'll compute ranges later using get_pace_range
+        new_plan_df['Suggested_Pace'] = new_plan_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
         
         return new_plan_df
 
@@ -2032,10 +1992,15 @@ def show_training_plan_table(settings):
 
     # Use the enhanced suggested pace if available, otherwise fall back to get_pace_range
     gmp_sec = marathon_pace_seconds(goal_time)
-    # Always compute a range using pace_utils.get_pace_range based on enhanced Activity text
-    merged_df["Suggested Pace"] = merged_df.apply(
-        lambda row: get_pace_range(row.get("Activity") or row.get("Activity_Abbr", ""), gmp_sec), axis=1
-    )
+    if 'Suggested_Pace' not in merged_df.columns:
+        merged_df["Suggested Pace"] = merged_df["Activity_Abbr"].apply(lambda x: get_pace_range(x, gmp_sec))
+    else:
+        # Update paces with current goal time for enhanced activities
+        def update_pace_with_goal(row):
+            if hasattr(row, 'Activity') and row['Activity']:
+                return get_suggested_pace(row['Activity'], goal_time)
+            return get_pace_range(row['Activity_Abbr'], gmp_sec)
+        merged_df["Suggested Pace"] = merged_df.apply(update_pace_with_goal, axis=1)
 
     # Build display rows with week grouping and flags for styling/selection
     work = merged_df[[
@@ -2153,7 +2118,7 @@ def show_training_plan_table(settings):
 
     # Reorder columns so a visible column (Date) is first; keep technical fields at the end
     ordered_cols = [
-        "Date", "DateLabel", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace",
+        "Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace",
         "DateISO", "Week", "is_summary", "is_today"
     ]
     grid_df = grid_df[ordered_cols]
@@ -2191,14 +2156,14 @@ def show_training_plan_table(settings):
 
     # Configure AgGrid
     gb = GridOptionsBuilder.from_dataframe(grid_df)
-    # Disable selection in the grid (we use custom checkboxes below)
     gb.configure_selection(
-        selection_mode="multiple",
-        use_checkbox=False,
-        rowMultiSelectWithClick=False,
-        header_checkbox=False,
-        suppressRowDeselection=True,
-        suppressRowClickSelection=True,
+        selection_mode="multiple", 
+        use_checkbox=True, 
+        rowMultiSelectWithClick=False,      # Disable multiple select with click
+        header_checkbox=False,              # No header checkbox to avoid selecting all rows
+        pre_selected_rows=[],               # Clear pre-selections
+        suppressRowDeselection=False,       # Allow deselection by clicking
+        suppressRowClickSelection=False     # Allow row click to select
     )
     
     # Add selection checkpoint using grid update
@@ -2220,18 +2185,179 @@ def show_training_plan_table(settings):
     )
     gb.configure_column(
         "Suggested Pace",
-        header_name="Target Pace ⓘ",
-        headerTooltip="Target pace range for this workout based on your marathon goal time.",
-        width=160,
-        # Hide on small screens (mobile)
-        hide=JsCode(
-        """
-        function(params) {
-          return window.innerWidth < 768;
-        }
-        """)
+        header_name="Suggested Pace",
+        width=200,
+        headerTooltip=pace_tip,
+        tooltipValueGetter=JsCode(f"function(params){{ return '{pace_tip}'; }}"),
     )
     
+    # Custom CSS for row styling and responsiveness
+    custom_css = {
+        ".selectable-row": {
+            "border-left": "3px solid #22c55e !important",
+            "background-color": "rgba(34, 197, 94, 0.05) !important",
+            "cursor": "pointer !important"
+        },
+        ".non-selectable-row": {
+            "cursor": "not-allowed !important"
+        },
+        ".ag-row-selected": {
+            "background-color": "rgba(34, 197, 94, 0.15) !important"
+        },
+        ".today-cell": {
+            "font-style": "italic !important",
+            "font-weight": "600 !important"
+        },
+        # Mobile responsiveness
+        "@media screen and (max-width: 768px)": {
+            ".ag-header-cell, .ag-cell": {
+                "padding-left": "4px !important",
+                "padding-right": "4px !important"
+            }
+        },
+        "@media screen and (max-width: 640px)": {
+            ".ag-header-cell, .ag-cell": {
+                "padding-left": "2px !important",
+                "padding-right": "2px !important",
+                "font-size": "0.9em !important"
+            }
+        }
+    }
+    
+    # Add onRowClicked event to ensure row selection by clicking anywhere in the row
+    js_row_clicked = JsCode("""
+    function(event) {
+        console.log('Row clicked:', event.data);
+        // Only process clicks on selectable rows
+        if (!event.data.is_summary && !event.data.is_past && event.data.DateISO) {
+            // Toggle selection
+            const selected = event.node.isSelected();
+            event.node.setSelected(!selected);
+            console.log('Selection set to:', !selected);
+        } else {
+            console.log('Row is not selectable');
+        }
+    }
+    """)
+    
+    # Add onSelectionChanged to log selection changes
+    js_selection_changed = JsCode("""
+    function() {
+        console.log('Selection changed!');
+        var selectedRows = this.api.getSelectedRows();
+        console.log('Selected rows:', selectedRows);
+    }
+    """)
+    
+    gb.configure_grid_options(
+        rowSelection='multiple',
+        onRowClicked=js_row_clicked,
+        onSelectionChanged=js_selection_changed,
+        isRowSelectable=JsCode(
+            """
+            function (params) {
+                // Only allow selection for non-summary, non-past rows with DateISO
+                return params.data && 
+                       !params.data.is_summary && 
+                       !params.data.is_past && 
+                       params.data.DateISO;
+            }
+            """
+        ),
+        getRowClass=JsCode(
+            """
+            function (params) {
+                if (!params.data) return '';
+                return params.data.is_selectable ? 'selectable-row' : 'non-selectable-row';
+            }
+            """
+        ),
+        getRowStyle=JsCode(
+            """
+            function (params) {
+              if (!params.data) return null;
+              if (params.data.is_summary === true) {
+                return {fontWeight: '700', backgroundColor: 'rgba(34,197,94,0.10)'};
+              }
+              if (params.data.is_today === true) {
+                return {
+                  fontWeight: '600', 
+                  fontStyle: 'italic',
+                  backgroundColor: 'rgba(6,182,212,0.18)',
+                  border: '2px solid rgba(6,182,212,0.6)',
+                  borderRadius: '4px',
+                  boxShadow: '0 0 8px rgba(6,182,212,0.2)'
+                };
+              }
+              
+              // Color-code based on plan adherence
+              if (params.data.plan_adherence === 'great') {
+                return {backgroundColor: 'rgba(34,197,94,0.15)', color: '#0f541e'};
+              }
+              if (params.data.plan_adherence === 'good') {
+                return {backgroundColor: 'rgba(250,204,21,0.15)', color: '#713f12'};
+              }
+              if (params.data.plan_adherence === 'low') {
+                return {backgroundColor: 'rgba(249,115,22,0.15)', color: '#7c2d12'};
+              }
+              if (params.data.plan_adherence === 'missed') {
+                return {backgroundColor: 'rgba(239,68,68,0.15)', color: '#7f1d1d'};
+              }
+              
+              if (params.data.is_past === true) {
+                return {color: '#888', backgroundColor: 'rgba(100,100,100,0.07)'};
+              }
+              return null;
+            }
+            """
+        ),
+        tooltipShowDelay=100,
+        css=custom_css,
+    )
+    # Hide technical columns
+    for c in ["DateISO", "is_summary", "is_today", "is_past", "is_selectable", "Activity_Tooltip"]:
+        gb.configure_column(c, hide=True)
+        
+    # Week column is needed for swap validation but should be hidden in the UI
+    gb.configure_column("Week", hide=True)
+    
+    # Hide the original Date column and show the DateLabel instead
+    gb.configure_column("Date", hide=True)
+    gb.configure_column("DateLabel", 
+                     header_name="Date ⓘ", 
+                     headerTooltip="Calendar date with relative indicators (Today, Tomorrow, etc.). Use the checkbox to select rows for swapping.", 
+                     width=100,
+                     cellRenderer=JsCode("""
+                     function(params) {
+                         if (params.data && params.data.is_today) {
+                             return '<span style="font-style: italic;">' + params.value + '</span>';
+                         }
+                         return params.value;
+                     }
+                     """))
+
+    # Friendlier column sizing and header tooltips
+    gb.configure_column("Day", header_name="Day ⓘ", headerTooltip="Day of the week for the planned workout. Monday/Wednesday are typically easy runs, Thursday is speed work, Saturday is pace work, Sunday is long runs.", width=100)
+    
+    # Add tooltips for workout descriptions
+    gb.configure_column("Activity", 
+                      header_name="Workout ⓘ", 
+                      headerTooltip="Planned workout for the day. Hover over any activity for detailed guidance on effort level and pacing.", 
+                      flex=2,
+                      tooltipField="Activity_Tooltip")  # Show detailed tooltip from Activity_Tooltip field
+    
+    # Suggested Pace with enhanced tooltip
+    gb.configure_column("Suggested Pace",
+                      header_name="Target Pace ⓘ",
+                      headerTooltip="Target pace for this workout based on your marathon goal time and Hal Higdon's pacing guidelines.",
+                      width=140,
+                      # Hide on small screens (mobile)
+                      hide=JsCode("""
+                      function(params) {
+                        return window.innerWidth < 768;
+                      }
+                      """))
+                      
     gb.configure_column("Actual Miles", 
                       header_name="Actual Miles ⓘ", 
                       headerTooltip="Miles you actually ran, pulled from your Strava activities. Compare with planned miles to track your training adherence.", 
@@ -2255,39 +2381,37 @@ def show_training_plan_table(settings):
     except Exception as e:
         if _is_debug():
             st.error(f"Error building grid options: {e}")
+        # Fallback to simpler grid options to avoid errors
         grid_options = {
             'columnDefs': [
-                {'field': 'DateLabel', 'headerName': 'Date', 'width': 120, 'pinned': 'left'},
+                {'field': 'Date', 'headerName': 'Date', 'width': 100, 'pinned': 'left'},
                 {'field': 'Day', 'headerName': 'Day', 'width': 120},
-                {'field': 'Activity', 'headerName': 'Workout', 'flex': 2},
-                {'field': 'Suggested Pace', 'headerName': 'Target Pace', 'width': 160},
+                {'field': 'Activity', 'headerName': 'Activity', 'flex': 2},
+                {'field': 'Suggested Pace', 'headerName': 'Suggested Pace', 'width': 200},
                 {'field': 'Actual Miles', 'headerName': 'Actual Miles', 'width': 120},
                 {'field': 'Actual Pace', 'headerName': 'Actual Pace', 'width': 120}
             ],
-            'rowSelection': 'single',
+            'rowSelection': 'multiple',
         }
 
-    # Render the plan table with AgGrid so header tooltips work
-    st.subheader("Training Plan")
-    AgGrid(
-        grid_df,
-        gridOptions=grid_options,
-        height=500,
-        data_return_mode=DataReturnMode.FILTERED,
-        update_mode=GridUpdateMode.NO_UPDATE,
-        fit_columns_on_grid_load=True,
-        allow_unsafe_jscode=True,
-        enable_enterprise_modules=False,
-    )
+    # We're skipping the AgGrid display entirely since we're using our custom UI now
+    # The code to display AgGrid has been removed to avoid duplicated display
 
-    # Create a manual selection mechanism with checkboxes (below the table)
+    # Create a manual selection mechanism with checkboxes
     filtered_df = grid_df[(~grid_df['is_summary']) & (~grid_df['is_past']) & (grid_df['DateISO'] != '')].copy()
     
     # Group by week for better organization
     week_groups = filtered_df.groupby('Week')
     
     # Display full plan always visible for reference
-    # st.dataframe(...) removed in favor of AgGrid above
+    st.subheader("Training Plan")
+    display_cols = ["Date", "Day", "Activity", "Suggested Pace", "Actual Miles", "Actual Pace"]
+    st.dataframe(
+        grid_df[display_cols],
+        height=500,
+        use_container_width=True,
+        hide_index=True,
+    )
     
     # Track current selections - ensure we have no duplicates
     # First ensure plan_grid_sel is properly initialized
@@ -2433,7 +2557,7 @@ def show_training_plan_table(settings):
                         st.session_state.show_swap_ui = True
                         st.rerun()
             elif selected_count > 0:
-                st.info(f"Select one more day from the same week to swap")
+                st.info(f"Select {2-selected_count} more day{'s' if 2-selected_count > 1 else ''} from the same week")
                 # Add a clear button if we have any selections
                 if st.button("Clear Selection", key="clear_btn_partial", use_container_width=True):
                     st.session_state.plan_grid_sel = []
@@ -2587,3 +2711,7 @@ def main():
 
     show_header()
     show_dashboard()
+
+
+if __name__ == "__main__":
+    main()
