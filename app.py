@@ -347,9 +347,19 @@ def get_strava_credentials():
 google_client_id = st.secrets.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID")
 google_client_secret = st.secrets.get("google_client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
 
-if not google_client_id or not google_client_secret:
-    st.error("Missing Google OAuth credentials. Set google_client_id and google_client_secret in Streamlit Cloud Secrets.")
-    st.stop()
+# Development mode toggle (allows local login without Google OAuth)
+DEV_MODE = (
+    os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+    or bool(st.secrets.get("dev_mode", False))
+)
+
+_missing_google_creds = not google_client_id or not google_client_secret
+
+# Do not stop the app if creds are missing; we'll render a fallback login instead
+if _missing_google_creds and not DEV_MODE:
+    st.warning(
+        "Google OAuth is not configured. Set google_client_id and google_client_secret in Secrets or environment."
+    )
 
 # Initialize session state
 if "current_user" not in st.session_state:
@@ -662,6 +672,9 @@ def training_plan_setup():
 
 def get_google_oauth_component():
     """Initialize Google OAuth component."""
+    # If we don't have creds, return None so the caller can fall back
+    if _missing_google_creds:
+        return None
     if st.session_state.google_oauth_component is None:
         st.session_state.google_oauth_component = OAuth2Component(
             client_id=google_client_id,
@@ -752,9 +765,33 @@ def save_user_settings(user_hash, settings):
 
 
 def google_login():
-    """Handle Google OAuth login."""
+    """Handle Google OAuth login or a graceful dev fallback when creds are missing."""
     st.title("Marathon Training Dashboard")
-    st.markdown("### Sign in with your Google account to get started")
+    st.markdown("### Sign in to get started")
+
+    if _missing_google_creds:
+        st.info(
+            "Google sign-in is temporarily unavailable because credentials are not configured."
+        )
+        # Dev fallback: simple local sign-in to unblock development and viewing
+        with st.expander("Developer sign-in (local only)", expanded=True):
+            dev_email = st.text_input("Email", value="demo@local")
+            dev_name = st.text_input("Name", value="Demo User")
+            col_a, col_b = st.columns([1, 3])
+            with col_a:
+                if st.button("Continue (Dev Mode)"):
+                    st.session_state.current_user = {
+                        "email": dev_email.strip() or "demo@local",
+                        "name": dev_name.strip() or "Demo User",
+                        "picture": "",
+                        "access_token": None,
+                    }
+                    st.rerun()
+            with col_b:
+                st.caption(
+                    "Set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET or Streamlit secrets to enable Google sign-in."
+                )
+        return
 
     oauth2 = get_google_oauth_component()
 
@@ -766,7 +803,7 @@ def google_login():
     if _is_debug():
         st.write(f"Using Google redirect URI: {redirect_uri}")
         st.write("Note: This exact URI must be registered in Google Cloud Console.")
-        client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id) > 16 else google_client_id
+        client_id_masked = google_client_id[:8] + "..." + google_client_id[-8:] if len(google_client_id or "") > 16 else google_client_id
         st.write(f"Using client ID: {client_id_masked}")
 
     result = oauth2.authorize_button(
