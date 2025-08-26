@@ -1783,16 +1783,175 @@ def main():
     show_dashboard()
 
 def show_dashboard():
-    """Minimal dashboard: render Training Plan setup so the page isn't blank."""
+    """Display the main dashboard with training plan and Strava data."""
     try:
         user = st.session_state.get("current_user") or {}
         email = user.get("email", "demo@local")
         user_hash = get_user_hash(email)
     except Exception:
         user_hash = "anon"
-    settings = load_user_settings(user_hash)
-    # Always show settings for now to ensure visible content
-    training_plan_setup()
+
+    settings = training_plan_setup()
+
+    st.markdown("---")
+    st.header("Your Training Schedule")
+
+    start_date_str = settings.get("start_date")
+    if not start_date_str:
+        st.warning("Please set a start date to see your plan.")
+        return
+
+    start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    plan_file = settings.get("plan_file", "run_plan.csv")
+    goal_time = settings.get("goal_time", "4:00:00")
+
+    base_plan_df = generate_training_plan(start_date, plan_file, goal_time)
+    if base_plan_df.empty:
+        return
+
+    adjusted_plan_df = apply_user_plan_adjustments(base_plan_df, settings, start_date)
+    
+    # IMPORTANT: Apply overrides *after* adjustments
+    final_plan_df = apply_plan_overrides(adjusted_plan_df, settings)
+
+    # Add DateISO for reliable joins and overrides
+    final_plan_df['DateISO'] = pd.to_datetime(final_plan_df['Date']).dt.strftime('%Y-%m-%d')
+
+    # Strava data merge
+    strava_connected = strava_connect()
+    merged_df = final_plan_df.copy()
+    
+    if strava_connected:
+        plan_end_date = final_plan_df['Date'].max()
+        activities = get_strava_activities(start_date=start_date, end_date=plan_end_date)
+        if activities:
+            strava_df = pd.DataFrame(activities)
+            strava_df['start_date_local'] = pd.to_datetime(strava_df['start_date_local'])
+            strava_df['Date'] = strava_df['start_date_local'].dt.date
+            strava_df = strava_df[strava_df['type'] == 'Run']
+            strava_df['Actual_Miles'] = strava_df['distance'] * 0.000621371
+            
+            daily_strava = strava_df.groupby('Date').agg(
+                Actual_Miles=('Actual_Miles', 'sum'),
+                Activity_Count=('id', 'count')
+            ).reset_index()
+            
+            merged_df = pd.merge(final_plan_df, daily_strava, on='Date', how='left')
+            merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0)
+        else:
+            merged_df['Actual_Miles'] = 0
+    else:
+        merged_df['Actual_Miles'] = 0
+
+    # Calculate pace ranges
+    merged_df['Pace_Range'] = merged_df.apply(
+        lambda row: get_pace_range(row['Activity'], goal_time), axis=1
+    )
+
+    # AgGrid display
+    gb = GridOptionsBuilder.from_dataframe(merged_df)
+    
+    gb.configure_column("Date", headerName="Date", width=110, type=["dateColumn", "nonEditableColumn"], cellRenderer=JsCode("""
+        class DateRenderer {
+            init(params) {
+                this.eGui = document.createElement('span');
+                if (params.value) {
+                    const dt = new Date(params.value);
+                    this.eGui.innerHTML = dt.toLocaleDateString('en-US', {month: 'numeric', day: 'numeric'});
+                }
+            }
+            getGui() { return this.eGui; }
+        }
+    """))
+    gb.configure_column("Day", headerName="Day", width=90)
+    
+    tooltip_renderer = JsCode(f\"\"\"
+        class TooltipRenderer {{
+            init(params) {{
+                this.eGui = document.createElement('div');
+                this.eGui.innerHTML = params.value;
+                if (params.data && params.data.Activity_Tooltip) {{
+                    this.eGui.setAttribute('title', params.data.Activity_Tooltip);
+                }}
+            }}
+            getGui() {{ return this.eGui; }}
+        }}
+    \"\"\")
+    gb.configure_column("Activity", headerName="Workout", flex=1, wrapText=True, autoHeight=True, cellRenderer=tooltip_renderer)
+    gb.configure_column("Plan_Miles", headerName="Plan (mi)", width=90, type=["numericColumn", "numberColumnFilter"])
+    gb.configure_column("Actual_Miles", headerName="Actual (mi)", width=90, type=["numericColumn", "numberColumnFilter"])
+    gb.configure_column("Pace_Range", headerName="Pace", width=110)
+
+    # Hide columns we don't want to see
+    gb.configure_column("Activity_Abbr", hide=True)
+    gb.configure_column("Activity_Tooltip", hide=True)
+    gb.configure_column("DateISO", hide=True)
+
+    gb.configure_selection(selection_mode="multiple", use_checkbox=True)
+    gb.configure_grid_options(
+        domLayout='autoHeight',
+        rowStyle={'background': 'transparent'}
+    )
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
+        merged_df,
+        gridOptions=grid_options,
+        data_return_mode=DataReturnMode.AS_INPUT,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
+        allow_unsafe_jscode=True,
+        enable_enterprise_modules=False,
+        key='training_plan_grid',
+        reload_data=st.session_state.get("plan_needs_refresh", False)
+    )
+    
+    if st.session_state.get("plan_needs_refresh"):
+        st.session_state.plan_needs_refresh = False
+
+    selected_rows = grid_response['selected_rows']
+    
+    # --- Swap UI ---
+    if len(selected_rows) == 2:
+        st.subheader("Swap Selected Days")
+        row_a = selected_rows[0]
+        row_b = selected_rows[1]
+        
+        date_a = datetime.strptime(row_a['DateISO'], '%Y-%m-%d').date()
+        date_b = datetime.strptime(row_b['DateISO'], '%Y-%m-%d').date()
+
+        # Validation
+        today = datetime.now().date()
+        if date_a < today or date_b < today:
+            st.warning("Cannot swap past dates.")
+        elif date_a.isocalendar()[1] != date_b.isocalendar()[1]:
+            st.warning("Can only swap days within the same week.")
+        else:
+            st.write(f"Swap **{row_a['Activity']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Activity']}** on {date_b.strftime('%a, %b %d')}?")
+            if st.button("Confirm Swap"):
+                success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
+                if success:
+                    st.success("Swap saved! The plan has been updated.")
+                    st.session_state.plan_needs_refresh = True
+                    st.rerun()
+                else:
+                    st.error("Could not perform swap.")
+
+    elif len(selected_rows) == 1:
+        st.subheader("Clear Override")
+        row_x = selected_rows[0]
+        date_x = datetime.strptime(row_x['DateISO'], '%Y-%m-%d').date()
+        st.write(f"Clear override for **{row_x['Activity']}** on {date_x.strftime('%a, %b %d')}?")
+        if st.button("Clear This Override"):
+            clear_override_day(user_hash, settings, date_x)
+            st.session_state.plan_needs_refresh = True
+            st.rerun()
+
+    # --- Clear All Overrides ---
+    st.subheader("Manage Overrides")
+    if st.button("Clear All Swaps/Overrides for This Plan"):
+        clear_all_overrides(user_hash, settings)
+        st.session_state.plan_needs_refresh = True
+        st.rerun()
 
 # Ensure main runs when the script is executed by Streamlit, with crash details
 try:
