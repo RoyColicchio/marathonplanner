@@ -1342,7 +1342,7 @@ def generate_training_plan(start_date, plan_file: str | None = None, goal_time: 
         days_of_week = [date.strftime("%A") for date in dates]
 
         new_plan_df = pd.DataFrame({
-            'Date': dates,
+            'Date': pd.to_datetime(dates).strftime("%Y-%m-%d"),
             'Day': days_of_week,
             'Activity_Abbr': activities,
             'Activity': enhanced_activities,
