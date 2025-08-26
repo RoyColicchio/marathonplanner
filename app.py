@@ -1803,11 +1803,12 @@ def show_dashboard():
 
     # Adjust start date to the Monday of the selected week to align the plan correctly
     user_start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-    # Monday is 0, Sunday is 6
+    # Monday is 0, Sunday is 6. Adjust to the Monday of the user's selected week.
     start_date = user_start_date - timedelta(days=user_start_date.weekday())
     
     if start_date != user_start_date:
-        st.info(f"Your training plan will start on Monday, {start_date.strftime('%B %d, %Y')}, to align with the plan's structure.")
+        # This message is now conditional and only shows if an adjustment was made.
+        st.info(f"Your training plan has been aligned to start on Monday, {start_date.strftime('%B %d, %Y')}.")
 
     plan_file = settings.get("plan_file", "run_plan.csv")
     goal_time = settings.get("goal_time", "4:00:00")
