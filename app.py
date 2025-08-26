@@ -1769,7 +1769,7 @@ def clear_all_overrides(user_hash: str, settings: dict):
         else:
             st.info("No overrides to clear.")
     except Exception as e:
-        st.error(f"Reset failed: {e}")
+               st.error(f"Reset failed: {e}")
 
 st.markdown("<div style='opacity:0.6;font-size:0.9rem'>Initializing app…</div>", unsafe_allow_html=True)
 
@@ -1851,59 +1851,71 @@ def show_dashboard():
     else:
         merged_df['Actual_Miles'] = 0
 
-    # Calculate pace ranges
-    goal_time_seconds = marathon_pace_seconds(goal_time)
-    merged_df['Pace_Range'] = merged_df.apply(
-        lambda row: get_pace_range(row['Activity'], goal_time_seconds), axis=1
-    )
+    # Add pace ranges
+    merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_pace_range(x, goal_time))
 
-    # AgGrid display
-    gb = GridOptionsBuilder.from_dataframe(merged_df)
-    
-    gb.configure_column("Date", headerName="Date", width=110, nonEditableColumn=True, cellRenderer=JsCode("""
+    # --- AgGrid table ---
+    # Rename columns for display
+    display_df = merged_df.rename(columns={
+        "Activity": "Workout",
+        "Plan_Miles": "Plan (mi)",
+        "Actual_Miles": "Actual (mi)"
+    })
+    gb = GridOptionsBuilder.from_dataframe(display_df)
+
+    # Custom JS for date formatting to avoid timezone issues
+    date_renderer = JsCode("""
         class DateRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
                 if (params.value) {
-                    const dateStr = String(params.value).split('T')[0]; // e.g., "2025-08-25"
-                    const parts = dateStr.split('-');
-                    if (parts.length === 3) {
-                        const month = parseInt(parts[1], 10);
-                        const day = parseInt(parts[2], 10);
-                        this.eGui.innerHTML = `${month}/${day}`;
-                    } else {
-                        this.eGui.innerHTML = params.value;
-                    }
+                    // Parse YYYY-MM-DD and format as 'M/D'
+                    const parts = params.value.split('-');
+                    this.eGui.innerHTML = parseInt(parts[1], 10) + '/' + parseInt(parts[2], 10);
                 }
             }
-            getGui() { return this.eGui; }
+            getGui() {
+                return this.eGui;
+            }
         }
-    """))
-    gb.configure_column("Day", headerName="Day", width=90)
-    
-    tooltip_renderer = JsCode(f"""
-        class TooltipRenderer {{
-            init(params) {{
-                this.eGui = document.createElement('div');
-                this.eGui.innerHTML = params.value;
-                if (params.data && params.data.Activity_Tooltip) {{
-                    this.eGui.setAttribute('title', params.data.Activity_Tooltip);
-                }}
-            }}
-            getGui() {{ return this.eGui; }}
-        }}
     """)
-    gb.configure_column("Activity", headerName="Workout", flex=1, wrapText=True, autoHeight=True, cellRenderer=tooltip_renderer)
-    gb.configure_column("Plan_Miles", headerName="Plan (mi)", width=90, type=["numericColumn", "numberColumnFilter"])
-    gb.configure_column("Actual_Miles", headerName="Actual (mi)", width=90, type=["numericColumn", "numberColumnFilter"])
-    gb.configure_column("Pace_Range", headerName="Pace", width=110)
+    gb.configure_column("Date", cellRenderer=date_renderer, width=90, pinned='left')
+    gb.configure_column("Day", width=110, pinned='left')
+    gb.configure_column("Workout", width=250, wrapText=True, autoHeight=True)
+    gb.configure_column("Plan (mi)", width=100)
+    gb.configure_column("Actual (mi)", width=100)
+    gb.configure_column("Pace", width=120)
+
+    # Pace column formatting
+    pace_range_renderer = JsCode("""
+        class PaceRangeRenderer {
+            init(params) {
+                this.eGui = document.createElement('span');
+                if (params.value) {
+                    this.eGui.innerHTML = params.value;
+                } else {
+                    this.eGui.innerHTML = '—';
+                }
+            }
+            getGui() {
+                return this.eGui;
+            }
+        }
+    """)
+    gb.configure_column("Pace", cellRenderer=pace_range_renderer)
+
+    # Tooltip for activity description
+    gb.configure_column("Workout",
+        tooltipField="Activity_Tooltip",
+        tooltipShowDelay=200
+    )
 
     # Hide columns we don't want to see
     gb.configure_column("Activity_Abbr", hide=True)
     gb.configure_column("Activity_Tooltip", hide=True)
     gb.configure_column("DateISO", hide=True)
 
-    gb.configure_selection(selection_mode="multiple", use_checkbox=True)
+    gb.configure_selection(selection_mode="multiple", use_checkbox=True, checkbox_width=40)
     gb.configure_grid_options(
         domLayout='autoHeight',
         rowStyle={'background': 'transparent'}
@@ -1911,7 +1923,7 @@ def show_dashboard():
     grid_options = gb.build()
 
     grid_response = AgGrid(
-        merged_df,
+        display_df,
         gridOptions=grid_options,
         data_return_mode=DataReturnMode.AS_INPUT,
         update_mode=GridUpdateMode.MODEL_CHANGED,
@@ -1925,6 +1937,8 @@ def show_dashboard():
         st.session_state.plan_needs_refresh = False
 
     selected_rows = grid_response['selected_rows']
+    if selected_rows is None:
+        selected_rows = []
     
     # --- Swap UI ---
     if selected_rows and len(selected_rows) == 2:
@@ -1942,7 +1956,7 @@ def show_dashboard():
         elif date_a.isocalendar()[1] != date_b.isocalendar()[1]:
             st.warning("Can only swap days within the same week.")
         else:
-            st.write(f"Swap **{row_a['Activity']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Activity']}** on {date_b.strftime('%a, %b %d')}?")
+            st.write(f"Swap **{row_a['Workout']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Workout']}** on {date_b.strftime('%a, %b %d')}?")
             if st.button("Confirm Swap"):
                 success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
                 if success:
@@ -1956,7 +1970,7 @@ def show_dashboard():
         st.subheader("Clear Override")
         row_x = selected_rows[0]
         date_x = datetime.strptime(row_x['DateISO'], '%Y-%m-%d').date()
-        st.write(f"Clear override for **{row_x['Activity']}** on {date_x.strftime('%a, %b %d')}?")
+        st.write(f"Clear override for **{row_x['Workout']}** on {date_x.strftime('%a, %b %d')}?")
         if st.button("Clear This Override"):
             clear_override_day(user_hash, settings, date_x)
             st.session_state.plan_needs_refresh = True
@@ -1968,7 +1982,6 @@ def show_dashboard():
         clear_all_overrides(user_hash, settings)
         st.session_state.plan_needs_refresh = True
         st.rerun()
-
 # Ensure main runs when the script is executed by Streamlit, with crash details
 try:
     main()
