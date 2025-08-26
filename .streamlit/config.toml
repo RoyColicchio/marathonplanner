@@ -3,7 +3,7 @@ headless = true
 enableCORS = true
 enableXsrfProtection = true
 runOnSave = false
-fileWatcherType = "none"  # avoid inotify errors on Streamlit Cloud
+fileWatcherType = "poll"  # use polling watcher to avoid inotify ENOSPC on Streamlit Cloud
 
 [browser]
 gatherUsageStats = false
