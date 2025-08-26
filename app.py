@@ -1865,7 +1865,7 @@ def show_dashboard():
     """))
     gb.configure_column("Day", headerName="Day", width=90)
     
-    tooltip_renderer = JsCode(f\"\"\"
+    tooltip_renderer = JsCode(f"""
         class TooltipRenderer {{
             init(params) {{
                 this.eGui = document.createElement('div');
@@ -1876,7 +1876,7 @@ def show_dashboard():
             }}
             getGui() {{ return this.eGui; }}
         }}
-    \"\"\")
+    """)
     gb.configure_column("Activity", headerName="Workout", flex=1, wrapText=True, autoHeight=True, cellRenderer=tooltip_renderer)
     gb.configure_column("Plan_Miles", headerName="Plan (mi)", width=90, type=["numericColumn", "numberColumnFilter"])
     gb.configure_column("Actual_Miles", headerName="Actual (mi)", width=90, type=["numericColumn", "numberColumnFilter"])
