@@ -4,5 +4,6 @@ __pycache__/
 
 # Never commit Streamlit secrets
 .streamlit/secrets.toml
-# Ignore all Streamlit local configs and backups
+# Ignore most Streamlit local configs and backups, but allow config.toml for Cloud
 .streamlit/**
+!.streamlit/config.toml

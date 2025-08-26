@@ -1,0 +1,9 @@
+[server]
+headless = true
+enableCORS = true
+enableXsrfProtection = true
+runOnSave = false
+fileWatcherType = "none"  # avoid inotify errors on Streamlit Cloud
+
+[browser]
+gatherUsageStats = false
