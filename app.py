@@ -1860,13 +1860,20 @@ def show_dashboard():
     # AgGrid display
     gb = GridOptionsBuilder.from_dataframe(merged_df)
     
-    gb.configure_column("Date", headerName="Date", width=110, type=["dateColumn", "nonEditableColumn"], cellRenderer=JsCode("""
+    gb.configure_column("Date", headerName="Date", width=110, nonEditableColumn=True, cellRenderer=JsCode("""
         class DateRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
                 if (params.value) {
-                    const dt = new Date(params.value);
-                    this.eGui.innerHTML = dt.toLocaleDateString('en-US', {month: 'numeric', day: 'numeric'});
+                    const dateStr = String(params.value).split('T')[0]; // e.g., "2025-08-25"
+                    const parts = dateStr.split('-');
+                    if (parts.length === 3) {
+                        const month = parseInt(parts[1], 10);
+                        const day = parseInt(parts[2], 10);
+                        this.eGui.innerHTML = `${month}/${day}`;
+                    } else {
+                        this.eGui.innerHTML = params.value;
+                    }
                 }
             }
             getGui() { return this.eGui; }
