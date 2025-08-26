@@ -1916,7 +1916,7 @@ def show_dashboard():
     gb.configure_column("Activity_Tooltip", hide=True)
     gb.configure_column("DateISO", hide=True)
 
-    gb.configure_selection(selection_mode="multiple", use_checkbox=True, checkbox_width=40)
+    gb.configure_selection(selection_mode="multiple", use_checkbox=True)
     gb.configure_grid_options(
         domLayout='autoHeight',
         rowStyle={'background': 'transparent'}
