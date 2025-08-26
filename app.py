@@ -1801,7 +1801,13 @@ def show_dashboard():
         st.warning("Please set a start date to see your plan.")
         return
 
-    start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    # Adjust start date to the next Monday to align the plan correctly
+    user_start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    start_date = user_start_date + timedelta(days=(0 - user_start_date.weekday() + 7) % 7)
+    
+    if start_date != user_start_date:
+        st.info(f"Your training plan will start on Monday, {start_date.strftime('%B %d, %Y')}, to align with the plan's structure.")
+
     plan_file = settings.get("plan_file", "run_plan.csv")
     goal_time = settings.get("goal_time", "4:00:00")
 
