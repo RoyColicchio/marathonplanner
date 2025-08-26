@@ -1852,7 +1852,8 @@ def show_dashboard():
         merged_df['Actual_Miles'] = 0
 
     # Add pace ranges
-    merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_pace_range(x, goal_time))
+    goal_time_seconds = marathon_pace_seconds(goal_time)
+    merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_pace_range(x, goal_time_seconds))
 
     # --- AgGrid table ---
     # Rename columns for display
