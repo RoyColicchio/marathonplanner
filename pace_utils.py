@@ -13,13 +13,14 @@ def marathon_pace_seconds(goal_marathon_time: str) -> float:
         return 600.0
 
 
-def get_pace_range(activity_description: str, goal_marathon_pace_seconds: float) -> str:
+def get_pace_range(activity_description: str, goal_marathon_pace_seconds: float, plan_file: str = "") -> str:
     """
     Get the suggested pace range for a given workout.
 
     Args:
         activity_description: The description of the workout (e.g., "Long Run", "Tempo").
         goal_marathon_pace_seconds: The goal marathon pace in seconds per mile.
+        plan_file: The path to the plan file, used to apply adjustments.
 
     Returns:
         A string representing the pace range (e.g., "8:30-9:00").
@@ -29,6 +30,13 @@ def get_pace_range(activity_description: str, goal_marathon_pace_seconds: float)
 
     desc = activity_description.lower()
     gmp_sec = goal_marathon_pace_seconds
+
+    adjustment_factor = 1.0
+    if plan_file:
+        plan_name = plan_file.lower()
+        # "run_plan.csv" is the 18/55 plan, and "18-63" is in the Pfitz 18/63 plan name
+        if "run_plan.csv" in plan_name or "unofficial-pfitz-18-63" in plan_name:
+            adjustment_factor = 1.05
 
     # Pace mappings: keyword -> (low_delta, high_delta) in seconds from marathon pace
     pace_map = {
@@ -64,6 +72,13 @@ def get_pace_range(activity_description: str, goal_marathon_pace_seconds: float)
             
             low = gmp_sec + mapping["delta"][0]
             high = gmp_sec + mapping["delta"][1]
+
+            if adjustment_factor != 1.0:
+                # For paces faster than marathon pace, being less aggressive means slower (closer to MP)
+                # For paces slower than marathon pace, being less aggressive means even slower (further from MP)
+                # A simple multiplier works for both cases.
+                low *= adjustment_factor
+                high *= adjustment_factor
             
             # Format to M:SS
             low_min, low_sec = divmod(int(low), 60)
@@ -75,6 +90,9 @@ def get_pace_range(activity_description: str, goal_marathon_pace_seconds: float)
     if "run" in desc or "mile" in desc:
         low = gmp_sec + 30
         high = gmp_sec + 90
+        if adjustment_factor != 1.0:
+            low *= adjustment_factor
+            high *= adjustment_factor
         low_min, low_sec = divmod(int(low), 60)
         high_min, high_sec = divmod(int(high), 60)
         return f"{low_min}:{low_sec:02d} - {high_min}:{high_sec:02d}"
