@@ -1912,7 +1912,7 @@ def show_dashboard():
     selected_rows = grid_response['selected_rows']
     
     # --- Swap UI ---
-    if len(selected_rows) == 2:
+    if selected_rows and len(selected_rows) == 2:
         st.subheader("Swap Selected Days")
         row_a = selected_rows[0]
         row_b = selected_rows[1]
@@ -1937,7 +1937,7 @@ def show_dashboard():
                 else:
                     st.error("Could not perform swap.")
 
-    elif len(selected_rows) == 1:
+    elif selected_rows and len(selected_rows) == 1:
         st.subheader("Clear Override")
         row_x = selected_rows[0]
         date_x = datetime.strptime(row_x['DateISO'], '%Y-%m-%d').date()
