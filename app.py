@@ -395,6 +395,12 @@ if "plan_grid_sel" not in st.session_state:
     st.session_state.plan_grid_sel = []
 if "plan_needs_refresh" not in st.session_state:
     st.session_state.plan_needs_refresh = False
+if "plan_setup_visible" not in st.session_state:
+    st.session_state.plan_setup_visible = True
+if "current_week" not in st.session_state:
+    st.session_state.current_week = 1
+if "last_plan_sig" not in st.session_state:
+    st.session_state.last_plan_sig = None
 
 # --- Goal Time Coach helpers ---
 import re as _re_gc
@@ -559,126 +565,137 @@ def _gc_handle(user_msg: str):
         st.session_state.goal_coach_step = 3
         return
 
+if "plan_setup_visible" not in st.session_state:
+    st.session_state.plan_setup_visible = True
+
 def training_plan_setup():
     """Handle training plan configuration."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
 
-    st.header("Training Plan Setup")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        start_date = st.date_input(
-            "Start Date",
-            value=datetime.strptime(settings.get("start_date", str(datetime.now().date())), "%Y-%m-%d").date(),
-            help="The start date of your training plan"
-        )
-
-    with col2:
-        # Input + Goal Coach button side-by-side
-        sub1, sub2 = st.columns([3, 1])
-        with sub1:
-            goal_time = st.text_input(
-                "Goal Marathon Time (HH:MM:SS)",
-                value=settings.get("goal_time", "4:00:00"),
-                key="goal_time_input",
-                help="Your target marathon finish time"
-            )
-        with sub2:
-            if st.button("Goal Coach", key="open_goal_coach_btn"):
-                _gc_reset()
-
-    # Plan selection with friendly titles; defaults to run_plan.csv
-    available_paths = list_available_plans()
-    default_plan_path = settings.get("plan_file", "run_plan.csv")
-    if default_plan_path not in available_paths and available_paths:
-        default_plan_path = available_paths[0]
-    labels = [plan_display_name(p) for p in available_paths] or ["18 Weeks, 55 Mile/Week Peak"]
-    # index must match the order of labels/paths
-    try:
-        default_index = available_paths.index(default_plan_path) if available_paths else 0
-    except ValueError:
-        default_index = 0
-    selected_label = st.selectbox(
-        "Training Plan",
-        options=labels,
-        index=min(default_index, len(labels)-1),
-        help="Select a plan. Place CSVs or ICS files in the repo root or plans/ folder."
-    )
-    # map label back to path
-    label_to_path = {plan_display_name(p): p for p in available_paths}
-    selected_plan_path = label_to_path.get(selected_label, default_plan_path)
-
-    # Adjustment controls with persisted defaults
-    c1, c2 = st.columns(2)
-    with c1:
-        week_adjust = st.selectbox(
-            "Adjust plan length (weeks)",
-            options=[-2, -1, 0, 1, 2],
-            index=[-2, -1, 0, 1, 2].index(int(settings.get("week_adjust", 0) or 0)),
-            help="-1: combine w1&2; -2: also combine w3&4; +1: duplicate w6; +2: duplicate w6 & w12",
-        )
-    with c2:
-        weekly_miles_delta = st.slider(
-            "Weekly mileage adjustment (mi/week)",
-            min_value=-5, max_value=5, step=1, value=int(settings.get("weekly_miles_delta", 0) or 0),
-            help="Adjust K longest runs per week by ±1 mile (K = |value|)",
-        )
-
-    # Goal Coach UI (chat-like) below the controls
-    if st.session_state.goal_coach_open:
-        st.markdown("#### Goal Time Coach")
-        chat_supported = hasattr(st, "chat_message") and hasattr(st, "chat_input")
-        # Render history
-        for m in st.session_state.goal_coach_messages:
-            if chat_supported:
-                st.chat_message(m["role"]).write(m["content"])  # type: ignore[attr-defined]
-            else:
-                if m["role"] == "assistant":
-                    st.info(m["content"])  # fallback styling
-                else:
-                    st.write(f"You: {m['content']}")
-        # Input
-        user_msg = None
-        if chat_supported:
-            user_msg = st.chat_input("Your answer…")  # type: ignore[attr-defined]
-        else:
-            user_msg = st.text_input("Your answer…", key="goal_coach_fallback_input")
-            if st.button("Send", key="goal_coach_send_btn"):
-                user_msg = st.session_state.get("goal_coach_fallback_input", "")
-        if user_msg:
-            _gc_handle(user_msg)
+    if not st.session_state.plan_setup_visible:
+        if st.button("Adjust Plan"):
+            st.session_state.plan_setup_visible = True
             st.rerun()
-        # Recommendation buttons when ready
-        if st.session_state.goal_coach_step >= 3:
-            c1b, c2b, c3b = st.columns([1, 1, 2])
-            cons = st.session_state.goal_coach_cons
-            amb = st.session_state.goal_coach_amb
-            if c1b.button(f"Use {cons}", key="use_cons_goal"):
-                st.session_state["goal_time_input"] = cons
-                st.session_state.goal_coach_open = False
-                st.success(f"Goal time set to {cons}")
-                st.rerun()
-            if c2b.button(f"Use {amb}", key="use_amb_goal"):
-                st.session_state["goal_time_input"] = amb
-                st.session_state.goal_coach_open = False
-                st.success(f"Goal time set to {amb}")
-                st.rerun()
-            c3b.button("Close Coach", key="close_goal_coach", on_click=lambda: st.session_state.update({"goal_coach_open": False}))
+        return settings
 
-    if st.button("Save Training Plan", use_container_width=True):
-        new_settings = {
-            **settings,
-            "start_date": start_date.strftime("%Y-%m-%d"),
-            "goal_time": st.session_state.get("goal_time_input", goal_time),
-            "plan_file": selected_plan_path,
-            "week_adjust": int(week_adjust),
-            "weekly_miles_delta": int(weekly_miles_delta),
-        }
-        save_user_settings(user_hash, new_settings)
-        st.success("Training plan saved!")
-        st.rerun()
+    with st.container():
+        st.header("Training Plan Setup")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            start_date = st.date_input(
+                "Start Date",
+                value=datetime.strptime(settings.get("start_date", str(datetime.now().date())), "%Y-%m-%d").date(),
+                help="The start date of your training plan"
+            )
+
+        with col2:
+            # Input + Goal Coach button side-by-side
+            sub1, sub2 = st.columns([3, 1])
+            with sub1:
+                goal_time = st.text_input(
+                    "Goal Marathon Time (HH:MM:SS)",
+                    value=settings.get("goal_time", "4:00:00"),
+                    key="goal_time_input",
+                    help="Your target marathon finish time"
+                )
+            with sub2:
+                if st.button("Goal Coach", key="open_goal_coach_btn"):
+                    _gc_reset()
+
+        # Plan selection with friendly titles; defaults to run_plan.csv
+        available_paths = list_available_plans()
+        default_plan_path = settings.get("plan_file", "run_plan.csv")
+        if default_plan_path not in available_paths and available_paths:
+            default_plan_path = available_paths[0]
+        labels = [plan_display_name(p) for p in available_paths] or ["18 Weeks, 55 Mile/Week Peak"]
+        # index must match the order of labels/paths
+        try:
+            default_index = available_paths.index(default_plan_path) if available_paths else 0
+        except ValueError:
+            default_index = 0
+        selected_label = st.selectbox(
+            "Training Plan",
+            options=labels,
+            index=min(default_index, len(labels)-1),
+            help="Select a plan. Place CSVs or ICS files in the repo root or plans/ folder."
+        )
+        # map label back to path
+        label_to_path = {plan_display_name(p): p for p in available_paths}
+        selected_plan_path = label_to_path.get(selected_label, default_plan_path)
+
+        # Adjustment controls with persisted defaults
+        c1, c2 = st.columns(2)
+        with c1:
+            week_adjust = st.selectbox(
+                "Adjust plan length (weeks)",
+                options=[-2, -1, 0, 1, 2],
+                index=[-2, -1, 0, 1, 2].index(int(settings.get("week_adjust", 0) or 0)),
+                help="-1: combine w1&2; -2: also combine w3&4; +1: duplicate w6; +2: duplicate w6 & w12",
+            )
+        with c2:
+            weekly_miles_delta = st.slider(
+                "Weekly mileage adjustment (mi/week)",
+                min_value=-5, max_value=5, step=1, value=int(settings.get("weekly_miles_delta", 0) or 0),
+                help="Adjust K longest runs per week by ±1 mile (K = |value|)",
+            )
+
+        # Goal Coach UI (chat-like) below the controls
+        if st.session_state.goal_coach_open:
+            st.markdown("#### Goal Time Coach")
+            chat_supported = hasattr(st, "chat_message") and hasattr(st, "chat_input")
+            # Render history
+            for m in st.session_state.goal_coach_messages:
+                if chat_supported:
+                    st.chat_message(m["role"]).write(m["content"])  # type: ignore[attr-defined]
+                else:
+                    if m["role"] == "assistant":
+                        st.info(m["content"])  # fallback styling
+                    else:
+                        st.write(f"You: {m['content']}")
+            # Input
+            user_msg = None
+            if chat_supported:
+                user_msg = st.chat_input("Your answer…")  # type: ignore[attr-defined]
+            else:
+                user_msg = st.text_input("Your answer…", key="goal_coach_fallback_input")
+                if st.button("Send", key="goal_coach_send_btn"):
+                    user_msg = st.session_state.get("goal_coach_fallback_input", "")
+            if user_msg:
+                _gc_handle(user_msg)
+                st.rerun()
+            # Recommendation buttons when ready
+            if st.session_state.goal_coach_step >= 3:
+                c1b, c2b, c3b = st.columns([1, 1, 2])
+                cons = st.session_state.goal_coach_cons
+                amb = st.session_state.goal_coach_amb
+                if c1b.button(f"Use {cons}", key="use_cons_goal"):
+                    st.session_state["goal_time_input"] = cons
+                    st.session_state.goal_coach_open = False
+                    st.success(f"Goal time set to {cons}")
+                    st.rerun()
+                if c2b.button(f"Use {amb}", key="use_amb_goal"):
+                    st.session_state["goal_time_input"] = amb
+                    st.session_state.goal_coach_open = False
+                    st.success(f"Goal time set to {amb}")
+                    st.rerun()
+                c3b.button("Close Coach", key="close_goal_coach", on_click=lambda: st.session_state.update({"goal_coach_open": False}))
+
+        if st.button("Save Training Plan", use_container_width=True):
+            new_settings = {
+                **settings,
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "goal_time": st.session_state.get("goal_time_input", goal_time),
+                "plan_file": selected_plan_path,
+                "week_adjust": int(week_adjust),
+                "weekly_miles_delta": int(weekly_miles_delta),
+            }
+            save_user_settings(user_hash, new_settings)
+            st.session_state.plan_setup_visible = False
+            st.success("Training plan saved!")
+            st.rerun()
 
     return settings
 
@@ -1713,8 +1730,6 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         # Also apply the overrides directly to the global plan DataFrame for immediate effect
         if 'DateISO' in plan_df.columns:
             a_mask = (plan_df['DateISO'] == date_a_str)
-            b_mask = (plan_df['DateISO'] == date_b_str)
-        else:
             a_mask = (plan_df['Date'] == date_a)
             b_mask = (plan_df['Date'] == date_b)
             
@@ -1838,56 +1853,139 @@ def show_dashboard():
             strava_df['Date'] = strava_df['start_date_local'].dt.date
             strava_df = strava_df[strava_df['type'] == 'Run']
             strava_df['Actual_Miles'] = strava_df['distance'] * 0.000621371
+            strava_df['Actual_Pace_Sec'] = strava_df['moving_time'] / strava_df['Actual_Miles']
             
             daily_strava = strava_df.groupby('Date').agg(
                 Actual_Miles=('Actual_Miles', 'sum'),
+                Moving_Time_Sec=('moving_time', 'sum'),
                 Activity_Count=('id', 'count')
             ).reset_index()
             
-            merged_df = pd.merge(final_plan_df, daily_strava, on='Date', how='left')
+            # Calculate weighted average pace for the day
+            daily_strava['Actual_Pace'] = daily_strava.apply(
+                lambda row: f"{int((row['Moving_Time_Sec'] / row['Actual_Miles']) // 60)}:{int((row['Moving_Time_Sec'] / row['Actual_Miles']) % 60):02d}" if row['Actual_Miles'] > 0 else "—",
+                axis=1
+            )
+            
+            merged_df = pd.merge(final_plan_df, daily_strava[['Date', 'Actual_Miles', 'Actual_Pace']], on='Date', how='left')
             merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0)
+            merged_df['Actual_Pace'] = merged_df['Actual_Pace'].fillna("—")
         else:
             merged_df['Actual_Miles'] = 0
+            merged_df['Actual_Pace'] = "—"
     else:
         merged_df['Actual_Miles'] = 0
+        merged_df['Actual_Pace'] = "—"
 
     # Add pace ranges
     goal_time_seconds = marathon_pace_seconds(goal_time)
     merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_pace_range(x, goal_time_seconds, plan_file))
 
+    # Add week number to the DataFrame
+    merged_df['Week'] = _compute_week_index(merged_df, 'Date', start_date)
+
+    # --- Week-by-week display ---
+    total_weeks = merged_df['Week'].max() if not merged_df.empty else 0
+    
+    # Reset week view if plan changes
+    plan_sig = _plan_signature(settings)
+    if st.session_state.get("last_plan_sig") != plan_sig:
+        st.session_state.current_week = 1
+        st.session_state.last_plan_sig = plan_sig
+
+    if 'current_week' not in st.session_state:
+        st.session_state.current_week = 1
+
+    if st.session_state.current_week < total_weeks:
+        if st.button("Show Next Week"):
+            st.session_state.current_week += 1
+            st.rerun()
+
+    # Filter to current week
+    display_df_filtered = merged_df[merged_df['Week'] <= st.session_state.current_week].copy()
+
+    # --- Weekly Summary Rows ---
+    summary_rows = []
+    for week_num in range(1, st.session_state.current_week + 1):
+        week_df = display_df_filtered[display_df_filtered['Week'] == week_num]
+        if not week_df.empty:
+            last_date_of_week = pd.to_datetime(week_df['Date']).max()
+            summary_date = last_date_of_week + pd.Timedelta(hours=12)
+            
+            summary_row = pd.DataFrame([{
+                'Date': summary_date,
+                'Day': '',
+                'Activity': f'**Week {week_num} Summary**',
+                'Plan_Miles': week_df['Plan_Miles'].sum(),
+                'Actual_Miles': week_df['Actual_Miles'].sum(),
+                'Pace': '',
+                'Actual_Pace': '',
+                'Week': week_num,
+                'DateISO': last_date_of_week.strftime('%Y-%m-%d'),
+                'Activity_Tooltip': 'Weekly totals for planned and actual miles.'
+            }])
+            summary_rows.append(summary_row)
+
+    if summary_rows:
+        summary_df = pd.concat(summary_rows, ignore_index=True)
+        display_df_with_summaries = pd.concat([display_df_filtered, summary_df], ignore_index=True)
+        display_df_with_summaries['Date_sort'] = pd.to_datetime(display_df_with_summaries['Date'])
+        display_df_with_summaries = display_df_with_summaries.sort_values(by='Date_sort').reset_index(drop=True)
+        display_df_with_summaries['Date'] = display_df_with_summaries['Date_sort'].dt.strftime('%Y-%m-%d')
+        display_df = display_df_with_summaries
+    else:
+        display_df = display_df_filtered
+    
     # --- AgGrid table ---
-    # Rename columns for display
-    display_df = merged_df.rename(columns={
+    display_df = display_df.rename(columns={
         "Activity": "Workout",
         "Plan_Miles": "Plan (mi)",
-        "Actual_Miles": "Actual (mi)"
+        "Actual_Miles": "Actual (mi)",
+        "Pace": "Suggested Pace",
+        "Actual_Pace": "Actual Pace"
     })
+
+    column_order = ["Date", "Day", "Workout", "Plan (mi)", "Suggested Pace", "Actual (mi)", "Actual Pace"]
+    existing_columns = [col for col in column_order if col in display_df.columns]
+    display_df = display_df[existing_columns]
+    
     gb = GridOptionsBuilder.from_dataframe(display_df)
 
-    # Custom JS for date formatting to avoid timezone issues
     date_renderer = JsCode("""
         class DateRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
                 if (params.value) {
-                    // Parse YYYY-MM-DD and format as 'M/D'
                     const parts = params.value.split('-');
                     this.eGui.innerHTML = parseInt(parts[1], 10) + '/' + parseInt(parts[2], 10);
                 }
             }
-            getGui() {
-                return this.eGui;
-            }
+            getGui() { return this.eGui; }
         }
     """)
     gb.configure_column("Date", cellRenderer=date_renderer, width=90, pinned='left')
     gb.configure_column("Day", width=110, pinned='left')
-    gb.configure_column("Workout", width=250, wrapText=True, autoHeight=True)
-    gb.configure_column("Plan (mi)", width=100)
-    gb.configure_column("Actual (mi)", width=100)
-    gb.configure_column("Pace", width=120)
 
-    # Pace column formatting
+    workout_renderer = JsCode("""
+        class WorkoutRenderer {
+            init(params) {
+                this.eGui = document.createElement('span');
+                if (params.value && params.value.includes('Summary')) {
+                    this.eGui.innerHTML = params.value;
+                } else {
+                    this.eGui.innerHTML = params.value;
+                }
+            }
+            getGui() { return this.eGui; }
+        }
+    """)
+    gb.configure_column("Workout", cellRenderer=workout_renderer, width=300, wrapText=True, autoHeight=True)
+    
+    gb.configure_column("Plan (mi)", width=100, type=["numericColumn", "numberColumnFilter", "customNumericFormat"], precision=1)
+    gb.configure_column("Actual (mi)", width=100, type=["numericColumn", "numberColumnFilter", "customNumericFormat"], precision=1)
+    gb.configure_column("Suggested Pace", width=140)
+    gb.configure_column("Actual Pace", width=120)
+
     pace_range_renderer = JsCode("""
         class PaceRangeRenderer {
             init(params) {
@@ -1898,28 +1996,45 @@ def show_dashboard():
                     this.eGui.innerHTML = '—';
                 }
             }
-            getGui() {
-                return this.eGui;
-            }
+            getGui() { return this.eGui; }
         }
     """)
-    gb.configure_column("Pace", cellRenderer=pace_range_renderer)
+    gb.configure_column("Suggested Pace", cellRenderer=pace_range_renderer)
+    gb.configure_column("Actual Pace", cellRenderer=pace_range_renderer)
 
-    # Tooltip for activity description
-    gb.configure_column("Workout",
-        tooltipField="Activity_Tooltip",
-        tooltipShowDelay=200
-    )
+    gb.configure_column("Workout", tooltipField="Activity_Tooltip", tooltipShowDelay=200)
 
-    # Hide columns we don't want to see
-    gb.configure_column("Activity_Abbr", hide=True)
-    gb.configure_column("Activity_Tooltip", hide=True)
-    gb.configure_column("DateISO", hide=True)
+    # Hide helper columns
+    for col in ["Activity_Abbr", "Activity_Tooltip", "DateISO", "Week", "Date_sort"]:
+        if col in display_df.columns:
+            gb.configure_column(col, hide=True)
 
     gb.configure_selection(selection_mode="multiple", use_checkbox=True)
+    
+    get_row_style = JsCode("""
+        function(params) {
+            if (params.data.Workout && params.data.Workout.includes('Summary')) {
+                return { 
+                    'background-color': 'rgba(100, 116, 139, 0.15)',
+                    'font-weight': 'bold',
+                    'border-bottom': '1px solid var(--border)',
+                    'border-top': '1px solid var(--border)'
+                };
+            }
+            if (params.data.DateISO === new Date().toISOString().slice(0, 10)) {
+                return {
+                    'background-color': 'rgba(34, 197, 94, 0.2)',
+                    'border-left': '3px solid var(--accent)'
+                };
+            }
+            return null;
+        }
+    """)
+
     gb.configure_grid_options(
         domLayout='autoHeight',
-        rowStyle={'background': 'transparent'}
+        rowStyle={'background': 'transparent'},
+        getRowStyle=get_row_style
     )
     grid_options = gb.build()
 
@@ -1947,10 +2062,16 @@ def show_dashboard():
         row_a = selected_rows[0]
         row_b = selected_rows[1]
         
-        date_a = datetime.strptime(row_a['DateISO'], '%Y-%m-%d').date()
-        date_b = datetime.strptime(row_b['DateISO'], '%Y-%m-%d').date()
+        date_a_str = row_a.get('DateISO', row_a.get('Date'))
+        date_b_str = row_b.get('DateISO', row_b.get('Date'))
 
-        # Validation
+        if not date_a_str or not date_b_str:
+            st.warning("Could not identify dates to swap.")
+            return
+
+        date_a = datetime.strptime(date_a_str, '%Y-%m-%d').date()
+        date_b = datetime.strptime(date_b_str, '%Y-%m-%d').date()
+
         today = datetime.now().date()
         if date_a < today or date_b < today:
             st.warning("Cannot swap past dates.")
@@ -1970,7 +2091,12 @@ def show_dashboard():
     elif selected_rows and len(selected_rows) == 1:
         st.subheader("Clear Override")
         row_x = selected_rows[0]
-        date_x = datetime.strptime(row_x['DateISO'], '%Y-%m-%d').date()
+        date_x_str = row_x.get('DateISO', row_x.get('Date'))
+        if not date_x_str:
+            st.warning("Could not identify date to clear.")
+            return
+            
+        date_x = datetime.strptime(date_x_str, '%Y-%m-%d').date()
         st.write(f"Clear override for **{row_x['Workout']}** on {date_x.strftime('%a, %b %d')}?")
         if st.button("Clear This Override"):
             clear_override_day(user_hash, settings, date_x)
@@ -1983,10 +2109,3 @@ def show_dashboard():
         clear_all_overrides(user_hash, settings)
         st.session_state.plan_needs_refresh = True
         st.rerun()
-# Ensure main runs when the script is executed by Streamlit, with crash details
-try:
-    main()
-except Exception as _e:
-    import traceback as _tb
-    st.error("The app hit an error during startup.")
-    st.code(_tb.format_exc())
