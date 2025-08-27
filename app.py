@@ -1790,7 +1790,6 @@ st.markdown("<div style='opacity:0.6;font-size:0.9rem'>Initializing app…</div>
 
 def main():
     """Main application logic."""
-    st.markdown("<div style='opacity:0.6;font-size:0.9rem'>DEBUG: main() called</div>", unsafe_allow_html=True)
     if not st.session_state.current_user:
         google_login()
         return
@@ -2110,3 +2109,6 @@ def show_dashboard():
         clear_all_overrides(user_hash, settings)
         st.session_state.plan_needs_refresh = True
         st.rerun()
+
+if __name__ == "__main__":
+    main()
