@@ -1720,12 +1720,31 @@ def adjust_training_plan(df, start_date=None, week_adjust=0, weekly_miles_delta=
 
 
 def apply_user_plan_adjustments(plan_df, settings, start_date):
-    return adjust_training_plan(
+    adjusted_df = adjust_training_plan(
         plan_df,
         start_date=start_date,
         week_adjust=int(settings.get("week_adjust", 0) or 0),
         weekly_miles_delta=int(settings.get("weekly_miles_delta", 0) or 0),
     )
+    
+    # After adjusting miles, update the Activity descriptions to reflect the new mileage
+    if 'Activity_Abbr' in adjusted_df.columns and 'Plan_Miles' in adjusted_df.columns:
+        # Update the raw activity descriptions with adjusted mileage
+        for idx in adjusted_df.index:
+            if pd.notna(adjusted_df.loc[idx, 'Plan_Miles']) and adjusted_df.loc[idx, 'Plan_Miles'] > 0:
+                original_abbr = adjusted_df.loc[idx, 'Activity_Abbr']
+                new_miles = adjusted_df.loc[idx, 'Plan_Miles']
+                # Update the abbreviated activity description with new mileage
+                adjusted_df.loc[idx, 'Activity_Abbr'] = replace_primary_miles(original_abbr, new_miles)
+        
+        # Regenerate the enhanced activity descriptions based on updated abbreviations
+        adjusted_df['Activity'] = adjusted_df['Activity_Abbr'].apply(enhance_activity_description)
+        
+        # Also update tooltips based on new activity descriptions
+        adjusted_df['Activity_Tooltip'] = adjusted_df['Activity'].apply(get_activity_tooltip)
+        adjusted_df['Activity_Short_Description'] = adjusted_df['Activity'].apply(get_activity_short_description)
+    
+    return adjusted_df
 
 
 # -------- Per-user plan overrides (swap days) --------
@@ -2383,8 +2402,8 @@ def show_dashboard():
     grid_response = AgGrid(
         display_df,
         gridOptions=grid_options,
-        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        data_return_mode=DataReturnMode.AS_INPUT,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
         allow_unsafe_jscode=True,
         enable_enterprise_modules=False,
         fit_columns_on_grid_load=True,
@@ -2405,19 +2424,18 @@ def show_dashboard():
         _debug_info(f"Raw grid response keys: {list(grid_response.keys())}")
         _debug_info(f"Raw selected_rows type: {type(selected_rows)}")
     
-    # Handle DataFrame format from FILTERED_AND_SORTED mode
-    if isinstance(selected_rows, pd.DataFrame):
+    # Handle both list and DataFrame formats robustly
+    if hasattr(selected_rows, 'empty') and hasattr(selected_rows, 'to_dict'):
+        # It's a DataFrame
         if not selected_rows.empty:
-            # Convert DataFrame to list of dictionaries
             selected_rows = selected_rows.to_dict('records')
             if _is_debug():
                 _debug_info(f"Converted DataFrame to {len(selected_rows)} records")
         else:
             selected_rows = []
-    
-    # Ensure selected_rows is a list
-    if not isinstance(selected_rows, list):
-        selected_rows = []
+    elif not isinstance(selected_rows, list):
+        # Ensure it's a list
+        selected_rows = list(selected_rows) if selected_rows else []
     
     # Ensure selected_rows contains dictionaries, not strings
     valid_selected_rows = []
