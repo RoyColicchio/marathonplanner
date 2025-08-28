@@ -2404,8 +2404,20 @@ def show_dashboard():
     if _is_debug():
         _debug_info(f"Raw grid response keys: {list(grid_response.keys())}")
         _debug_info(f"Raw selected_rows type: {type(selected_rows)}")
-        if selected_rows:
-            _debug_info(f"First selected row type: {type(selected_rows[0])}")
+    
+    # Handle DataFrame format from FILTERED_AND_SORTED mode
+    if isinstance(selected_rows, pd.DataFrame):
+        if not selected_rows.empty:
+            # Convert DataFrame to list of dictionaries
+            selected_rows = selected_rows.to_dict('records')
+            if _is_debug():
+                _debug_info(f"Converted DataFrame to {len(selected_rows)} records")
+        else:
+            selected_rows = []
+    
+    # Ensure selected_rows is a list
+    if not isinstance(selected_rows, list):
+        selected_rows = []
     
     # Ensure selected_rows contains dictionaries, not strings
     valid_selected_rows = []
@@ -2414,7 +2426,8 @@ def show_dashboard():
             valid_selected_rows.append(row)
         elif isinstance(row, str):
             # Skip string entries - they may be from grid state issues
-            _debug_info(f"Skipping string row: {row}")
+            if _is_debug():
+                _debug_info(f"Skipping string row: {row}")
             continue
     selected_rows = valid_selected_rows
     
