@@ -1732,7 +1732,18 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         _debug_info(f"Applying weekly_miles_delta: {weekly_miles_delta}")
     
     # After adjusting miles, update the Activity descriptions to reflect the new mileage
-    if 'Activity_Abbr' in adjusted_df.columns and 'Plan_Miles' in adjusted_df.columns and weekly_miles_delta != 0:
+    # Check if any mileage has changed from the original plan
+    mileage_changed = False
+    if 'Activity_Abbr' in adjusted_df.columns and 'Plan_Miles' in adjusted_df.columns:
+        for idx in adjusted_df.index:
+            if idx in plan_df.index:
+                original_miles = plan_df.loc[idx, 'Plan_Miles'] if pd.notna(plan_df.loc[idx, 'Plan_Miles']) else 0
+                adjusted_miles = adjusted_df.loc[idx, 'Plan_Miles'] if pd.notna(adjusted_df.loc[idx, 'Plan_Miles']) else 0
+                if abs(original_miles - adjusted_miles) > 0.01:  # Allow for small floating point differences
+                    mileage_changed = True
+                    break
+    
+    if mileage_changed:
         if _is_debug():
             _debug_info("Updating activity descriptions with adjusted mileage")
         
@@ -1755,11 +1766,17 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
                     _debug_info(f"Updated '{original_abbr}' -> '{new_abbr}'")
         
         # Regenerate the enhanced activity descriptions based on updated abbreviations
+        if _is_debug():
+            _debug_info("Regenerating activity descriptions...")
         adjusted_df['Activity'] = adjusted_df['Activity_Abbr'].apply(enhance_activity_description)
         
         # Also update tooltips based on new activity descriptions
         adjusted_df['Activity_Tooltip'] = adjusted_df['Activity'].apply(get_activity_tooltip)
         adjusted_df['Activity_Short_Description'] = adjusted_df['Activity'].apply(get_activity_short_description)
+        
+        if _is_debug():
+            changed_count = len([idx for idx in adjusted_df.index if idx in plan_df.index and adjusted_df.loc[idx, 'Activity_Abbr'] != plan_df.loc[idx, 'Activity_Abbr']])
+            _debug_info(f"Updated activity descriptions for {changed_count} rows")
         
         if _is_debug():
             _debug_info("Finished updating activity descriptions")
