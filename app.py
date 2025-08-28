@@ -1429,6 +1429,10 @@ def enhance_activity_description(activity_string, planned_miles=None):
     """Convert raw activity string to enhanced, user-friendly description with tooltips."""
     orig = activity_string.strip()
     
+    # Debug output for activity description generation
+    if _is_debug():
+        _debug_info(f"enhance_activity_description: '{activity_string}' with planned_miles={planned_miles}")
+    
     # Handle rest days
     if orig.lower() in ['rest', 'off']:
         return "Rest Day"
@@ -1515,8 +1519,13 @@ def enhance_activity_description(activity_string, planned_miles=None):
     sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
     for abbr in sorted_keys:
         if re.search(r'\b' + re.escape(abbr) + r'\b', orig):
-            return activity_map[abbr]
+            result = activity_map[abbr]
+            if _is_debug():
+                _debug_info(f"  → Matched '{abbr}', returning: '{result}'")
+            return result
     
+    if _is_debug():
+        _debug_info(f"  → No pattern matched, returning original: '{orig}'")
     return orig
 
 
