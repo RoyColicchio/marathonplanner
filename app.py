@@ -11,7 +11,7 @@ import pandas as pd
 import re
 
 # Build/version identifier to verify deployment
-BUILD_SHA = "f3137ce"
+BUILD_SHA = "7fd38eb"
 
 # Enable debugging if needed - for local development only
 DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
@@ -2660,6 +2660,15 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         
         # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
+        
+        if _is_debug():
+            st.write("Debug: Checking if overrides were saved correctly...")
+            saved_overrides = _get_overrides_for_plan(settings)
+            st.write(f"  Saved overrides count: {len(saved_overrides) if saved_overrides else 0}")
+            if saved_overrides and date_a_str in saved_overrides:
+                st.write(f"  {date_a_str}: {saved_overrides[date_a_str]}")
+            if saved_overrides and date_b_str in saved_overrides:
+                st.write(f"  {date_b_str}: {saved_overrides[date_b_str]}")
         
         # Force refresh of plan to ensure changes are visible
         st.session_state.plan_needs_refresh = True
