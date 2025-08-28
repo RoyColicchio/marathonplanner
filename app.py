@@ -1483,12 +1483,21 @@ def enhance_activity_description(activity_string, planned_miles=None):
         else:
             return f"{miles} Miles Long Run"
     
-    # Use planned miles for basic expansions if no miles found in text
+    # Extract miles from the activity string itself first
+    activity_miles_match = re.search(r'(\d+(?:\.\d+)?)', orig)
+    if activity_miles_match:
+        miles_from_text = activity_miles_match.group(1)
+    else:
+        miles_from_text = None
+    
+    # Use planned miles for basic expansions, prioritizing miles from text if available
     miles_str = ""
-    if planned_miles and planned_miles > 0:
+    if miles_from_text:
+        miles_str = miles_from_text
+    elif planned_miles and planned_miles > 0:
         miles_str = f"{int(round(planned_miles))}" if abs(planned_miles - round(planned_miles)) < 0.05 else f"{planned_miles:.1f}"
     
-    # Fallback: use basic expansion with planned miles
+    # Fallback: use basic expansion with miles
     activity_map = {
         "GA": f"General Aerobic {miles_str}".strip(),
         "Rec": f"Recovery {miles_str}".strip(), 
@@ -1496,6 +1505,8 @@ def enhance_activity_description(activity_string, planned_miles=None):
         "LR": f"Long Run {miles_str}".strip(),
         "SP": "Sprints",
         "V8": "VO₂Max",
+        "V9": "VO₂Max",
+        "V10": "VO₂Max",
         "LT": "Lactate Threshold",
         "HMP": "Half Marathon Pace",
         "MP": "Marathon Pace",
