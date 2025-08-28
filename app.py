@@ -1184,6 +1184,13 @@ def get_activity_short_description(activity_description):
         return f"Recovery {miles_str}run at very easy pace to promote active recovery."
     
     elif 'tempo' in desc_lower or 'lactate threshold' in desc_lower or 'lt' in desc_lower:
+        # Look for "LT X w/ Y @ pace" format first
+        lt_segment_match = re.search(r'lt\s+(\d+(?:\.\d+)?)\s+w/\s*(\d+(?:\.\d+)?)\s*@?\s*(?:15k|hmp|half|marathon|tempo)', desc_lower)
+        if lt_segment_match:
+            total_miles = float(lt_segment_match.group(1))
+            tempo_miles = float(lt_segment_match.group(2))
+            return f"{total_miles}-mile run with {tempo_miles} miles at lactate threshold pace (continuous block)."
+        
         # Look for tempo segments
         tempo_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?tempo', desc_lower)
         if tempo_match:
@@ -1238,6 +1245,13 @@ def get_activity_short_description(activity_description):
         return f"{num_str}hill repeats to build leg strength and power."
     
     elif 'marathon pace' in desc_lower or 'mp' in desc_lower:
+        # Look for "MP/LT X w/ Y @ pace" format first (often includes marathon pace segments)
+        mp_lt_segment_match = re.search(r'(?:mp|lt)\s+(\d+(?:\.\d+)?)\s+w/\s*(\d+(?:\.\d+)?)\s*@?\s*(?:mp|marathon\s*pace|15k\s*to\s*hmp|hmp)', desc_lower)
+        if mp_lt_segment_match:
+            total_miles = float(mp_lt_segment_match.group(1))
+            segment_miles = float(mp_lt_segment_match.group(2))
+            return f"{total_miles}-mile run with {segment_miles} miles at marathon pace (aim for middle of run)."
+        
         # Check for specific segment patterns
         segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
         if segment_match:
@@ -1323,9 +1337,18 @@ def get_activity_tooltip(activity_description):
     elif 'tempo' in desc_lower or 'lactate threshold' in desc_lower or 'lt' in desc_lower:
         base_text = "Lactate Threshold (Tempo): Sustained, challenging pace (15K-half marathon pace) to improve your body's ability to clear lactic acid."
         
-        # Look for tempo segment patterns like "8 miles with 5 miles tempo" or "20 minute tempo"
+        # Look for "LT X w/ Y @ pace" format or "with Y miles tempo" format
+        lt_segment_match = re.search(r'lt\s+(\d+(?:\.\d+)?)\s+w/\s*(\d+(?:\.\d+)?)\s*@?\s*(?:15k|hmp|half|marathon|tempo)', desc_lower)
         tempo_miles_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?tempo', desc_lower)
-        if tempo_miles_match:
+        
+        if lt_segment_match:
+            total_miles = float(lt_segment_match.group(1))
+            tempo_miles = float(lt_segment_match.group(2))
+            if tempo_miles >= 4:
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {tempo_miles} miles at lactate threshold pace. Run the first {total_miles - tempo_miles} miles at easy pace, then execute all {tempo_miles} miles at sustained tempo effort (15K-half marathon pace) as one continuous block, followed by easy running to finish."
+            else:
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {tempo_miles} miles at lactate threshold pace. After warming up, run the {tempo_miles}-mile tempo segment continuously at sustained effort, then finish with easy running."
+        elif tempo_miles_match:
             tempo_miles = float(tempo_miles_match.group(1))
             if tempo_miles >= 5:
                 return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace as one continuous block. Start with 2-3 miles easy warm-up, then sustain tempo effort for all {tempo_miles} miles, followed by 1-2 miles easy cool-down. Focus on controlled breathing and steady rhythm."
@@ -1418,9 +1441,22 @@ def get_activity_tooltip(activity_description):
         # Check for specific marathon pace segments and provide execution guidance
         base_text = "Marathon Pace: Training at your goal marathon race pace to develop race rhythm and metabolic efficiency."
         
+        # Look for "MP X w/ Y @ MP" or "LT X w/ Y @ 15K to HMP" patterns (which are often marathon pace segments)
+        mp_lt_segment_match = re.search(r'(?:mp|lt)\s+(\d+(?:\.\d+)?)\s+w/\s*(\d+(?:\.\d+)?)\s*@?\s*(?:mp|marathon\s*pace|15k\s*to\s*hmp|hmp)', desc_lower)
+        
         # Look for segment patterns like "with X miles at Marathon Pace"
         segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
-        if segment_match:
+        
+        if mp_lt_segment_match:
+            total_miles = float(mp_lt_segment_match.group(1))
+            segment_miles = float(mp_lt_segment_match.group(2))
+            if segment_miles >= 6:
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {segment_miles} miles at marathon pace. Run the first {total_miles - segment_miles} miles at easy pace, then execute all {segment_miles} miles at goal marathon pace as one continuous block, followed by easy cool-down miles."
+            elif segment_miles >= 3:
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {segment_miles} miles at marathon pace. After warming up, run the {segment_miles}-mile marathon pace segment continuously, or split into two segments with 1 mile of general aerobic pace between them if needed."
+            else:
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {segment_miles} miles at marathon pace. Run this segment continuously in the middle of your run after a proper warm-up."
+        elif segment_match:
             segment_miles = float(segment_match.group(1))
             if segment_miles >= 6:
                 return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles as one continuous block in the middle of your run. Start with 2-3 miles of easy warm-up, then execute all {segment_miles} miles at goal pace, followed by easy cool-down miles."
