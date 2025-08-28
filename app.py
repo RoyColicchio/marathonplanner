@@ -1472,8 +1472,38 @@ def enhance_activity_description(activity_string):
                 return f"Long Run with {mp_miles} miles at Marathon Pace"
             else:
                 return f"Run with {mp_miles} miles at Marathon Pace"
+        
+        # Look for multiple segment patterns like "3x2mi @ MP" or "2x3 @ MP"
+        segment_match = re.search(r'(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(?:mi|miles?)?\s*@?\s*(?:mp|marathon\s*pace)', orig.lower())
+        if segment_match:
+            reps = segment_match.group(1)
+            distance = segment_match.group(2)
+            if 'mlr' in orig.lower() or 'medium' in orig.lower():
+                return f"Medium-Long Run with {reps} × {distance} mile Marathon Pace segments"
+            elif 'lr' in orig.lower() or 'long' in orig.lower():
+                return f"Long Run with {reps} × {distance} mile Marathon Pace segments"
+            else:
+                return f"Run with {reps} × {distance} mile Marathon Pace segments"
+        
+        # Look for time-based segments like "20 min @ MP" or "2x20min @ MP"
+        time_segment_match = re.search(r'(?:(\d+)\s*x\s*)?(\d+)\s*min(?:utes?)?\s*@?\s*(?:mp|marathon\s*pace)', orig.lower())
+        if time_segment_match:
+            reps = time_segment_match.group(1)
+            minutes = time_segment_match.group(2)
+            if reps:
+                segment_desc = f"{reps} × {minutes}-minute Marathon Pace segments"
+            else:
+                segment_desc = f"{minutes} minutes at Marathon Pace"
+                
+            if 'mlr' in orig.lower() or 'medium' in orig.lower():
+                return f"Medium-Long Run with {segment_desc}"
+            elif 'lr' in orig.lower() or 'long' in orig.lower():
+                return f"Long Run with {segment_desc}"
+            else:
+                return f"Run with {segment_desc}"
+        
+        # Generic fallback - try to be more specific based on distance
         else:
-            # For generic MP workouts without specific segments, assume it's a marathon pace workout
             primary_miles = extract_primary_miles(orig)
             if primary_miles and primary_miles >= 8:
                 return f"Long Run with Marathon Pace segments"
@@ -1482,7 +1512,8 @@ def enhance_activity_description(activity_string):
             elif 'lr' in orig.lower():
                 return f"Long Run with Marathon Pace segments"
             else:
-                return f"Run with Marathon Pace segments"
+                # Last resort - show the original text for context
+                return f"Marathon Pace workout: {orig}"
     
     if 'half marathon' in orig.lower():
         return "Half Marathon Race"
@@ -1522,9 +1553,59 @@ def enhance_activity_description(activity_string):
             return "Recovery Run"  # Always easy, regardless of distance
         
         elif abbr == "MLR":
+            # Check for marathon pace segments in MLR with specific details
+            if 'mp' in original_text.lower() or '@' in original_text.lower():
+                # Look for segment patterns like "3x2mi @ MP" or "2x3 @ MP"
+                segment_match = re.search(r'(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(?:mi|miles?)?\s*@?\s*mp', original_text.lower())
+                if segment_match:
+                    reps = segment_match.group(1)
+                    distance = segment_match.group(2)
+                    return f"Medium-Long Run with {reps} × {distance} mile Marathon Pace segments"
+                
+                # Look for simple patterns like "w/ 4 @ MP"
+                mp_match = re.search(r'(?:w/|with)?\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*@?\s*mp', original_text.lower())
+                if mp_match:
+                    return f"Medium-Long Run with {mp_match.group(1)} miles at Marathon Pace"
+                
+                # Look for time-based segments
+                time_match = re.search(r'(?:(\d+)\s*x\s*)?(\d+)\s*min(?:utes?)?\s*@?\s*mp', original_text.lower())
+                if time_match:
+                    reps = time_match.group(1)
+                    minutes = time_match.group(2)
+                    if reps:
+                        return f"Medium-Long Run with {reps} × {minutes}-minute Marathon Pace segments"
+                    else:
+                        return f"Medium-Long Run with {minutes} minutes at Marathon Pace"
+                
+                return "Medium-Long Run with Marathon Pace segments"
             return "Medium-Long Run"  # ~2 hours, push pace slightly
         
         elif abbr == "LR":
+            # Check for marathon pace segments in LR with specific details
+            if 'mp' in original_text.lower() or '@' in original_text.lower():
+                # Look for segment patterns like "3x2mi @ MP" or "2x3 @ MP"
+                segment_match = re.search(r'(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(?:mi|miles?)?\s*@?\s*mp', original_text.lower())
+                if segment_match:
+                    reps = segment_match.group(1)
+                    distance = segment_match.group(2)
+                    return f"Long Run with {reps} × {distance} mile Marathon Pace segments"
+                
+                # Look for simple patterns like "w/ 8 @ MP"
+                mp_match = re.search(r'(?:w/|with)?\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*@?\s*mp', original_text.lower())
+                if mp_match:
+                    return f"Long Run with {mp_match.group(1)} miles at Marathon Pace"
+                
+                # Look for time-based segments
+                time_match = re.search(r'(?:(\d+)\s*x\s*)?(\d+)\s*min(?:utes?)?\s*@?\s*mp', original_text.lower())
+                if time_match:
+                    reps = time_match.group(1)
+                    minutes = time_match.group(2)
+                    if reps:
+                        return f"Long Run with {reps} × {minutes}-minute Marathon Pace segments"
+                    else:
+                        return f"Long Run with {minutes} minutes at Marathon Pace"
+                
+                return "Long Run with Marathon Pace segments"
             return "Long Run"  # 2+ hours, push pace slightly
         
         elif abbr == "SP":
@@ -1548,7 +1629,41 @@ def enhance_activity_description(activity_string):
                 return "Half Marathon Pace Run"
         
         elif abbr == "MP":
-            # Marathon Pace - should specify it's segments, not the whole run
+            # Marathon Pace - extract specific segment details
+            # Look for segment patterns like "3x2mi @ MP" or "2x3 @ MP"
+            segment_match = re.search(r'(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(?:mi|miles?)?\s*@?\s*mp', original_text.lower())
+            if segment_match:
+                reps = segment_match.group(1)
+                distance = segment_match.group(2)
+                if primary_miles and primary_miles >= 8:
+                    return f"Long Run with {reps} × {distance} mile Marathon Pace segments"
+                else:
+                    return f"Run with {reps} × {distance} mile Marathon Pace segments"
+            
+            # Look for simple patterns like "w/ 4 @ MP"
+            mp_match = re.search(r'(?:w/|with)?\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*@?\s*mp', original_text.lower())
+            if mp_match:
+                if primary_miles and primary_miles >= 8:
+                    return f"Long Run with {mp_match.group(1)} miles at Marathon Pace"
+                else:
+                    return f"Run with {mp_match.group(1)} miles at Marathon Pace"
+            
+            # Look for time-based segments
+            time_match = re.search(r'(?:(\d+)\s*x\s*)?(\d+)\s*min(?:utes?)?\s*@?\s*mp', original_text.lower())
+            if time_match:
+                reps = time_match.group(1)
+                minutes = time_match.group(2)
+                if reps:
+                    segment_desc = f"{reps} × {minutes}-minute Marathon Pace segments"
+                else:
+                    segment_desc = f"{minutes} minutes at Marathon Pace"
+                    
+                if primary_miles and primary_miles >= 8:
+                    return f"Long Run with {segment_desc}"
+                else:
+                    return f"Run with {segment_desc}"
+            
+            # Generic marathon pace - should specify it's segments, not the whole run
             if primary_miles and primary_miles >= 8:
                 return "Long Run with Marathon Pace segments"
             else:
