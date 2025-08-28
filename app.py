@@ -2606,17 +2606,21 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         # Only swap workout fields, not date/day
         workout_fields = ["Activity_Abbr", "Activity", "Plan_Miles"]
         
-        # Extract the workout details from each row
-        pa = {k: row_a.iloc[0][k] for k in workout_fields if k in row_a.columns}
-        pb = {k: row_b.iloc[0][k] for k in workout_fields if k in row_b.columns}
+        # Extract the workout details from each row and swap them
+        # pa will be stored as the override for date A, so it should contain row_b's data
+        # pb will be stored as the override for date B, so it should contain row_a's data  
+        pa = {k: row_b.iloc[0][k] for k in workout_fields if k in row_b.columns}
+        pb = {k: row_a.iloc[0][k] for k in workout_fields if k in row_a.columns}
         
         # Generate fresh tooltips for the swapped activities
-        if "Activity" in pb:
-            pa["Activity_Tooltip"] = get_activity_tooltip(pb["Activity"])
-            pa["Activity_Short_Description"] = get_activity_short_description(pb["Activity"])
+        # pa contains row_b's activity, so generate tooltip for that activity  
         if "Activity" in pa:
-            pb["Activity_Tooltip"] = get_activity_tooltip(pa["Activity"])
-            pb["Activity_Short_Description"] = get_activity_short_description(pa["Activity"])
+            pa["Activity_Tooltip"] = get_activity_tooltip(pa["Activity"])
+            pa["Activity_Short_Description"] = get_activity_short_description(pa["Activity"])
+        # pb contains row_a's activity, so generate tooltip for that activity
+        if "Activity" in pb:
+            pb["Activity_Tooltip"] = get_activity_tooltip(pb["Activity"])
+            pb["Activity_Short_Description"] = get_activity_short_description(pb["Activity"])
         
         # Get existing overrides 
         overrides = _get_overrides_for_plan(settings)
