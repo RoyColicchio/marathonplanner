@@ -1425,7 +1425,7 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         return "See plan"
 
 
-def enhance_activity_description(activity_string):
+def enhance_activity_description(activity_string, planned_miles=None):
     """Convert raw activity string to enhanced, user-friendly description with tooltips."""
     orig = activity_string.strip()
     
@@ -1461,6 +1461,9 @@ def enhance_activity_description(activity_string):
         if miles_match:
             miles = miles_match.group(1)
             return f"{miles} Miles at Marathon Pace"
+        elif planned_miles and planned_miles > 0:
+            miles_str = f"{int(round(planned_miles))}" if abs(planned_miles - round(planned_miles)) < 0.05 else f"{planned_miles:.1f}"
+            return f"{miles_str} Miles at Marathon Pace"
         return "Marathon Pace Run"
     
     if 'half marathon' in orig.lower():
@@ -1480,12 +1483,17 @@ def enhance_activity_description(activity_string):
         else:
             return f"{miles} Miles Long Run"
     
-    # Fallback: use basic expansion
+    # Use planned miles for basic expansions if no miles found in text
+    miles_str = ""
+    if planned_miles and planned_miles > 0:
+        miles_str = f"{int(round(planned_miles))}" if abs(planned_miles - round(planned_miles)) < 0.05 else f"{planned_miles:.1f}"
+    
+    # Fallback: use basic expansion with planned miles
     activity_map = {
-        "GA": "General Aerobic",
-        "Rec": "Recovery", 
-        "MLR": "Medium-Long Run",
-        "LR": "Long Run",
+        "GA": f"General Aerobic {miles_str}".strip(),
+        "Rec": f"Recovery {miles_str}".strip(), 
+        "MLR": f"Medium-Long Run {miles_str}".strip(),
+        "LR": f"Long Run {miles_str}".strip(),
         "SP": "Sprints",
         "V8": "VO₂Max",
         "LT": "Lactate Threshold",
@@ -1495,7 +1503,8 @@ def enhance_activity_description(activity_string):
     
     sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
     for abbr in sorted_keys:
-        orig = re.sub(r'\b' + re.escape(abbr) + r'\b', activity_map[abbr], orig)
+        if re.search(r'\b' + re.escape(abbr) + r'\b', orig):
+            return activity_map[abbr]
     
     return orig
 
@@ -1546,7 +1555,7 @@ def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00
         if len(activities):
             activities = activities[~activities.apply(is_weekly_summary)].reset_index(drop=True)
 
-        enhanced_activities = activities.apply(enhance_activity_description)
+        enhanced_activities = activities.apply(lambda x: enhance_activity_description(x))
         planned_miles = activities.apply(extract_primary_miles)
 
         num_days = len(activities)
@@ -1560,6 +1569,9 @@ def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00
             'Activity': enhanced_activities,
             'Plan_Miles': planned_miles,
         })
+        
+        # Re-enhance activities with planned miles for more accurate descriptions
+        new_plan_df['Activity'] = new_plan_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr'], row['Plan_Miles']), axis=1)
         
         # Add activity tooltips
         new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
@@ -1735,13 +1747,20 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
     # Check if any mileage has changed from the original plan
     mileage_changed = False
     if 'Activity_Abbr' in adjusted_df.columns and 'Plan_Miles' in adjusted_df.columns:
+        if _is_debug():
+            _debug_info("Checking for mileage changes...")
         for idx in adjusted_df.index:
             if idx in plan_df.index:
                 original_miles = plan_df.loc[idx, 'Plan_Miles'] if pd.notna(plan_df.loc[idx, 'Plan_Miles']) else 0
                 adjusted_miles = adjusted_df.loc[idx, 'Plan_Miles'] if pd.notna(adjusted_df.loc[idx, 'Plan_Miles']) else 0
                 if abs(original_miles - adjusted_miles) > 0.01:  # Allow for small floating point differences
+                    if _is_debug():
+                        _debug_info(f"Mileage change detected at row {idx}: {original_miles} -> {adjusted_miles}")
                     mileage_changed = True
                     break
+    
+    if _is_debug():
+        _debug_info(f"Mileage changed: {mileage_changed}")
     
     if mileage_changed:
         if _is_debug():
@@ -1768,11 +1787,11 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         # Regenerate the enhanced activity descriptions based on updated abbreviations
         if _is_debug():
             _debug_info("Regenerating activity descriptions...")
-        adjusted_df['Activity'] = adjusted_df['Activity_Abbr'].apply(enhance_activity_description)
+        adjusted_df['Activity'] = adjusted_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr'], row['Plan_Miles']), axis=1)
         
         # Also update tooltips based on new activity descriptions
-        adjusted_df['Activity_Tooltip'] = adjusted_df['Activity'].apply(get_activity_tooltip)
-        adjusted_df['Activity_Short_Description'] = adjusted_df['Activity'].apply(get_activity_short_description)
+        adjusted_df['Activity_Tooltip'] = adjusted_df.apply(lambda row: get_activity_tooltip(row['Activity']), axis=1)
+        adjusted_df['Activity_Short_Description'] = adjusted_df.apply(lambda row: get_activity_short_description(row['Activity']), axis=1)
         
         if _is_debug():
             changed_count = len([idx for idx in adjusted_df.index if idx in plan_df.index and adjusted_df.loc[idx, 'Activity_Abbr'] != plan_df.loc[idx, 'Activity_Abbr']])
