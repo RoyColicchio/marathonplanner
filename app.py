@@ -1182,6 +1182,45 @@ def get_activity_tooltip(activity_description):
         return f"Planned workout: {activity_description}. Follow your training plan and listen to your body."
 
 
+def pace_to_seconds(pace_str):
+    """Convert pace string (MM:SS) to seconds per mile."""
+    if not isinstance(pace_str, str) or pace_str in ["—", "", "Hard uphill effort", "Yasso 800s pace", "Mile pace or faster", "See plan"]:
+        return None
+    try:
+        if ":" in pace_str:
+            parts = pace_str.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+        return None
+    except:
+        return None
+
+
+def is_pace_in_range(actual_pace, suggested_pace):
+    """Check if actual pace is within reasonable range of suggested pace."""
+    actual_seconds = pace_to_seconds(actual_pace)
+    suggested_seconds = pace_to_seconds(suggested_pace)
+    
+    if actual_seconds is None or suggested_seconds is None:
+        return False
+    
+    # Allow for ±30 seconds range around suggested pace
+    return abs(actual_seconds - suggested_seconds) <= 30
+
+
+def is_miles_in_range(actual_miles, suggested_miles):
+    """Check if actual miles is within 10% of suggested miles."""
+    if actual_miles is None or suggested_miles is None:
+        return False
+    try:
+        actual = float(actual_miles)
+        suggested = float(suggested_miles)
+        if suggested == 0:
+            return actual == 0
+        return abs(actual - suggested) / suggested <= 0.10
+    except:
+        return False
+
+
 def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
     """Calculate suggested pace based on activity type and goal marathon time."""
     try:
@@ -1189,6 +1228,9 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         time_parts = goal_marathon_time_str.split(":")
         goal_seconds = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
         marathon_pace_seconds = goal_seconds / 26.2  # seconds per mile
+        
+        # Apply 5% slower adjustment to all paces
+        marathon_pace_seconds *= 1.05
         
         desc_lower = activity_description.lower()
         
@@ -2067,11 +2109,66 @@ def show_dashboard():
                     'border-top': '1px solid var(--border)'
                 };
             }
+            
+            // Highlight current day
             if (params.data.DateISO === new Date().toISOString().slice(0, 10)) {
                 return {
                     'background-color': 'rgba(34, 197, 94, 0.2)',
                     'border-left': '3px solid var(--accent)'
                 };
+            }
+            
+            // Check if pace and/or miles are in range
+            const actualPace = params.data['Actual Pace'];
+            const suggestedPace = params.data['Suggested Pace'];
+            const actualMiles = params.data['Actual (mi)'];
+            const plannedMiles = params.data['Plan (mi)'];
+            
+            let paceInRange = false;
+            let milesInRange = false;
+            
+            // Check pace range (±30 seconds)
+            if (actualPace && suggestedPace && suggestedPace !== '—' && 
+                !suggestedPace.includes('uphill') && !suggestedPace.includes('800s') && 
+                !suggestedPace.includes('Mile pace') && !suggestedPace.includes('See plan')) {
+                
+                const actualSeconds = parsePaceToSeconds(actualPace);
+                const suggestedSeconds = parsePaceToSeconds(suggestedPace);
+                
+                if (actualSeconds && suggestedSeconds) {
+                    paceInRange = Math.abs(actualSeconds - suggestedSeconds) <= 30;
+                }
+            }
+            
+            // Check miles range (within 10%)
+            if (actualMiles && plannedMiles) {
+                const actual = parseFloat(actualMiles);
+                const planned = parseFloat(plannedMiles);
+                if (!isNaN(actual) && !isNaN(planned) && planned > 0) {
+                    milesInRange = Math.abs(actual - planned) / planned <= 0.10;
+                }
+            }
+            
+            // Highlight if either pace or miles is in range
+            if (paceInRange || milesInRange) {
+                return {
+                    'background-color': 'rgba(34, 197, 94, 0.1)',
+                    'border-left': '2px solid rgba(34, 197, 94, 0.5)'
+                };
+            }
+            
+            return null;
+        }
+        
+        function parsePaceToSeconds(paceStr) {
+            if (!paceStr || typeof paceStr !== 'string') return null;
+            const parts = paceStr.split(':');
+            if (parts.length === 2) {
+                const minutes = parseInt(parts[0]);
+                const seconds = parseInt(parts[1]);
+                if (!isNaN(minutes) && !isNaN(seconds)) {
+                    return minutes * 60 + seconds;
+                }
             }
             return null;
         }
@@ -2102,39 +2199,69 @@ def show_dashboard():
     if selected_rows is None:
         selected_rows = []
     
-    # --- Swap UI ---
+    # Debug: Show what's selected if debug mode is on
+    _debug_info(f"Selected {len(selected_rows)} rows", [row.get('Date', 'Unknown') for row in selected_rows])
+    
+    # --- Swap Days Button ---
+    today = datetime.now().date()
+    can_swap = False
+    future_selected_count = 0
+    
     if selected_rows and len(selected_rows) == 2:
-        st.subheader("Swap Selected Days")
+        # Check if both selected days are current or future
+        for row in selected_rows:
+            date_str = row.get('DateISO', row.get('Date'))
+            if date_str:
+                try:
+                    row_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    if row_date >= today:
+                        future_selected_count += 1
+                except:
+                    pass
+        
+        can_swap = future_selected_count == 2
+    
+    # Always show the button, but disable it when conditions aren't met
+    button_disabled = not can_swap
+    button_text = "Swap Days"
+    if len(selected_rows) == 0:
+        button_text = "Swap Days (select 2 rows)"
+    elif len(selected_rows) == 1:
+        button_text = "Swap Days (select 1 more row)"
+    elif len(selected_rows) > 2:
+        button_text = "Swap Days (select only 2 rows)"
+    elif not can_swap:
+        button_text = "Swap Days (past dates cannot be swapped)"
+    
+    swap_clicked = st.button(button_text, disabled=button_disabled, use_container_width=True)
+    
+    # --- Handle Swap Logic ---
+    if swap_clicked and can_swap:
         row_a = selected_rows[0]
         row_b = selected_rows[1]
         
         date_a_str = row_a.get('DateISO', row_a.get('Date'))
         date_b_str = row_b.get('DateISO', row_b.get('Date'))
 
-        if not date_a_str or not date_b_str:
-            st.warning("Could not identify dates to swap.")
-            return
-
-        date_a = datetime.strptime(date_a_str, '%Y-%m-%d').date()
-        date_b = datetime.strptime(date_b_str, '%Y-%m-%d').date()
-
-        today = datetime.now().date()
-        if date_a < today or date_b < today:
-            st.warning("Cannot swap past dates.")
-        elif date_a.isocalendar()[1] != date_b.isocalendar()[1]:
-            st.warning("Can only swap days within the same week.")
-        else:
-            st.write(f"Swap **{row_a['Workout']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Workout']}** on {date_b.strftime('%a, %b %d')}?")
-            if st.button("Confirm Swap"):
+        if date_a_str and date_b_str:
+            try:
+                date_a = datetime.strptime(date_a_str, '%Y-%m-%d').date()
+                date_b = datetime.strptime(date_b_str, '%Y-%m-%d').date()
+                
                 success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
                 if success:
-                    st.success("Swap saved! The plan has been updated.")
+                    st.success(f"Swapped **{row_a['Workout']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Workout']}** on {date_b.strftime('%a, %b %d')}!")
                     st.session_state.plan_needs_refresh = True
                     st.rerun()
                 else:
                     st.error("Could not perform swap.")
-
-    elif selected_rows and len(selected_rows) == 1:
+            except Exception as e:
+                st.error(f"Error performing swap: {e}")
+        else:
+            st.error("Could not identify dates to swap.")
+    
+    # --- Single row selected - Clear Override Option ---
+    if selected_rows and len(selected_rows) == 1:
         st.subheader("Clear Override")
         row_x = selected_rows[0]
         date_x_str = row_x.get('DateISO', row_x.get('Date'))
