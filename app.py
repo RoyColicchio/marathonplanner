@@ -425,7 +425,7 @@ if "plan_grid_sel" not in st.session_state:
 if "plan_needs_refresh" not in st.session_state:
     st.session_state.plan_needs_refresh = False
 if "plan_setup_visible" not in st.session_state:
-    st.session_state.plan_setup_visible = True
+    st.session_state.plan_setup_visible = False  # Collapsed by default
 if "current_week" not in st.session_state:
     st.session_state.current_week = 1
 if "last_plan_sig" not in st.session_state:
@@ -597,7 +597,7 @@ def _gc_handle(user_msg: str):
         return
 
 if "plan_setup_visible" not in st.session_state:
-    st.session_state.plan_setup_visible = True
+    st.session_state.plan_setup_visible = False  # Collapsed by default
 
 def training_plan_setup():
     """Handle training plan configuration."""
@@ -1509,8 +1509,13 @@ def enhance_activity_description(activity_string, planned_miles=None):
             return result
     
     if _is_debug():
-        _debug_info(f"  → No pattern matched, returning original: '{orig}'")
-    return orig
+        _debug_info(f"  → No pattern matched, cleaning original: '{orig}'")
+    
+    # Final cleanup: remove mileage numbers from any remaining activity strings
+    # This catches cases like "MLR 12", "Recovery 5", etc. that don't match patterns above
+    cleaned = re.sub(r'\b\d+(?:\.\d+)?\b', '', orig).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()  # Clean up extra spaces
+    return cleaned if cleaned else orig
 
 
 def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00"):
