@@ -439,8 +439,6 @@ if "current_week" not in st.session_state:
     st.session_state.current_week = 1
 if "last_plan_sig" not in st.session_state:
     st.session_state.last_plan_sig = None
-if "dismiss_strava_banner" not in st.session_state:
-    st.session_state.dismiss_strava_banner = False
 
 # --- Goal Time Coach helpers ---
 import re as _re_gc
@@ -2698,8 +2696,6 @@ def clear_all_overrides(user_hash: str, settings: dict):
     except Exception as e:
                st.error(f"Reset failed: {e}")
 
-st.markdown("<div style='opacity:0.6;font-size:0.9rem'>Initializing app…</div>", unsafe_allow_html=True)
-
 def main():
     """Main application logic."""
     # Check for persistent login data first
@@ -2831,15 +2827,6 @@ def show_dashboard():
                 
                 Try adjusting your plan start date or check if your activities are within the plan period.
                 """)
-            elif actual_activities_count > 0:
-                if not st.session_state.get("dismiss_strava_banner", False):
-                    col1, col2 = st.columns([10, 1])
-                    with col1:
-                        st.success(f"✅ Successfully loaded {actual_activities_count} days of Strava data!")
-                    with col2:
-                        if st.button("✕", key="dismiss_strava_success"):
-                            st.session_state.dismiss_strava_banner = True
-                            st.rerun()
             
             merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0.0)
             merged_df['Actual_Pace'] = merged_df['Actual_Pace'].fillna("—")
