@@ -1143,6 +1143,76 @@ def replace_primary_miles(text: str, new_miles: float) -> str:
     return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
 
 
+def get_activity_short_description(activity_description):
+    """Generate short, one-sentence descriptions for activity hover tooltips."""
+    desc_lower = activity_description.lower()
+    orig = activity_description.strip()
+    
+    if 'rest' in desc_lower:
+        return "Complete rest day for recovery and injury prevention."
+    
+    elif 'easy' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        return f"Easy {miles_str}run at conversational pace, 60-90 seconds slower than marathon pace."
+    
+    elif 'general aerobic' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        strides_match = re.search(r'(\d+)\s*x\s*(\d+)m?\s*strides?', orig.lower())
+        strides_str = f" with {strides_match.group(1)} hard, fast strides mixed in" if strides_match else ""
+        return f"General aerobic {miles_str}run at comfortable effort{strides_str}."
+    
+    elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
+        num_match = re.search(r'(\d+)', orig)
+        num_str = f"{num_match.group(1)} " if num_match else ""
+        return f"{num_str}hill repeats running hard uphill, easy recovery down."
+    
+    elif 'tempo' in desc_lower:
+        time_match = re.search(r'(\d+)', orig)
+        time_str = f"{time_match.group(1)}-minute " if time_match else ""
+        return f"{time_str}tempo run building to comfortably hard 10K race pace."
+    
+    elif '800m interval' in desc_lower or '800' in desc_lower:
+        num_match = re.search(r'(\d+)', orig)
+        num_str = f"{num_match.group(1)} " if num_match else ""
+        return f"{num_str}× 800m intervals at Yasso 800s pace with recovery jogs."
+    
+    elif '400m interval' in desc_lower or '400' in desc_lower:
+        num_match = re.search(r'(\d+)', orig)
+        num_str = f"{num_match.group(1)} " if num_match else ""
+        return f"{num_str}× 400m intervals at mile pace with full recovery."
+    
+    elif 'marathon pace' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        return f"{miles_str}at your goal marathon race pace to practice race rhythm."
+    
+    elif 'long run' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        return f"Long {miles_str}run focusing on time on feet, not speed."
+    
+    elif 'half marathon' in desc_lower:
+        return "Half marathon race to assess fitness and practice race strategies."
+    
+    elif 'marathon' in desc_lower and 'pace' not in desc_lower:
+        return "Marathon race day - trust your training and execute your race plan!"
+    
+    else:
+        # Try to extract basic info for generic activities
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        if miles:
+            miles_val = float(miles.group(1))
+            if miles_val <= 4:
+                return f"{miles.group(1)} miles at easy, conversational pace."
+            elif miles_val <= 8:
+                return f"{miles.group(1)} miles at comfortable aerobic effort."
+            else:
+                return f"{miles.group(1)} miles focusing on endurance and time on feet."
+        return f"Training run as prescribed in your plan."
+
+
 def get_activity_tooltip(activity_description):
     """Generate detailed tooltip explanations based on Hal Higdon guidelines."""
     desc_lower = activity_description.lower()
@@ -1454,6 +1524,7 @@ def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00
         
         # Add activity tooltips
         new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
+        new_plan_df['Activity_Short_Description'] = new_plan_df['Activity'].apply(get_activity_short_description)
         # Do not add single-value pace here; we'll compute ranges later using get_pace_range
         
         return new_plan_df
@@ -1952,7 +2023,8 @@ def show_dashboard():
             daily_strava = strava_df.groupby('Date').agg(
                 Actual_Miles=('Actual_Miles', 'sum'),
                 Moving_Time_Sec=('moving_time', 'sum'),
-                Activity_Count=('id', 'count')
+                Activity_Count=('id', 'count'),
+                Strava_URL=('id', lambda x: f"https://www.strava.com/activities/{x.iloc[0]}" if len(x) == 1 else None)
             ).reset_index()
             
             # Round aggregated actual miles to 2 decimal places
@@ -1964,7 +2036,7 @@ def show_dashboard():
                 axis=1
             )
             
-            merged_df = pd.merge(final_plan_df, daily_strava[['Date', 'Actual_Miles', 'Actual_Pace']], on='Date', how='left')
+            merged_df = pd.merge(final_plan_df, daily_strava[['Date', 'Actual_Miles', 'Actual_Pace', 'Strava_URL']], on='Date', how='left')
             actual_activities_count = len(merged_df[merged_df['Actual_Miles'] > 0])
             _debug_info(f"Merged data shows {actual_activities_count} days with actual miles > 0")
             
@@ -1991,6 +2063,7 @@ def show_dashboard():
             
             merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0)
             merged_df['Actual_Pace'] = merged_df['Actual_Pace'].fillna("—")
+            merged_df['Strava_URL'] = merged_df['Strava_URL'].fillna(None)
         else:
             # No activities found - provide diagnostic info
             st.info("ℹ️ Strava connected but no activities found. This could be because:")
@@ -2001,9 +2074,11 @@ def show_dashboard():
             """)
             merged_df['Actual_Miles'] = 0
             merged_df['Actual_Pace'] = "—"
+            merged_df['Strava_URL'] = None
     else:
         merged_df['Actual_Miles'] = 0
         merged_df['Actual_Pace'] = "—"
+        merged_df['Strava_URL'] = None
 
     # Add pace ranges using our custom pace calculation
     merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
@@ -2054,7 +2129,9 @@ def show_dashboard():
                 'Actual_Pace': '',
                 'Week': week_num,
                 'DateISO': last_date_of_week.strftime('%Y-%m-%d'),
-                'Activity_Tooltip': 'Weekly totals for planned and actual miles.'
+                'Activity_Tooltip': 'Weekly totals for planned and actual miles.',
+                'Activity_Short_Description': 'Weekly mileage summary.',
+                'Strava_URL': None
             }])
             summary_rows.append(summary_row)
 
@@ -2110,10 +2187,31 @@ def show_dashboard():
         class WorkoutRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
+                this.eGui.style.cursor = 'default';
+                
                 if (params.value && params.value.includes('Summary')) {
                     this.eGui.innerHTML = params.value;
+                    this.eGui.title = params.data.Activity_Short_Description || '';
                 } else {
-                    this.eGui.innerHTML = params.value;
+                    // Check if this activity has a Strava URL (completed activity)
+                    const stravaUrl = params.data.Strava_URL;
+                    
+                    if (stravaUrl) {
+                        // Make it clickable for completed activities
+                        this.eGui.innerHTML = params.value;
+                        this.eGui.style.cursor = 'pointer';
+                        this.eGui.style.color = '#22c55e';
+                        this.eGui.style.textDecoration = 'underline';
+                        this.eGui.title = (params.data.Activity_Short_Description || '') + ' (Click to view on Strava)';
+                        
+                        this.eGui.onclick = () => {
+                            window.open(stravaUrl, '_blank');
+                        };
+                    } else {
+                        // Regular activity, just show tooltip
+                        this.eGui.innerHTML = params.value;
+                        this.eGui.title = params.data.Activity_Short_Description || '';
+                    }
                 }
             }
             getGui() { return this.eGui; }
@@ -2142,10 +2240,8 @@ def show_dashboard():
     gb.configure_column("Suggested Pace", cellRenderer=pace_range_renderer)
     gb.configure_column("Actual Pace", cellRenderer=pace_range_renderer)
 
-    gb.configure_column("Workout", tooltipField="Activity_Tooltip", tooltipShowDelay=200)
-
     # Hide helper columns
-    for col in ["Activity_Abbr", "Activity_Tooltip", "DateISO", "Week", "Date_sort"]:
+    for col in ["Activity_Abbr", "Activity_Tooltip", "Activity_Short_Description", "DateISO", "Week", "Date_sort", "Strava_URL"]:
         if col in display_df.columns:
             gb.configure_column(col, hide=True)
 
