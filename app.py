@@ -2522,13 +2522,48 @@ def show_dashboard():
                 if (params.value) {
                     const parts = params.value.split('-');
                     this.eGui.innerHTML = parseInt(parts[1], 10) + '/' + parseInt(parts[2], 10);
+                    
+                    // Add helpful date tooltip
+                    const date = new Date(params.value);
+                    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                    this.eGui.title = date.toLocaleDateString('en-US', options);
                 }
             }
             getGui() { return this.eGui; }
         }
     """)
     gb.configure_column("Date", cellRenderer=date_renderer, width=80, pinned='left')
-    gb.configure_column("Day", width=100, pinned='left')
+    
+    day_renderer = JsCode("""
+        class DayRenderer {
+            init(params) {
+                this.eGui = document.createElement('span');
+                this.eGui.innerHTML = params.value;
+                
+                // Add contextual day tooltips
+                const day = params.value ? params.value.toLowerCase() : '';
+                if (day.includes('mon')) {
+                    this.eGui.title = 'Monday - Start the week strong!';
+                } else if (day.includes('tue')) {
+                    this.eGui.title = 'Tuesday - Quality workout day';
+                } else if (day.includes('wed')) {
+                    this.eGui.title = 'Wednesday - Mid-week training';
+                } else if (day.includes('thu')) {
+                    this.eGui.title = 'Thursday - Another key workout day';
+                } else if (day.includes('fri')) {
+                    this.eGui.title = 'Friday - Prepare for the weekend';
+                } else if (day.includes('sat')) {
+                    this.eGui.title = 'Saturday - Long run day';
+                } else if (day.includes('sun')) {
+                    this.eGui.title = 'Sunday - Recovery or long run day';
+                } else {
+                    this.eGui.title = params.value;
+                }
+            }
+            getGui() { return this.eGui; }
+        }
+    """)
+    gb.configure_column("Day", cellRenderer=day_renderer, width=100, pinned='left')
 
     workout_renderer = JsCode("""
         class WorkoutRenderer {
@@ -2538,7 +2573,7 @@ def show_dashboard():
                 
                 if (params.value && params.value.includes('Summary')) {
                     this.eGui.innerHTML = params.value;
-                    this.eGui.title = params.data.Activity_Short_Description || '';
+                    this.eGui.title = params.data.Activity_Tooltip || params.data.Activity_Short_Description || '';
                 } else {
                     // Check if this activity has a Strava URL (completed activity)
                     const stravaUrl = params.data.Strava_URL;
@@ -2549,15 +2584,15 @@ def show_dashboard():
                         this.eGui.style.cursor = 'pointer';
                         this.eGui.style.color = '#22c55e';
                         this.eGui.style.textDecoration = 'underline';
-                        this.eGui.title = (params.data.Activity_Short_Description || '') + ' (Click to view on Strava)';
+                        this.eGui.title = (params.data.Activity_Tooltip || params.data.Activity_Short_Description || '') + '\\n\\n(Click to view on Strava)';
                         
                         this.eGui.onclick = () => {
                             window.open(stravaUrl, '_blank');
                         };
                     } else {
-                        // Regular activity, just show tooltip
+                        // Regular activity, show detailed tooltip explanation
                         this.eGui.innerHTML = params.value;
-                        this.eGui.title = params.data.Activity_Short_Description || '';
+                        this.eGui.title = params.data.Activity_Tooltip || params.data.Activity_Short_Description || '';
                     }
                 }
             }
@@ -2566,8 +2601,37 @@ def show_dashboard():
     """)
     gb.configure_column("Workout", cellRenderer=workout_renderer, width=280, wrapText=True, autoHeight=True)
     
-    gb.configure_column("Plan (mi)", width=90, type=["numericColumn"], precision=1)
-    gb.configure_column("Actual (mi)", width=90, type=["numericColumn"], precision=2)
+    # Mileage renderer with tooltips
+    mileage_renderer = JsCode("""
+        class MileageRenderer {
+            init(params) {
+                this.eGui = document.createElement('span');
+                if (params.value !== null && params.value !== undefined) {
+                    this.eGui.innerHTML = params.value;
+                    
+                    if (params.colDef.field === 'Plan (mi)') {
+                        const workoutType = params.data.Workout || '';
+                        this.eGui.title = `Planned distance: ${params.value} miles for ${workoutType}`;
+                    } else if (params.colDef.field === 'Actual (mi)') {
+                        if (params.value && params.value > 0) {
+                            this.eGui.title = `Actual distance completed: ${params.value} miles (from Strava)`;
+                        } else {
+                            this.eGui.title = 'Distance will appear here after completing the workout';
+                        }
+                    }
+                } else {
+                    this.eGui.innerHTML = '—';
+                    this.eGui.title = params.colDef.field === 'Plan (mi)' ? 
+                        'No specific distance planned' : 
+                        'Complete the workout to see distance';
+                }
+            }
+            getGui() { return this.eGui; }
+        }
+    """)
+    
+    gb.configure_column("Plan (mi)", cellRenderer=mileage_renderer, width=90, type=["numericColumn"], precision=1)
+    gb.configure_column("Actual (mi)", cellRenderer=mileage_renderer, width=90, type=["numericColumn"], precision=2)
     gb.configure_column("Suggested Pace", width=130)
     gb.configure_column("Actual Pace", width=110)
 
@@ -2577,8 +2641,45 @@ def show_dashboard():
                 this.eGui = document.createElement('span');
                 if (params.value) {
                     this.eGui.innerHTML = params.value;
+                    
+                    // Add specific tooltips based on column and workout type
+                    if (params.colDef.field === 'Suggested Pace') {
+                        const workoutType = params.data.Workout || '';
+                        const workoutLower = workoutType.toLowerCase();
+                        
+                        if (workoutLower.includes('rest')) {
+                            this.eGui.title = 'Rest day - no running required';
+                        } else if (workoutLower.includes('recovery')) {
+                            this.eGui.title = 'Recovery pace: Very easy, comfortable effort for active recovery';
+                        } else if (workoutLower.includes('easy') || workoutLower.includes('general aerobic')) {
+                            this.eGui.title = 'Easy pace: Conversational effort to build aerobic base';
+                        } else if (workoutLower.includes('marathon pace')) {
+                            this.eGui.title = 'Marathon pace: Goal race pace to develop race rhythm';
+                        } else if (workoutLower.includes('tempo') || workoutLower.includes('lactate threshold')) {
+                            this.eGui.title = 'Tempo pace: Sustained, challenging effort at lactate threshold';
+                        } else if (workoutLower.includes('long run')) {
+                            this.eGui.title = 'Long run pace: Aerobic effort for building endurance';
+                        } else if (workoutLower.includes('medium-long')) {
+                            this.eGui.title = 'Medium-long run pace: Steady aerobic effort';
+                        } else if (workoutLower.includes('interval') || workoutLower.includes('800')) {
+                            this.eGui.title = 'VO₂ Max pace: Fast intervals at 5K-10K race pace';
+                        } else if (workoutLower.includes('hill')) {
+                            this.eGui.title = 'Hill repeats: Hard uphill effort with easy recovery';
+                        } else {
+                            this.eGui.title = 'Suggested training pace range for this workout';
+                        }
+                    } else if (params.colDef.field === 'Actual Pace') {
+                        if (params.value && params.value !== '—') {
+                            this.eGui.title = 'Your actual pace from Strava activity';
+                        } else {
+                            this.eGui.title = 'Pace will appear here after completing the workout';
+                        }
+                    }
                 } else {
                     this.eGui.innerHTML = '—';
+                    this.eGui.title = params.colDef.field === 'Suggested Pace' ? 
+                        'No specific pace target for this workout' : 
+                        'Complete the workout to see your pace';
                 }
             }
             getGui() { return this.eGui; }
