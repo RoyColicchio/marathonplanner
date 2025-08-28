@@ -1727,15 +1727,32 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         weekly_miles_delta=int(settings.get("weekly_miles_delta", 0) or 0),
     )
     
+    weekly_miles_delta = int(settings.get("weekly_miles_delta", 0) or 0)
+    if _is_debug():
+        _debug_info(f"Applying weekly_miles_delta: {weekly_miles_delta}")
+    
     # After adjusting miles, update the Activity descriptions to reflect the new mileage
-    if 'Activity_Abbr' in adjusted_df.columns and 'Plan_Miles' in adjusted_df.columns:
+    if 'Activity_Abbr' in adjusted_df.columns and 'Plan_Miles' in adjusted_df.columns and weekly_miles_delta != 0:
+        if _is_debug():
+            _debug_info("Updating activity descriptions with adjusted mileage")
+        
         # Update the raw activity descriptions with adjusted mileage
         for idx in adjusted_df.index:
-            if pd.notna(adjusted_df.loc[idx, 'Plan_Miles']) and adjusted_df.loc[idx, 'Plan_Miles'] > 0:
+            original_miles = plan_df.loc[idx, 'Plan_Miles'] if idx in plan_df.index else None
+            adjusted_miles = adjusted_df.loc[idx, 'Plan_Miles']
+            
+            if _is_debug() and pd.notna(adjusted_miles) and adjusted_miles > 0:
                 original_abbr = adjusted_df.loc[idx, 'Activity_Abbr']
-                new_miles = adjusted_df.loc[idx, 'Plan_Miles']
+                _debug_info(f"Row {idx}: '{original_abbr}' - Original miles: {original_miles}, Adjusted miles: {adjusted_miles}")
+            
+            if pd.notna(adjusted_miles) and adjusted_miles > 0:
+                original_abbr = adjusted_df.loc[idx, 'Activity_Abbr']
                 # Update the abbreviated activity description with new mileage
-                adjusted_df.loc[idx, 'Activity_Abbr'] = replace_primary_miles(original_abbr, new_miles)
+                new_abbr = replace_primary_miles(original_abbr, adjusted_miles)
+                adjusted_df.loc[idx, 'Activity_Abbr'] = new_abbr
+                
+                if _is_debug() and new_abbr != original_abbr:
+                    _debug_info(f"Updated '{original_abbr}' -> '{new_abbr}'")
         
         # Regenerate the enhanced activity descriptions based on updated abbreviations
         adjusted_df['Activity'] = adjusted_df['Activity_Abbr'].apply(enhance_activity_description)
@@ -1743,6 +1760,9 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         # Also update tooltips based on new activity descriptions
         adjusted_df['Activity_Tooltip'] = adjusted_df['Activity'].apply(get_activity_tooltip)
         adjusted_df['Activity_Short_Description'] = adjusted_df['Activity'].apply(get_activity_short_description)
+        
+        if _is_debug():
+            _debug_info("Finished updating activity descriptions")
     
     return adjusted_df
 
@@ -2070,9 +2090,18 @@ def show_dashboard():
     merged_df = final_plan_df.copy()
     
     if strava_connected:
-        plan_end_date = final_plan_df['Date'].max()
-        activities = get_strava_activities(start_date=start_date, end_date=plan_end_date)
-        _debug_info(f"Fetched {len(activities)} activities from Strava")
+        # Expand the date range to include recent activities around current date
+        today = datetime.now().date()
+        plan_start = pd.to_datetime(final_plan_df['Date'].min()).date()
+        plan_end = pd.to_datetime(final_plan_df['Date'].max()).date()
+        
+        # Use a broader date range: from 30 days before plan start OR 30 days ago (whichever is earlier)
+        # to plan end OR 30 days from today (whichever is later)
+        fetch_start = min(plan_start - timedelta(days=30), today - timedelta(days=30))
+        fetch_end = max(plan_end, today + timedelta(days=30))
+        
+        activities = get_strava_activities(start_date=fetch_start, end_date=fetch_end)
+        _debug_info(f"Fetched {len(activities)} activities from Strava (range: {fetch_start} to {fetch_end})")
         if activities:
             strava_df = pd.DataFrame(activities)
             strava_df['start_date_local'] = pd.to_datetime(strava_df['start_date_local'])
