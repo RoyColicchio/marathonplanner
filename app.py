@@ -1487,20 +1487,10 @@ def enhance_activity_description(activity_string, planned_miles=None):
         else:
             return f"{miles} Miles Long Run"
     
-    # Use the planned_miles parameter (which contains adjusted mileage) for display
-    # This ensures the Activity column shows the correct adjusted mileage
+    # Don't include mileage in activity descriptions - mileage is shown in Suggested Miles column
     miles_str = ""
-    if planned_miles and planned_miles > 0:
-        miles_str = f"{int(round(planned_miles))}" if abs(planned_miles - round(planned_miles)) < 0.05 else f"{planned_miles:.1f}"
-        if _is_debug():
-            _debug_info(f"  → Using planned_miles={planned_miles}, formatted as '{miles_str}'")
-    else:
-        # Fallback: extract from activity string if no planned_miles provided
-        activity_miles_match = re.search(r'(\d+(?:\.\d+)?)', orig)
-        if activity_miles_match:
-            miles_str = activity_miles_match.group(1)
-            if _is_debug():
-                _debug_info(f"  → Fallback: extracted '{miles_str}' from activity string")
+    if _is_debug():
+        _debug_info(f"  → Not including mileage in activity description for cleaner display")
     
     # Fallback: use basic expansion with miles
     activity_map = {
