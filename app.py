@@ -3187,11 +3187,10 @@ def show_dashboard():
                 };
             }
             
-            // Highlight current day
+            // Make current day text bold (no green background)
             if (params.data.DateISO === new Date().toISOString().slice(0, 10)) {
                 return {
-                    'background-color': 'rgba(34, 197, 94, 0.2)',
-                    'border-left': '3px solid var(--accent)'
+                    'font-weight': 'bold'
                 };
             }
             
