@@ -2559,10 +2559,16 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
                     mask = (out["Date"] == dt)
                 
                 if mask is not None and mask.any():
+                    applied_overrides.append(date_iso)
                     # Apply each field from the override to the matching row
                     for k, v in payload.items():
                         if k in out.columns:
+                            if _is_debug():
+                                old_val = out.loc[mask, k].values[0] if any(mask) else "N/A"
+                                st.write(f"Debug apply_plan_overrides: {date_iso} {k}: '{old_val}' -> '{v}'")
                             out.loc[mask, k] = v
+                elif _is_debug():
+                    st.write(f"Debug apply_plan_overrides: No matching row found for date {date_iso}")
             except Exception as e:
                 if _is_debug():
                     st.error(f"Override apply error for {date_iso}: {e}")
@@ -2571,6 +2577,7 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
                 continue
                 
         if _is_debug():
+            st.write(f"Debug apply_plan_overrides: Applied overrides for dates: {applied_overrides}")
             st.session_state["_debug_applied_overrides"] = applied_overrides
             
         return out
@@ -2622,6 +2629,11 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         pa = {k: row_b.iloc[0][k] for k in workout_fields if k in row_b.columns}
         pb = {k: row_a.iloc[0][k] for k in workout_fields if k in row_a.columns}
         
+        if _is_debug():
+            st.write(f"Debug swap_plan_days: Swapping {date_a_str} <-> {date_b_str}")
+            st.write(f"  Date A ({date_a_str}) will get: {pa}")
+            st.write(f"  Date B ({date_b_str}) will get: {pb}")
+        
         # Generate fresh tooltips for the swapped activities
         # pa contains row_b's activity, so generate tooltip for that activity  
         if "Activity" in pa:
@@ -2640,6 +2652,11 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         # Store the workouts swapped (b's workout goes to a's date, a's workout goes to b's date)
         overrides[date_a_str] = pb
         overrides[date_b_str] = pa
+        
+        if _is_debug():
+            st.write(f"Debug: Saving overrides: {len(overrides)} total overrides")
+            st.write(f"  {date_a_str}: {overrides[date_a_str]}")
+            st.write(f"  {date_b_str}: {overrides[date_b_str]}")
         
         # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
@@ -2748,26 +2765,38 @@ def show_dashboard():
 
     adjusted_plan_df = apply_user_plan_adjustments(base_plan_df, settings, start_date)
     
-    # IMPORTANT: Apply overrides *after* adjustments
+    # Add DateISO for reliable joins and overrides BEFORE applying overrides
+    adjusted_plan_df['DateISO'] = pd.to_datetime(adjusted_plan_df['Date']).dt.strftime('%Y-%m-%d')
+    
+    # IMPORTANT: Apply overrides *after* adjustments and *after* DateISO is added
     final_plan_df = apply_plan_overrides(adjusted_plan_df, settings)
-
-    # Add DateISO for reliable joins and overrides
-    final_plan_df['DateISO'] = pd.to_datetime(final_plan_df['Date']).dt.strftime('%Y-%m-%d')
     
     # Only regenerate activity descriptions for rows that don't have overrides
     # (to avoid overwriting swapped activities)
     overrides = _get_overrides_for_plan(settings)
+    if _is_debug():
+        st.write(f"Debug: Found {len(overrides) if overrides else 0} overrides after applying to plan")
+        if overrides:
+            for date_key, override_data in list(overrides.items())[:3]:  # Show first 3
+                st.write(f"  {date_key}: {override_data}")
+    
     if 'Activity_Abbr' in final_plan_df.columns and 'Activity' in final_plan_df.columns:
         if overrides:
             # Only update rows that don't have overrides
+            regenerated_count = 0
             for idx in final_plan_df.index:
                 date_iso = final_plan_df.loc[idx, 'DateISO']
                 if date_iso not in overrides:
                     # No override for this date, safe to regenerate
                     final_plan_df.loc[idx, 'Activity'] = enhance_activity_description(final_plan_df.loc[idx, 'Activity_Abbr'])
+                    regenerated_count += 1
+            if _is_debug():
+                st.write(f"Debug: Regenerated {regenerated_count} activity descriptions, preserved {len(overrides)} overrides")
         else:
             # No overrides at all, safe to regenerate everything
             final_plan_df['Activity'] = final_plan_df['Activity_Abbr'].apply(enhance_activity_description)
+            if _is_debug():
+                st.write("Debug: No overrides found, regenerated all activity descriptions")
     
     # Regenerate tooltips and descriptions for all rows (they should match current Activity values)
     if 'Activity' in final_plan_df.columns:
