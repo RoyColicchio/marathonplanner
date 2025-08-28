@@ -2652,12 +2652,35 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             new_activity_a = plan_df.loc[a_mask, 'Activity'].values[0]
             new_activity_b = plan_df.loc[b_mask, 'Activity'].values[0]
             
-            # Regenerate tooltips and short descriptions for both swapped activities
-            plan_df.loc[a_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_a)
-            plan_df.loc[a_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_a)
+            if _is_debug():
+                st.write(f"Debug: Regenerating tooltips for swapped activities:")
+                st.write(f"  Date A ({date_a_str}): '{new_activity_a}'")
+                st.write(f"  Date B ({date_b_str}): '{new_activity_b}'")
             
-            plan_df.loc[b_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_b)  
-            plan_df.loc[b_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_b)
+            # Ensure tooltip columns exist
+            if 'Activity_Tooltip' not in plan_df.columns:
+                plan_df['Activity_Tooltip'] = plan_df['Activity'].apply(get_activity_tooltip)
+            if 'Activity_Short_Description' not in plan_df.columns:
+                plan_df['Activity_Short_Description'] = plan_df['Activity'].apply(get_activity_short_description)
+            
+            # Regenerate tooltips and short descriptions for both swapped activities
+            try:
+                plan_df.loc[a_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_a)
+                plan_df.loc[a_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_a)
+                
+                plan_df.loc[b_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_b)  
+                plan_df.loc[b_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_b)
+                
+                if _is_debug():
+                    st.write("Debug: Tooltips successfully regenerated")
+            except Exception as e:
+                if _is_debug():
+                    st.write(f"Debug: Error regenerating tooltips: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+        
+        # Force refresh of plan to ensure tooltip changes are visible
+        st.session_state.plan_needs_refresh = True
         
         return True
     except Exception as e:
@@ -3357,10 +3380,23 @@ def show_dashboard():
 
     # --- Clear All Overrides ---
     st.subheader("Manage Overrides")
-    if st.button("Clear All Swaps/Overrides for This Plan"):
-        clear_all_overrides(user_hash, settings)
-        st.session_state.plan_needs_refresh = True
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Clear All Swaps/Overrides for This Plan"):
+            clear_all_overrides(user_hash, settings)
+            st.session_state.plan_needs_refresh = True
+            st.rerun()
+    
+    with col2:
+        if st.button("Fix Tooltip Mismatches", help="Regenerate all tooltips to fix any mismatched descriptions"):
+            # Regenerate all tooltips to fix any mismatches from previous swaps
+            if 'Activity_Tooltip' in merged_df.columns:
+                merged_df['Activity_Tooltip'] = merged_df['Activity'].apply(get_activity_tooltip)
+            if 'Activity_Short_Description' in merged_df.columns:
+                merged_df['Activity_Short_Description'] = merged_df['Activity'].apply(get_activity_short_description)
+            st.success("Tooltips regenerated! Refresh to see updated descriptions.")
+            st.session_state.plan_needs_refresh = True
+            st.rerun()
 
 if __name__ == "__main__":
     main()
