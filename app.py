@@ -1204,16 +1204,42 @@ def get_activity_short_description(activity_description):
         return f"{num_str}hill repeats to build leg strength and power."
     
     elif 'marathon pace' in desc_lower or 'mp' in desc_lower:
-        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
-        miles_str = f"{miles.group(1)} miles " if miles else ""
-        return f"{miles_str}at goal marathon pace to develop race rhythm."
+        # Check for specific segment patterns
+        segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
+        if segment_match:
+            segment_miles = float(segment_match.group(1))
+            total_miles = re.search(r'^(\d+(?:\.\d+)?)', orig)
+            total_str = f"{total_miles.group(1)}-mile run with " if total_miles else ""
+            return f"{total_str}{segment_miles} miles at marathon pace (aim for middle of run)."
+        else:
+            miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+            miles_str = f"{miles.group(1)} miles " if miles else ""
+            return f"{miles_str}at goal marathon pace to develop race rhythm."
     
     elif 'long run' in desc_lower or 'lr' in desc_lower:
+        # Check for marathon pace segments
+        if 'marathon pace' in desc_lower or 'mp' in desc_lower:
+            segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
+            if segment_match:
+                segment_miles = float(segment_match.group(1))
+                total_miles = re.search(r'^(\d+(?:\.\d+)?)', orig)
+                total_str = f"{total_miles.group(1)}-mile " if total_miles else ""
+                return f"Long {total_str}run with {segment_miles} miles at marathon pace (execute when fatigued)."
+        
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
         miles_str = f"{miles.group(1)} miles " if miles else ""
         return f"Long {miles_str}run to build endurance, may include marathon pace segments."
     
     elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
+        # Check for marathon pace segments
+        if 'marathon pace' in desc_lower or 'mp' in desc_lower:
+            segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
+            if segment_match:
+                segment_miles = float(segment_match.group(1))
+                total_miles = re.search(r'^(\d+(?:\.\d+)?)', orig)
+                total_str = f"{total_miles.group(1)}-mile " if total_miles else ""
+                return f"Medium-long {total_str}run with {segment_miles} miles at marathon pace (middle portion)."
+        
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
         miles_str = f"{miles.group(1)} miles " if miles else ""
         return f"Medium-long {miles_str}run to build endurance while managing fatigue."
@@ -1246,6 +1272,7 @@ def get_activity_short_description(activity_description):
 def get_activity_tooltip(activity_description):
     """Generate detailed tooltip explanations based on Pfitzinger training principles."""
     desc_lower = activity_description.lower()
+    orig = activity_description.strip()
     
     if 'rest' in desc_lower:
         return "Complete rest day. No running or cross-training. Rest is crucial for muscle recovery and injury prevention."
@@ -1272,13 +1299,63 @@ def get_activity_tooltip(activity_description):
         return "Hill Repeats: Run hard uphill efforts with easy recovery. Builds leg strength and power with less impact than track work."
     
     elif 'marathon pace' in desc_lower or 'mp' in desc_lower:
-        return "Marathon Pace: Training at your goal marathon race pace to develop race rhythm and metabolic efficiency."
+        # Check for specific marathon pace segments and provide execution guidance
+        base_text = "Marathon Pace: Training at your goal marathon race pace to develop race rhythm and metabolic efficiency."
+        
+        # Look for segment patterns like "with X miles at Marathon Pace"
+        segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
+        if segment_match:
+            segment_miles = float(segment_match.group(1))
+            if segment_miles >= 6:
+                return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles as one continuous block in the middle of your run. Start with 2-3 miles of easy warm-up, then execute all {segment_miles} miles at goal pace, followed by easy cool-down miles."
+            elif segment_miles >= 3:
+                return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles in the middle of your run after a proper warm-up. If this feels too challenging, you can split into two segments (e.g., {segment_miles//2}mi + {segment_miles-segment_miles//2}mi) with 1 mile of general aerobic pace between them."
+            else:
+                return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles in the middle of your run. This shorter segment should be done continuously after warming up for 2-3 miles."
+        
+        # Look for multiple segment patterns like "3 × 2 mile Marathon Pace segments"
+        multi_segment_match = re.search(r'(\d+)\s*×\s*(\d+(?:\.\d+)?)\s*mile.*marathon\s*pace\s*segment', desc_lower)
+        if multi_segment_match:
+            reps = int(multi_segment_match.group(1))
+            distance = float(multi_segment_match.group(2))
+            return f"{base_text}\n\nExecution: Run {reps} separate {distance}-mile segments at marathon pace with 0.5-1 mile of easy recovery between each segment. Start with a 2-3 mile warm-up, then alternate between marathon pace segments and recovery intervals."
+        
+        # Look for time-based segments
+        time_match = re.search(r'(\d+)\s*(?:×\s*)?(\d+)\s*(?:-?\s*)?minute.*marathon\s*pace', desc_lower)
+        if time_match:
+            if time_match.group(1):  # Multiple segments like "2 × 20-minute"
+                reps = time_match.group(1)
+                minutes = time_match.group(2)
+                return f"{base_text}\n\nExecution: Run {reps} separate {minutes}-minute segments at marathon pace with 2-3 minutes of easy jogging recovery between segments. Warm up for 10-15 minutes before starting the first marathon pace segment."
+            else:  # Single segment like "20 minutes"
+                minutes = time_match.group(2)
+                return f"{base_text}\n\nExecution: Run {minutes} continuous minutes at marathon pace in the middle of your run. Start with a 10-15 minute warm-up, execute the marathon pace segment, then cool down with easy running."
+        
+        return base_text
     
     elif 'long run' in desc_lower or 'lr' in desc_lower:
-        return "Long Run: Cornerstone workout to build endurance. May include marathon pace segments to train for race-day efforts."
+        base_text = "Long Run: Cornerstone workout to build endurance. May include marathon pace segments to train for race-day efforts."
+        
+        # Check for marathon pace segments in long runs
+        if 'marathon pace' in desc_lower or 'mp' in desc_lower:
+            segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
+            if segment_match:
+                segment_miles = float(segment_match.group(1))
+                return f"{base_text}\n\nExecution: This long run includes {segment_miles} miles at marathon pace. Run the first 30-40% of your total distance at easy pace, then execute the {segment_miles} marathon pace miles continuously, followed by easy running to finish. This simulates race-day fatigue and teaches you to hit goal pace when tired."
+        
+        return base_text
     
     elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
-        return "Medium-Long Run: Extended aerobic run shorter than your long run, building endurance while managing fatigue."
+        base_text = "Medium-Long Run: Extended aerobic run shorter than your long run, building endurance while managing fatigue."
+        
+        # Check for marathon pace segments in medium-long runs
+        if 'marathon pace' in desc_lower or 'mp' in desc_lower:
+            segment_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?(?:marathon\s*pace|mp)', desc_lower)
+            if segment_match:
+                segment_miles = float(segment_match.group(1))
+                return f"{base_text}\n\nExecution: Include {segment_miles} miles at marathon pace in the middle portion of this run. Start with 25-30% easy running, then execute the marathon pace segment, followed by easy running to finish. This builds race-specific endurance."
+        
+        return base_text
     
     elif 'progression' in desc_lower:
         return "Progression Run: Start slow and gradually increase pace, particularly in the second half. Challenging but sustainable workout."
@@ -1290,7 +1367,7 @@ def get_activity_tooltip(activity_description):
         return "Marathon Race: Your goal race! Trust your training and execute your planned pace strategy."
     
     else:
-        return f"Training Run: {activity_description}. Follow your plan and listen to your body."
+        return f"Training Run: {orig}. Follow your plan and listen to your body."
 
 
 def pace_to_seconds(pace_str):
