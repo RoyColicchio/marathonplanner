@@ -2610,6 +2610,14 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         pa = {k: row_a.iloc[0][k] for k in workout_fields if k in row_a.columns}
         pb = {k: row_b.iloc[0][k] for k in workout_fields if k in row_b.columns}
         
+        # Generate fresh tooltips for the swapped activities
+        if "Activity" in pb:
+            pa["Activity_Tooltip"] = get_activity_tooltip(pb["Activity"])
+            pa["Activity_Short_Description"] = get_activity_short_description(pb["Activity"])
+        if "Activity" in pa:
+            pb["Activity_Tooltip"] = get_activity_tooltip(pa["Activity"])
+            pb["Activity_Short_Description"] = get_activity_short_description(pa["Activity"])
+        
         # Get existing overrides 
         overrides = _get_overrides_for_plan(settings)
         if overrides is None:
@@ -2788,6 +2796,11 @@ def show_dashboard():
 
     # Add DateISO for reliable joins and overrides
     final_plan_df['DateISO'] = pd.to_datetime(final_plan_df['Date']).dt.strftime('%Y-%m-%d')
+    
+    # Ensure tooltips and descriptions match the final activities (after overrides)
+    if 'Activity' in final_plan_df.columns:
+        final_plan_df['Activity_Tooltip'] = final_plan_df['Activity'].apply(get_activity_tooltip)
+        final_plan_df['Activity_Short_Description'] = final_plan_df['Activity'].apply(get_activity_short_description)
 
     # Strava data merge
     strava_connected = strava_connect()
@@ -3389,14 +3402,22 @@ def show_dashboard():
     
     with col2:
         if st.button("Fix Tooltip Mismatches", help="Regenerate all tooltips to fix any mismatched descriptions"):
-            # Regenerate all tooltips to fix any mismatches from previous swaps
-            if 'Activity_Tooltip' in merged_df.columns:
-                merged_df['Activity_Tooltip'] = merged_df['Activity'].apply(get_activity_tooltip)
-            if 'Activity_Short_Description' in merged_df.columns:
-                merged_df['Activity_Short_Description'] = merged_df['Activity'].apply(get_activity_short_description)
-            st.success("Tooltips regenerated! Refresh to see updated descriptions.")
-            st.session_state.plan_needs_refresh = True
-            st.rerun()
+            # Clear all tooltips from overrides so they get regenerated
+            try:
+                overrides = _get_overrides_for_plan(settings)
+                if overrides:
+                    # Remove any tooltip columns from overrides to force regeneration
+                    for date_key, override_data in overrides.items():
+                        if isinstance(override_data, dict):
+                            override_data.pop('Activity_Tooltip', None)
+                            override_data.pop('Activity_Short_Description', None)
+                    _save_overrides_for_plan(user_hash, settings, overrides)
+                
+                st.success("Tooltips reset! The page will refresh and regenerate all tooltips.")
+                st.session_state.plan_needs_refresh = True
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error fixing tooltips: {e}")
 
 if __name__ == "__main__":
     main()
