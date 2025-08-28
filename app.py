@@ -1425,13 +1425,13 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         return "See plan"
 
 
-def enhance_activity_description(activity_string, planned_miles=None):
-    """Convert raw activity string to enhanced, user-friendly description with tooltips."""
+def enhance_activity_description(activity_string):
+    """Convert raw activity string to enhanced, user-friendly description without mileage numbers."""
     orig = activity_string.strip()
     
     # Debug output for activity description generation
     if _is_debug():
-        _debug_info(f"enhance_activity_description: '{activity_string}' with planned_miles={planned_miles}")
+        _debug_info(f"enhance_activity_description: '{activity_string}'")
     
     # Handle rest days
     if orig.lower() in ['rest', 'off']:
@@ -1480,17 +1480,15 @@ def enhance_activity_description(activity_string, planned_miles=None):
         else:
             return "Long Run"
     
-    # Don't include mileage in activity descriptions - mileage is shown in Suggested Miles column
-    miles_str = ""
     if _is_debug():
-        _debug_info(f"  → Not including mileage in activity description for cleaner display")
+        _debug_info(f"  → Using clean activity descriptions without mileage")
     
-    # Fallback: use basic expansion with miles
+    # Fallback: use basic expansion without miles
     activity_map = {
-        "GA": f"General Aerobic {miles_str}".strip(),
-        "Rec": f"Recovery {miles_str}".strip(), 
-        "MLR": f"Medium-Long Run {miles_str}".strip(),
-        "LR": f"Long Run {miles_str}".strip(),
+        "GA": "General Aerobic",
+        "Rec": "Recovery", 
+        "MLR": "Medium-Long Run",
+        "LR": "Long Run",
         "SP": "Sprints",
         "V8": "VO₂Max",
         "V9": "VO₂Max",
@@ -1578,9 +1576,6 @@ def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00
             'Activity': enhanced_activities,
             'Plan_Miles': planned_miles,
         })
-        
-        # Re-enhance activities with planned miles for more accurate descriptions
-        new_plan_df['Activity'] = new_plan_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr'], row['Plan_Miles']), axis=1)
         
         # Add activity tooltips
         new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
@@ -1796,7 +1791,7 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         # Regenerate the enhanced activity descriptions based on updated abbreviations
         if _is_debug():
             _debug_info("Regenerating activity descriptions...")
-        adjusted_df['Activity'] = adjusted_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr'], row['Plan_Miles']), axis=1)
+        adjusted_df['Activity'] = adjusted_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr']), axis=1)
         
         # Also update tooltips based on new activity descriptions
         adjusted_df['Activity_Tooltip'] = adjusted_df.apply(lambda row: get_activity_tooltip(row['Activity']), axis=1)
