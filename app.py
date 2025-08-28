@@ -1780,6 +1780,16 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         if 'rest' in desc_lower:
             return "—"
         
+        elif 'recovery' in desc_lower or 'rec' in desc_lower:
+            # Recovery: Slowest pace - 120+ seconds slower than marathon pace
+            recovery_seconds = marathon_pace_seconds + 120  # Much slower than easy
+            return format_pace_range(recovery_seconds)
+        
+        elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
+            # Medium-Long: Similar to long run but slightly faster
+            mlr_seconds = marathon_pace_seconds + 75  # Between easy (90s) and GA (45s)
+            return format_pace_range(mlr_seconds)
+        
         elif 'easy' in desc_lower:
             # Easy: 60-120 seconds slower than marathon pace (was 30-90)
             easy_seconds = marathon_pace_seconds + 90  # More conservative
