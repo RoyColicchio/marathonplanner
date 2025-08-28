@@ -1461,13 +1461,6 @@ def enhance_activity_description(activity_string, planned_miles=None):
         return f"{count} × 400m Intervals"
     
     if 'pace' in orig.lower():
-        miles_match = re.search(r'(\d+(?:\.\d+)?)\s*mi.*pace', orig.lower())
-        if miles_match:
-            miles = miles_match.group(1)
-            return f"{miles} Miles at Marathon Pace"
-        elif planned_miles and planned_miles > 0:
-            miles_str = f"{int(round(planned_miles))}" if abs(planned_miles - round(planned_miles)) < 0.05 else f"{planned_miles:.1f}"
-            return f"{miles_str} Miles at Marathon Pace"
         return "Marathon Pace Run"
     
     if 'half marathon' in orig.lower():
@@ -1476,16 +1469,16 @@ def enhance_activity_description(activity_string, planned_miles=None):
     if 'marathon' in orig.lower() and 'half' not in orig.lower():
         return "Marathon Race"
     
-    # Handle simple distance runs
+    # Handle simple distance runs - remove mileage for cleaner display
     miles_match = re.search(r'(\d+(?:\.\d+)?)\s*mi(?:\s+run)?', orig.lower())
     if miles_match:
         miles = miles_match.group(1)
         if float(miles) <= 4:
-            return f"{miles} Miles Easy"
+            return "Easy Run"
         elif float(miles) <= 8:
-            return f"{miles} Miles General Aerobic"
+            return "General Aerobic"
         else:
-            return f"{miles} Miles Long Run"
+            return "Long Run"
     
     # Don't include mileage in activity descriptions - mileage is shown in Suggested Miles column
     miles_str = ""
