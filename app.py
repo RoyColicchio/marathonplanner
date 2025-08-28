@@ -11,7 +11,7 @@ import pandas as pd
 import re
 
 # Build/version identifier to verify deployment
-BUILD_SHA = "7fd38eb"
+BUILD_SHA = "1db2022"
 
 # Enable debugging if needed - for local development only
 DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
