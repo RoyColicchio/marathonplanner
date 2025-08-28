@@ -1487,19 +1487,20 @@ def enhance_activity_description(activity_string, planned_miles=None):
         else:
             return f"{miles} Miles Long Run"
     
-    # Extract miles from the activity string itself first
-    activity_miles_match = re.search(r'(\d+(?:\.\d+)?)', orig)
-    if activity_miles_match:
-        miles_from_text = activity_miles_match.group(1)
-    else:
-        miles_from_text = None
-    
-    # Use planned miles for basic expansions, prioritizing miles from text if available
+    # Use the planned_miles parameter (which contains adjusted mileage) for display
+    # This ensures the Activity column shows the correct adjusted mileage
     miles_str = ""
-    if miles_from_text:
-        miles_str = miles_from_text
-    elif planned_miles and planned_miles > 0:
+    if planned_miles and planned_miles > 0:
         miles_str = f"{int(round(planned_miles))}" if abs(planned_miles - round(planned_miles)) < 0.05 else f"{planned_miles:.1f}"
+        if _is_debug():
+            _debug_info(f"  → Using planned_miles={planned_miles}, formatted as '{miles_str}'")
+    else:
+        # Fallback: extract from activity string if no planned_miles provided
+        activity_miles_match = re.search(r'(\d+(?:\.\d+)?)', orig)
+        if activity_miles_match:
+            miles_str = activity_miles_match.group(1)
+            if _is_debug():
+                _debug_info(f"  → Fallback: extracted '{miles_str}' from activity string")
     
     # Fallback: use basic expansion with miles
     activity_map = {
