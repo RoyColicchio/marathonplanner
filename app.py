@@ -9,6 +9,7 @@ BUILD_SHA = "f3137ce"
 # Enable debugging if needed - for local development only
 DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
 
+# Debug helper function
 def _is_debug():
     """Return True if diagnostics should be shown (env, secrets, or ?debug)."""
     try:
@@ -18,9 +19,20 @@ def _is_debug():
             return True
         if "debug" in st.query_params:
             return True
+        return (
+            os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+            or bool(st.secrets.get("debug", False))
+        )
     except Exception:
-        pass
-    return False
+        return False
+
+def _debug_info(msg, *args):
+    """Show debug info if debug mode is enabled."""
+    if _is_debug():
+        if args:
+            st.info(f"Debug: {msg}: {args}")
+        else:
+            st.info(f"Debug: {msg}")
 
 st.set_page_config(
     page_title="Marathon Planner",
@@ -413,7 +425,7 @@ def _gc_seconds_to_hms(total_s: float) -> str:
     sec = s % 60
     return f"{h}:{m:02d}:{sec:02d}"
 
-def _gc_parse_time_str(t: str) -> int | None:
+def _gc_parse_time_str(t: str):
     if not isinstance(t, str):
         return None
     t = t.strip()
@@ -1074,6 +1086,8 @@ def get_strava_activities(start_date=None, end_date=None, max_pages=4):
             r = requests.get("https://www.strava.com/api/v3/athlete/activities", headers=headers, params=params, timeout=15)
             if r.status_code != 200:
                 st.error(f"Failed to fetch Strava activities: {r.status_code}")
+                if r.status_code == 401:
+                    st.error("Authentication failed. Please reconnect your Strava account.")
                 break
             batch = r.json() or []
             all_acts.extend(batch)
@@ -1085,7 +1099,7 @@ def get_strava_activities(start_date=None, end_date=None, max_pages=4):
         return []
 
 
-def extract_primary_miles(text: str) -> float | None:
+def extract_primary_miles(text: str):
     """Extract the primary planned distance in miles from a plan text like 'MLR 12' or 'MP 13 w/ 8 @ MP'."""
     if not isinstance(text, str):
         return None
@@ -1305,7 +1319,7 @@ def enhance_activity_description(activity_string):
     return orig
 
 
-def generate_training_plan(start_date, plan_file: str | None = None, goal_time: str = "4:00:00"):
+def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00"):
     """Loads the training plan from a CSV or ICS and adjusts dates. plan_file defaults to run_plan.csv."""
     try:
         csv_path = plan_file or "run_plan.csv"
@@ -1811,6 +1825,10 @@ def show_dashboard():
     st.markdown("---")
     st.header("Your Training Schedule")
 
+    # Debug mode toggle (show if debug parameter in URL)
+    if "debug" in st.query_params:
+        st.warning("🔧 Debug mode active (add ?debug to URL to enable)")
+    
     start_date_str = settings.get("start_date")
     if not start_date_str:
         st.warning("Please set a start date to see your plan.")
@@ -1847,11 +1865,15 @@ def show_dashboard():
     if strava_connected:
         plan_end_date = final_plan_df['Date'].max()
         activities = get_strava_activities(start_date=start_date, end_date=plan_end_date)
+        _debug_info(f"Fetched {len(activities)} activities from Strava")
         if activities:
             strava_df = pd.DataFrame(activities)
             strava_df['start_date_local'] = pd.to_datetime(strava_df['start_date_local'])
-            strava_df['Date'] = strava_df['start_date_local'].dt.date
-            strava_df = strava_df[strava_df['type'] == 'Run']
+            # Convert to string format to match training plan Date format
+            strava_df['Date'] = strava_df['start_date_local'].dt.strftime('%Y-%m-%d')
+            runs_only = strava_df[strava_df['type'] == 'Run']
+            _debug_info(f"Found {len(runs_only)} running activities out of {len(strava_df)} total")
+            strava_df = runs_only
             strava_df['Actual_Miles'] = strava_df['distance'] * 0.000621371
             strava_df['Actual_Pace_Sec'] = strava_df['moving_time'] / strava_df['Actual_Miles']
             
@@ -1868,9 +1890,33 @@ def show_dashboard():
             )
             
             merged_df = pd.merge(final_plan_df, daily_strava[['Date', 'Actual_Miles', 'Actual_Pace']], on='Date', how='left')
+            actual_activities_count = len(merged_df[merged_df['Actual_Miles'] > 0])
+            _debug_info(f"Merged data shows {actual_activities_count} days with actual miles > 0")
+            
+            # Show diagnostic if activities exist but none show up in plan
+            if actual_activities_count == 0 and not daily_strava.empty:
+                st.info("ℹ️ Found Strava running activities, but none match your training plan dates.")
+                plan_date_range = f"{final_plan_df['Date'].min()} to {final_plan_df['Date'].max()}"
+                strava_date_range = f"{daily_strava['Date'].min()} to {daily_strava['Date'].max()}"
+                st.markdown(f"""
+                - **Plan date range**: {plan_date_range}
+                - **Strava activities date range**: {strava_date_range}
+                
+                Try adjusting your plan start date or check if your activities are within the plan period.
+                """)
+            elif actual_activities_count > 0:
+                st.success(f"✅ Successfully loaded {actual_activities_count} days of Strava data!")
+            
             merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0)
             merged_df['Actual_Pace'] = merged_df['Actual_Pace'].fillna("—")
         else:
+            # No activities found - provide diagnostic info
+            st.info("ℹ️ Strava connected but no activities found. This could be because:")
+            st.markdown("""
+            - Your activities are outside the training plan date range
+            - You have no running activities in Strava
+            - There's a token scope issue (try reconnecting)
+            """)
             merged_df['Actual_Miles'] = 0
             merged_df['Actual_Pace'] = "—"
     else:
