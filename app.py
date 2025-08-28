@@ -2383,7 +2383,8 @@ def show_dashboard():
     grid_response = AgGrid(
         display_df,
         gridOptions=grid_options,
-        data_return_mode=DataReturnMode.AS_INPUT,
+        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True,
         enable_enterprise_modules=False,
         fit_columns_on_grid_load=True,
@@ -2394,9 +2395,17 @@ def show_dashboard():
     if st.session_state.get("plan_needs_refresh"):
         st.session_state.plan_needs_refresh = False
 
-    selected_rows = grid_response['selected_rows']
+    # Get selected rows with better error handling
+    selected_rows = grid_response.get('selected_rows', [])
     if selected_rows is None:
         selected_rows = []
+    
+    # Debug: Show raw grid response if debug mode is on
+    if _is_debug():
+        _debug_info(f"Raw grid response keys: {list(grid_response.keys())}")
+        _debug_info(f"Raw selected_rows type: {type(selected_rows)}")
+        if selected_rows:
+            _debug_info(f"First selected row type: {type(selected_rows[0])}")
     
     # Ensure selected_rows contains dictionaries, not strings
     valid_selected_rows = []
@@ -2405,6 +2414,7 @@ def show_dashboard():
             valid_selected_rows.append(row)
         elif isinstance(row, str):
             # Skip string entries - they may be from grid state issues
+            _debug_info(f"Skipping string row: {row}")
             continue
     selected_rows = valid_selected_rows
     
