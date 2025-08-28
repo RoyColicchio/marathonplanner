@@ -1161,7 +1161,7 @@ def replace_primary_miles(text: str, new_miles: float) -> str:
 
 
 def get_activity_short_description(activity_description):
-    """Generate short, one-sentence descriptions for activity hover tooltips."""
+    """Generate short, one-sentence descriptions for activity hover tooltips based on Pfitzinger principles."""
     desc_lower = activity_description.lower()
     orig = activity_description.strip()
     
@@ -1171,50 +1171,63 @@ def get_activity_short_description(activity_description):
     elif 'easy' in desc_lower:
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
         miles_str = f"{miles.group(1)} miles " if miles else ""
-        return f"Easy {miles_str}run at conversational pace, 60-90 seconds slower than marathon pace."
+        return f"Easy {miles_str}run at comfortable, conversational pace to build aerobic base."
     
-    elif 'general aerobic' in desc_lower:
+    elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
         miles_str = f"{miles.group(1)} miles " if miles else ""
-        strides_match = re.search(r'(\d+)\s*x\s*(\d+)m?\s*strides?', orig.lower())
-        strides_str = f" with {strides_match.group(1)} hard, fast strides mixed in" if strides_match else ""
-        return f"General aerobic {miles_str}run at comfortable effort{strides_str}."
+        return f"General aerobic {miles_str}run at comfortable pace to build foundational fitness."
     
-    elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
-        num_match = re.search(r'(\d+)', orig)
-        num_str = f"{num_match.group(1)} " if num_match else ""
-        return f"{num_str}hill repeats running hard uphill, easy recovery down."
+    elif 'recovery' in desc_lower or 'rec' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        return f"Recovery {miles_str}run at very easy pace to promote active recovery."
     
-    elif 'tempo' in desc_lower:
+    elif 'tempo' in desc_lower or 'lactate threshold' in desc_lower or 'lt' in desc_lower:
         time_match = re.search(r'(\d+)', orig)
         time_str = f"{time_match.group(1)}-minute " if time_match else ""
-        return f"{time_str}tempo run building to comfortably hard 10K race pace."
+        return f"{time_str}tempo run at sustained, challenging pace to improve lactate clearance."
     
-    elif '800m interval' in desc_lower or '800' in desc_lower:
+    elif 'vo2' in desc_lower or 'v8' in desc_lower or '800m interval' in desc_lower or '800' in desc_lower:
         num_match = re.search(r'(\d+)', orig)
         num_str = f"{num_match.group(1)} " if num_match else ""
-        return f"{num_str}× 800m intervals at Yasso 800s pace with recovery jogs."
+        return f"{num_str}× intervals at 5K-10K pace to boost maximal oxygen uptake."
     
     elif '400m interval' in desc_lower or '400' in desc_lower:
         num_match = re.search(r'(\d+)', orig)
         num_str = f"{num_match.group(1)} " if num_match else ""
-        return f"{num_str}× 400m intervals at mile pace with full recovery."
+        return f"{num_str}× 400m speed intervals with full recovery between repeats."
     
-    elif 'marathon pace' in desc_lower:
+    elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
+        num_match = re.search(r'(\d+)', orig)
+        num_str = f"{num_match.group(1)} " if num_match else ""
+        return f"{num_str}hill repeats to build leg strength and power."
+    
+    elif 'marathon pace' in desc_lower or 'mp' in desc_lower:
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
         miles_str = f"{miles.group(1)} miles " if miles else ""
-        return f"{miles_str}at your goal marathon race pace to practice race rhythm."
+        return f"{miles_str}at goal marathon pace to develop race rhythm."
     
-    elif 'long run' in desc_lower:
+    elif 'long run' in desc_lower or 'lr' in desc_lower:
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
         miles_str = f"{miles.group(1)} miles " if miles else ""
-        return f"Long {miles_str}run focusing on time on feet, not speed."
+        return f"Long {miles_str}run to build endurance, may include marathon pace segments."
+    
+    elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        return f"Medium-long {miles_str}run to build endurance while managing fatigue."
+    
+    elif 'progression' in desc_lower:
+        miles = re.search(r'(\d+(?:\.\d+)?)', orig)
+        miles_str = f"{miles.group(1)} miles " if miles else ""
+        return f"Progression {miles_str}run starting slow and gradually increasing pace."
     
     elif 'half marathon' in desc_lower:
         return "Half marathon race to assess fitness and practice race strategies."
     
     elif 'marathon' in desc_lower and 'pace' not in desc_lower:
-        return "Marathon race day - trust your training and execute your race plan!"
+        return "Marathon race day - execute your race plan and trust your training!"
     
     else:
         # Try to extract basic info for generic activities
@@ -1226,49 +1239,58 @@ def get_activity_short_description(activity_description):
             elif miles_val <= 8:
                 return f"{miles.group(1)} miles at comfortable aerobic effort."
             else:
-                return f"{miles.group(1)} miles focusing on endurance and time on feet."
+                return f"{miles.group(1)} miles focusing on endurance and aerobic development."
         return f"Training run as prescribed in your plan."
 
 
 def get_activity_tooltip(activity_description):
-    """Generate detailed tooltip explanations based on Hal Higdon guidelines."""
+    """Generate detailed tooltip explanations based on Pfitzinger training principles."""
     desc_lower = activity_description.lower()
     
     if 'rest' in desc_lower:
         return "Complete rest day. No running or cross-training. Rest is crucial for muscle recovery and injury prevention."
     
     elif 'easy' in desc_lower:
-        return "Easy pace: 30-90 seconds per mile slower than marathon pace. Should allow comfortable conversation throughout."
+        return "Easy pace: Comfortable, conversational pace to build aerobic base fitness. Should feel relaxed and sustainable."
     
     elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
-        return "General aerobic pace: Comfortable effort building aerobic capacity. Slightly faster than easy pace but still conversational."
+        return "General Aerobic: Foundational runs at comfortable, conversational pace to build aerobic base fitness and endurance."
     
-    elif 'hill repeat' in desc_lower:
-        return "Hill training: Run hard uphill (like 400m track repeat pace), jog down easy. Builds quadriceps strength and speed with less impact than track work."
+    elif 'recovery' in desc_lower or 'rec' in desc_lower:
+        return "Recovery Run: Short, low-intensity run after harder workouts to promote active recovery and blood flow, helping the body adapt to training stress."
     
-    elif 'tempo' in desc_lower:
-        return "Tempo run: Build gradually to near 10K race pace for 3-6 minutes in the middle, then ease back. Should feel 'comfortably hard' at peak."
+    elif 'tempo' in desc_lower or 'lactate threshold' in desc_lower or 'lt' in desc_lower:
+        return "Lactate Threshold (Tempo): Sustained, challenging pace (15K-half marathon pace) to improve your body's ability to clear lactic acid."
     
-    elif '800m interval' in desc_lower or '800' in desc_lower:
-        return "800m intervals: Run each 800m faster than marathon pace with 400m recovery jog between. Try 'Yasso 800s' - run time matching your marathon goal (3:10 marathon = 3:10 800s)."
+    elif 'vo2' in desc_lower or 'v8' in desc_lower or '800m interval' in desc_lower or '800' in desc_lower:
+        return "VO₂ Max: Shorter, faster intervals at 5K-10K pace to increase your body's maximal oxygen uptake capacity."
     
     elif '400m interval' in desc_lower or '400' in desc_lower:
-        return "400m intervals: Short, fast repeats at mile pace or faster. Focus on speed and running form with full recovery between repeats."
+        return "Speed Intervals: Short, fast repeats at mile pace or faster. Focus on speed and running form with full recovery between repeats."
     
-    elif 'marathon pace' in desc_lower:
-        return "Marathon pace: The exact pace you plan to run in your goal marathon. Practice race-day rhythm and fueling strategy."
+    elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
+        return "Hill Repeats: Run hard uphill efforts with easy recovery. Builds leg strength and power with less impact than track work."
     
-    elif 'long run' in desc_lower:
-        return "Long run: Run 30-90 seconds per mile slower than marathon pace. Focus on time on feet, not speed. Save energy for weekday speed work."
+    elif 'marathon pace' in desc_lower or 'mp' in desc_lower:
+        return "Marathon Pace: Training at your goal marathon race pace to develop race rhythm and metabolic efficiency."
+    
+    elif 'long run' in desc_lower or 'lr' in desc_lower:
+        return "Long Run: Cornerstone workout to build endurance. May include marathon pace segments to train for race-day efforts."
+    
+    elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
+        return "Medium-Long Run: Extended aerobic run shorter than your long run, building endurance while managing fatigue."
+    
+    elif 'progression' in desc_lower:
+        return "Progression Run: Start slow and gradually increase pace, particularly in the second half. Challenging but sustainable workout."
     
     elif 'half marathon' in desc_lower:
-        return "Half marathon race: Goal race to assess fitness and practice race-day strategies. Use as a training run, not an all-out effort."
+        return "Half Marathon: Goal race to assess fitness and practice race-day strategies. Use as training run, not all-out effort."
     
     elif 'marathon' in desc_lower and 'pace' not in desc_lower:
-        return "Marathon race: Your goal race! Trust your training and stick to your planned pace strategy."
+        return "Marathon Race: Your goal race! Trust your training and execute your planned pace strategy."
     
     else:
-        return f"Planned workout: {activity_description}. Follow your training plan and listen to your body."
+        return f"Training Run: {activity_description}. Follow your plan and listen to your body."
 
 
 def pace_to_seconds(pace_str):
@@ -2178,7 +2200,9 @@ def show_dashboard():
     })
 
     column_order = ["Date", "Day", "Workout", "Plan (mi)", "Suggested Pace", "Actual (mi)", "Actual Pace"]
-    existing_columns = [col for col in column_order if col in display_df.columns]
+    # Keep the tooltip and helper columns that we need but will hide later
+    display_columns = column_order + ["Activity_Short_Description", "Activity_Tooltip", "DateISO", "Week", "Date_sort", "Strava_URL", "Activity_Abbr"]
+    existing_columns = [col for col in display_columns if col in display_df.columns]
     display_df = display_df[existing_columns]
     
     gb = GridOptionsBuilder.from_dataframe(display_df)
