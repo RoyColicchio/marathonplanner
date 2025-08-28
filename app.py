@@ -2801,7 +2801,12 @@ def show_dashboard():
     # Add DateISO for reliable joins and overrides
     final_plan_df['DateISO'] = pd.to_datetime(final_plan_df['Date']).dt.strftime('%Y-%m-%d')
     
-    # Ensure tooltips and descriptions match the final activities (after overrides)
+    # Ensure activity descriptions are consistent with abbreviations (fix any override inconsistencies)
+    if 'Activity_Abbr' in final_plan_df.columns and 'Activity' in final_plan_df.columns:
+        # Regenerate Activity descriptions from Activity_Abbr to ensure consistency
+        final_plan_df['Activity'] = final_plan_df['Activity_Abbr'].apply(enhance_activity_description)
+    
+    # Ensure tooltips and descriptions match the final activities (after overrides and fixes)
     if 'Activity' in final_plan_df.columns:
         final_plan_df['Activity_Tooltip'] = final_plan_df['Activity'].apply(get_activity_tooltip)
         final_plan_df['Activity_Short_Description'] = final_plan_df['Activity'].apply(get_activity_short_description)
@@ -3406,18 +3411,20 @@ def show_dashboard():
     
     with col2:
         if st.button("Fix Tooltip Mismatches", help="Regenerate all tooltips to fix any mismatched descriptions"):
-            # Clear all tooltips from overrides so they get regenerated
+            # Clear all tooltips AND activity descriptions from overrides so they get regenerated
             try:
                 overrides = _get_overrides_for_plan(settings)
                 if overrides:
-                    # Remove any tooltip columns from overrides to force regeneration
+                    # Remove any tooltip and activity columns from overrides to force regeneration
                     for date_key, override_data in overrides.items():
                         if isinstance(override_data, dict):
                             override_data.pop('Activity_Tooltip', None)
                             override_data.pop('Activity_Short_Description', None)
+                            # Also remove Activity descriptions so they get regenerated from Activity_Abbr
+                            override_data.pop('Activity', None)
                     _save_overrides_for_plan(user_hash, settings, overrides)
                 
-                st.success("Tooltips reset! The page will refresh and regenerate all tooltips.")
+                st.success("Tooltips and descriptions reset! The page will refresh and regenerate everything from the base activity abbreviations.")
                 st.session_state.plan_needs_refresh = True
                 st.rerun()
             except Exception as e:
