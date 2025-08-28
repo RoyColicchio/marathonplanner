@@ -1195,15 +1195,33 @@ def pace_to_seconds(pace_str):
         return None
 
 
-def is_pace_in_range(actual_pace, suggested_pace):
-    """Check if actual pace is within reasonable range of suggested pace."""
+def is_pace_in_range(actual_pace, suggested_pace_range):
+    """Check if actual pace is within the suggested pace range."""
     actual_seconds = pace_to_seconds(actual_pace)
-    suggested_seconds = pace_to_seconds(suggested_pace)
     
-    if actual_seconds is None or suggested_seconds is None:
+    if actual_seconds is None:
+        return False
+        
+    # Handle range format like "8:45 - 9:15"
+    if " - " in str(suggested_pace_range):
+        try:
+            faster_pace, slower_pace = suggested_pace_range.split(" - ")
+            faster_seconds = pace_to_seconds(faster_pace.strip())
+            slower_seconds = pace_to_seconds(slower_pace.strip())
+            
+            if faster_seconds is None or slower_seconds is None:
+                return False
+                
+            return faster_seconds <= actual_seconds <= slower_seconds
+        except:
+            return False
+    
+    # Fallback for single pace values (backward compatibility)
+    suggested_seconds = pace_to_seconds(suggested_pace_range)
+    if suggested_seconds is None:
         return False
     
-    # Allow for ±30 seconds range around suggested pace
+    # Allow for ±30 seconds range around single pace
     return abs(actual_seconds - suggested_seconds) <= 30
 
 
@@ -1222,7 +1240,7 @@ def is_miles_in_range(actual_miles, suggested_miles):
 
 
 def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
-    """Calculate suggested pace based on activity type and goal marathon time."""
+    """Calculate suggested pace range based on activity type and goal marathon time."""
     try:
         # Parse goal marathon time
         time_parts = goal_marathon_time_str.split(":")
@@ -1234,18 +1252,28 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         
         desc_lower = activity_description.lower()
         
+        def format_pace_range(base_seconds):
+            """Return pace range: 3% faster to 3% slower"""
+            faster_seconds = base_seconds * 0.97
+            slower_seconds = base_seconds * 1.03
+            
+            faster_pace = f"{int(faster_seconds//60)}:{int(faster_seconds%60):02d}"
+            slower_pace = f"{int(slower_seconds//60)}:{int(slower_seconds%60):02d}"
+            
+            return f"{faster_pace} - {slower_pace}"
+        
         if 'rest' in desc_lower:
             return "—"
         
         elif 'easy' in desc_lower:
             # Easy: 60-120 seconds slower than marathon pace (was 30-90)
             easy_seconds = marathon_pace_seconds + 90  # More conservative
-            return f"{int(easy_seconds//60)}:{int(easy_seconds%60):02d}"
+            return format_pace_range(easy_seconds)
         
         elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
             # GA: 30-60 seconds slower than marathon pace (was 15-45)
             ga_seconds = marathon_pace_seconds + 45  # More conservative
-            return f"{int(ga_seconds//60)}:{int(ga_seconds%60):02d}"
+            return format_pace_range(ga_seconds)
         
         elif 'hill repeat' in desc_lower:
             return "Hard uphill effort"
@@ -1253,7 +1281,7 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         elif 'tempo' in desc_lower:
             # Tempo: Near 10K pace (roughly 10-20 seconds faster than marathon pace, was 15-30 faster)
             tempo_seconds = marathon_pace_seconds - 15
-            return f"{int(tempo_seconds//60)}:{int(tempo_seconds%60):02d}"
+            return format_pace_range(tempo_seconds)
         
         elif '800m interval' in desc_lower or '800' in desc_lower:
             return "Yasso 800s pace"
@@ -1262,25 +1290,25 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return "Mile pace or faster"
         
         elif 'marathon pace' in desc_lower:
-            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
+            return format_pace_range(marathon_pace_seconds)
         
         elif 'long run' in desc_lower:
             # Long run: 60-120 seconds slower than marathon pace (was 30-90)
             long_seconds = marathon_pace_seconds + 90  # More conservative
-            return f"{int(long_seconds//60)}:{int(long_seconds%60):02d}"
+            return format_pace_range(long_seconds)
         
         elif 'half marathon' in desc_lower:
             # Half marathon: ~10 seconds faster than marathon pace (was 15 faster)
             hm_seconds = marathon_pace_seconds - 10
-            return f"{int(hm_seconds//60)}:{int(hm_seconds%60):02d}"
+            return format_pace_range(hm_seconds)
         
         elif 'marathon' in desc_lower and 'pace' not in desc_lower:
-            return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
+            return format_pace_range(marathon_pace_seconds)
         
         else:
             # Default to general aerobic
             default_seconds = marathon_pace_seconds + 45  # More conservative
-            return f"{int(default_seconds//60)}:{int(default_seconds%60):02d}"
+            return format_pace_range(default_seconds)
             
     except Exception:
         return "See plan"
