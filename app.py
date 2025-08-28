@@ -2476,6 +2476,11 @@ def _get_overrides_for_plan(settings: dict) -> dict:
         
         # Debug output
         if _is_debug():
+            st.write(f"Debug _get_overrides_for_plan:")
+            st.write(f"  Plan signature: '{sig}'")
+            st.write(f"  Session overrides: {session_overrides}")
+            st.write(f"  Saved overrides: {saved_overrides}") 
+            st.write(f"  Combined overrides: {combined}")
             st.session_state["_debug_override_source"] = {
                 "sig": sig,
                 "session": session_overrides,
@@ -2513,6 +2518,10 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
         
         # Debug info
         if _is_debug():
+            st.write(f"Debug _save_overrides_for_plan:")
+            st.write(f"  Plan signature: '{sig}'")
+            st.write(f"  Saving {len(overrides)} overrides")
+            st.write(f"  Override keys: {list(overrides.keys())}")
             st.session_state["_debug_saved_overrides"] = {
                 "sig": sig,
                 "overrides": overrides,
@@ -2531,11 +2540,21 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
     try:
         overrides = _get_overrides_for_plan(settings)
         
+        if _is_debug():
+            st.write(f"Debug apply_plan_overrides: Starting with {len(plan_df) if plan_df is not None else 0} rows")
+            if plan_df is not None and 'DateISO' in plan_df.columns:
+                sample_dates = plan_df['DateISO'].head(3).tolist()
+                st.write(f"  Sample DateISO values: {sample_dates}")
+            else:
+                st.write("  No DateISO column found!")
+        
         # Fix for None vs empty dict confusion
         if overrides is None:
             overrides = {}
             
         if not overrides or plan_df is None or plan_df.empty:
+            if _is_debug():
+                st.write(f"Debug apply_plan_overrides: Early exit - overrides empty: {not overrides}, plan_df empty: {plan_df is None or plan_df.empty}")
             return plan_df
             
         # Make a fresh copy to avoid modifying the original
