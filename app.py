@@ -2644,64 +2644,7 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
         
-        # Also apply the overrides directly to the global plan DataFrame for immediate effect
-        if 'DateISO' in plan_df.columns:
-            a_mask = (plan_df['DateISO'] == date_a_str)
-            b_mask = (plan_df['DateISO'] == date_b_str)
-        else:
-            a_mask = (plan_df['Date'] == date_a)
-            b_mask = (plan_df['Date'] == date_b)
-            
-        # Swap the values directly in the DataFrame for each field
-        for field in workout_fields:
-            if field in plan_df.columns:
-                try:
-                    # Save the original values
-                    a_val = plan_df.loc[a_mask, field].values[0] if any(a_mask) else None
-                    b_val = plan_df.loc[b_mask, field].values[0] if any(b_mask) else None
-                    
-                    # Swap them if both exist
-                    if a_val is not None and b_val is not None:
-                        plan_df.loc[a_mask, field] = b_val
-                        plan_df.loc[b_mask, field] = a_val
-                except Exception as e:
-                    if _is_debug():
-                        st.write(f"Error swapping {field}: {e}")
-        
-        # Regenerate tooltip columns for the swapped rows
-        if any(a_mask) and any(b_mask):
-            # Get the new activity descriptions after swap
-            new_activity_a = plan_df.loc[a_mask, 'Activity'].values[0]
-            new_activity_b = plan_df.loc[b_mask, 'Activity'].values[0]
-            
-            if _is_debug():
-                st.write(f"Debug: Regenerating tooltips for swapped activities:")
-                st.write(f"  Date A ({date_a_str}): '{new_activity_a}'")
-                st.write(f"  Date B ({date_b_str}): '{new_activity_b}'")
-            
-            # Ensure tooltip columns exist
-            if 'Activity_Tooltip' not in plan_df.columns:
-                plan_df['Activity_Tooltip'] = plan_df['Activity'].apply(get_activity_tooltip)
-            if 'Activity_Short_Description' not in plan_df.columns:
-                plan_df['Activity_Short_Description'] = plan_df['Activity'].apply(get_activity_short_description)
-            
-            # Regenerate tooltips and short descriptions for both swapped activities
-            try:
-                plan_df.loc[a_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_a)
-                plan_df.loc[a_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_a)
-                
-                plan_df.loc[b_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_b)  
-                plan_df.loc[b_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_b)
-                
-                if _is_debug():
-                    st.write("Debug: Tooltips successfully regenerated")
-            except Exception as e:
-                if _is_debug():
-                    st.write(f"Debug: Error regenerating tooltips: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
-        
-        # Force refresh of plan to ensure tooltip changes are visible
+        # Force refresh of plan to ensure changes are visible
         st.session_state.plan_needs_refresh = True
         
         return True
@@ -2811,12 +2754,22 @@ def show_dashboard():
     # Add DateISO for reliable joins and overrides
     final_plan_df['DateISO'] = pd.to_datetime(final_plan_df['Date']).dt.strftime('%Y-%m-%d')
     
-    # Ensure activity descriptions are consistent with abbreviations (fix any override inconsistencies)
+    # Only regenerate activity descriptions for rows that don't have overrides
+    # (to avoid overwriting swapped activities)
+    overrides = _get_overrides_for_plan(settings)
     if 'Activity_Abbr' in final_plan_df.columns and 'Activity' in final_plan_df.columns:
-        # Regenerate Activity descriptions from Activity_Abbr to ensure consistency
-        final_plan_df['Activity'] = final_plan_df['Activity_Abbr'].apply(enhance_activity_description)
+        if overrides:
+            # Only update rows that don't have overrides
+            for idx in final_plan_df.index:
+                date_iso = final_plan_df.loc[idx, 'DateISO']
+                if date_iso not in overrides:
+                    # No override for this date, safe to regenerate
+                    final_plan_df.loc[idx, 'Activity'] = enhance_activity_description(final_plan_df.loc[idx, 'Activity_Abbr'])
+        else:
+            # No overrides at all, safe to regenerate everything
+            final_plan_df['Activity'] = final_plan_df['Activity_Abbr'].apply(enhance_activity_description)
     
-    # Ensure tooltips and descriptions match the final activities (after overrides and fixes)
+    # Regenerate tooltips and descriptions for all rows (they should match current Activity values)
     if 'Activity' in final_plan_df.columns:
         final_plan_df['Activity_Tooltip'] = final_plan_df['Activity'].apply(get_activity_tooltip)
         final_plan_df['Activity_Short_Description'] = final_plan_df['Activity'].apply(get_activity_short_description)
