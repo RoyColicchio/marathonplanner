@@ -1473,7 +1473,18 @@ def enhance_activity_description(activity_string):
             else:
                 return f"Run with {mp_miles} miles at Marathon Pace"
         else:
-            return "Marathon Pace Run"
+            # For generic MP workouts, try to extract the primary distance for context
+            primary_miles = extract_primary_miles(orig)
+            if primary_miles and primary_miles >= 8:
+                return f"Long Run at Marathon Pace"
+            elif primary_miles and primary_miles >= 5:
+                return f"Medium Run at Marathon Pace"
+            elif 'mlr' in orig.lower():
+                return f"Medium-Long Run at Marathon Pace"
+            elif 'lr' in orig.lower():
+                return f"Long Run at Marathon Pace"
+            else:
+                return f"Marathon Pace Training Run"
     
     if 'half marathon' in orig.lower():
         return "Half Marathon Race"
@@ -1495,25 +1506,59 @@ def enhance_activity_description(activity_string):
     if _is_debug():
         _debug_info(f"  → Using smart activity descriptions, preserving workout-specific mileage")
     
-    # Fallback: use basic expansion for abbreviations, removing only the primary total distance
+    # Fallback: use context-aware expansion for abbreviations, removing only the primary total distance
+    def get_contextual_description(abbr, original_text):
+        primary_miles = extract_primary_miles(original_text)
+        base_map = {
+            "GA": "General Aerobic Run",
+            "Rec": "Recovery Run", 
+            "MLR": "Medium-Long Run",
+            "LR": "Long Run",
+            "SP": "Speed Work",
+            "V8": "VO₂Max Intervals",
+            "V9": "VO₂Max Intervals",
+            "V10": "VO₂Max Intervals",
+            "LT": "Lactate Threshold Run",
+            "HMP": "Half Marathon Pace Run",
+            "MP": "Marathon Pace Training Run",
+        }
+        
+        base_desc = base_map.get(abbr, abbr)
+        
+        # Add context based on distance for certain workout types
+        if abbr == "MP" and primary_miles:
+            if primary_miles >= 8:
+                return "Long Run at Marathon Pace"
+            elif primary_miles >= 5:
+                return "Medium Run at Marathon Pace"
+            else:
+                return "Marathon Pace Training Run"
+        elif abbr in ["LT", "HMP"] and primary_miles:
+            if primary_miles >= 8:
+                return f"Long {base_desc}"
+            elif primary_miles >= 5:
+                return f"Medium {base_desc}"
+        
+        return base_desc
+    
     activity_map = {
-        "GA": "General Aerobic",
-        "Rec": "Recovery", 
-        "MLR": "Medium-Long Run",
-        "LR": "Long Run",
-        "SP": "Sprints",
-        "V8": "VO₂Max",
-        "V9": "VO₂Max",
-        "V10": "VO₂Max",
-        "LT": "Lactate Threshold",
-        "HMP": "Half Marathon Pace",
-        "MP": "Marathon Pace",
+        "GA": lambda: get_contextual_description("GA", orig),
+        "Rec": lambda: get_contextual_description("Rec", orig),
+        "MLR": lambda: get_contextual_description("MLR", orig),
+        "LR": lambda: get_contextual_description("LR", orig),
+        "SP": lambda: get_contextual_description("SP", orig),
+        "V8": lambda: get_contextual_description("V8", orig),
+        "V9": lambda: get_contextual_description("V9", orig),
+        "V10": lambda: get_contextual_description("V10", orig),
+        "LT": lambda: get_contextual_description("LT", orig),
+        "HMP": lambda: get_contextual_description("HMP", orig),
+        "MP": lambda: get_contextual_description("MP", orig),
     }
     
     sorted_keys = sorted(activity_map.keys(), key=len, reverse=True)
     for abbr in sorted_keys:
         if re.search(r'\b' + re.escape(abbr) + r'\b', orig):
-            result = activity_map[abbr]
+            result = activity_map[abbr]()  # Call the lambda function
             if _is_debug():
                 _debug_info(f"  → Matched '{abbr}', returning: '{result}'")
             return result
