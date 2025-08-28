@@ -1184,21 +1184,55 @@ def get_activity_short_description(activity_description):
         return f"Recovery {miles_str}run at very easy pace to promote active recovery."
     
     elif 'tempo' in desc_lower or 'lactate threshold' in desc_lower or 'lt' in desc_lower:
+        # Look for tempo segments
+        tempo_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?tempo', desc_lower)
+        if tempo_match:
+            tempo_miles = float(tempo_match.group(1))
+            total_miles = re.search(r'^(\d+(?:\.\d+)?)', orig)
+            total_str = f"{total_miles.group(1)}-mile run with " if total_miles else ""
+            return f"{total_str}{tempo_miles} miles at tempo pace (continuous block in middle)."
+        
         time_match = re.search(r'(\d+)', orig)
         time_str = f"{time_match.group(1)}-minute " if time_match else ""
         return f"{time_str}tempo run at sustained, challenging pace to improve lactate clearance."
     
     elif 'vo2' in desc_lower or 'v8' in desc_lower or '800m interval' in desc_lower or '800' in desc_lower:
+        # Look for specific interval patterns
+        interval_match = re.search(r'(\d+)\s*×\s*(?:(\d+(?:\.\d+)?)\s*(?:mi|mile|miles|m|meter|meters)?|(\d+)\s*(?:min|minute|minutes))', desc_lower)
+        if interval_match:
+            reps = interval_match.group(1)
+            distance = interval_match.group(2)
+            time_mins = interval_match.group(3)
+            
+            if distance and 'm' in desc_lower and not 'mi' in desc_lower:  # meters
+                return f"{reps} × {distance}m intervals at 5K pace (equal time recovery)."
+            elif distance:  # miles
+                return f"{reps} × {distance}-mile intervals at 5K-10K pace (2-3 min recovery)."
+            elif time_mins:  # time-based
+                return f"{reps} × {time_mins}-minute intervals at 5K pace (half-time recovery)."
+        
         num_match = re.search(r'(\d+)', orig)
         num_str = f"{num_match.group(1)} " if num_match else ""
         return f"{num_str}× intervals at 5K-10K pace to boost maximal oxygen uptake."
     
     elif '400m interval' in desc_lower or '400' in desc_lower:
+        # Look for 400m patterns
+        interval_400_match = re.search(r'(\d+)\s*×\s*400', desc_lower)
+        if interval_400_match:
+            reps = interval_400_match.group(1)
+            return f"{reps} × 400m speed intervals at mile pace (full recovery between)."
+        
         num_match = re.search(r'(\d+)', orig)
         num_str = f"{num_match.group(1)} " if num_match else ""
         return f"{num_str}× 400m speed intervals with full recovery between repeats."
     
     elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
+        # Look for hill repeat patterns
+        hill_match = re.search(r'(\d+)\s*(?:×\s*)?hill', desc_lower)
+        if hill_match:
+            reps = hill_match.group(1)
+            return f"{reps} hill repeats at 5K effort (walk/jog down for recovery)."
+        
         num_match = re.search(r'(\d+)', orig)
         num_str = f"{num_match.group(1)} " if num_match else ""
         return f"{num_str}hill repeats to build leg strength and power."
@@ -1287,16 +1321,98 @@ def get_activity_tooltip(activity_description):
         return "Recovery Run: Short, low-intensity run after harder workouts to promote active recovery and blood flow, helping the body adapt to training stress."
     
     elif 'tempo' in desc_lower or 'lactate threshold' in desc_lower or 'lt' in desc_lower:
-        return "Lactate Threshold (Tempo): Sustained, challenging pace (15K-half marathon pace) to improve your body's ability to clear lactic acid."
+        base_text = "Lactate Threshold (Tempo): Sustained, challenging pace (15K-half marathon pace) to improve your body's ability to clear lactic acid."
+        
+        # Look for tempo segment patterns like "8 miles with 5 miles tempo" or "20 minute tempo"
+        tempo_miles_match = re.search(r'(?:with|w/)\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*(?:at\s*)?tempo', desc_lower)
+        if tempo_miles_match:
+            tempo_miles = float(tempo_miles_match.group(1))
+            if tempo_miles >= 5:
+                return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace as one continuous block. Start with 2-3 miles easy warm-up, then sustain tempo effort for all {tempo_miles} miles, followed by 1-2 miles easy cool-down. Focus on controlled breathing and steady rhythm."
+            elif tempo_miles >= 3:
+                return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace continuously in the middle of your run. Warm up for 15-20 minutes, then maintain steady tempo effort. If struggling to sustain pace, you can break into 2 segments with 2-3 minutes recovery."
+            else:
+                return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace after proper warm-up. This shorter tempo should feel 'comfortably hard' - challenging but sustainable throughout."
+        
+        # Look for time-based tempo like "20 minute tempo" or "2 x 15 minutes"
+        tempo_time_match = re.search(r'(?:(\d+)\s*×\s*)?(\d+)\s*(?:-?\s*)?minute.*tempo', desc_lower)
+        if tempo_time_match:
+            if tempo_time_match.group(1):  # Multiple segments like "2 × 15 minutes"
+                reps = tempo_time_match.group(1)
+                minutes = tempo_time_match.group(2)
+                return f"{base_text}\n\nExecution: Run {reps} separate {minutes}-minute tempo segments with 3-5 minutes easy recovery between each. Warm up for 15-20 minutes, then maintain steady tempo effort during work intervals."
+            else:  # Single segment like "20 minutes tempo"
+                minutes = tempo_time_match.group(2)
+                return f"{base_text}\n\nExecution: Run {minutes} continuous minutes at tempo pace. Start with 15-20 minute warm-up, sustain tempo effort throughout, then cool down with easy running."
+        
+        return base_text
     
     elif 'vo2' in desc_lower or 'v8' in desc_lower or '800m interval' in desc_lower or '800' in desc_lower:
-        return "VO₂ Max: Shorter, faster intervals at 5K-10K pace to increase your body's maximal oxygen uptake capacity."
+        base_text = "VO₂ Max: Shorter, faster intervals at 5K-10K pace to increase your body's maximal oxygen uptake capacity."
+        
+        # Look for interval patterns like "6 × 800m" or "8 × 3 minutes"
+        interval_count_match = re.search(r'(\d+)\s*×\s*(?:(\d+(?:\.\d+)?)\s*(?:mi|mile|miles|m|meter|meters)?|(\d+)\s*(?:min|minute|minutes))', desc_lower)
+        if interval_count_match:
+            reps = int(interval_count_match.group(1))
+            distance = interval_count_match.group(2)
+            time_mins = interval_count_match.group(3)
+            
+            if distance:  # Distance-based intervals
+                if 'm' in desc_lower and not 'mi' in desc_lower:  # meters
+                    return f"{base_text}\n\nExecution: Run {reps} × {distance}m intervals at 5K pace with equal time recovery (jog/walk). Complete 15-20 minute warm-up including strides. Focus on smooth, controlled speed with full recovery between repeats."
+                else:  # miles
+                    return f"{base_text}\n\nExecution: Run {reps} × {distance}-mile intervals at 5K-10K pace with 2-3 minutes recovery between each. Warm up thoroughly, then maintain steady hard effort during work intervals."
+            elif time_mins:  # Time-based intervals
+                recovery_time = max(2, int(time_mins) // 2)  # Recovery roughly half the work time
+                return f"{base_text}\n\nExecution: Run {reps} × {time_mins}-minute intervals at 5K pace with {recovery_time}-minute easy recovery between each. Focus on maintaining consistent pace and effort across all intervals."
+        
+        # Look for Yasso 800s specifically
+        if 'yasso' in desc_lower or ('800' in desc_lower and any(x in desc_lower for x in ['goal', 'marathon', 'time'])):
+            return f"{base_text}\n\nExecution: Yasso 800s - run each 800m in minutes:seconds matching your marathon goal hours:minutes (e.g., 4:00 marathon = 4:00 per 800m). Take equal recovery time between intervals. Start conservatively and build consistency."
+        
+        return base_text
     
     elif '400m interval' in desc_lower or '400' in desc_lower:
-        return "Speed Intervals: Short, fast repeats at mile pace or faster. Focus on speed and running form with full recovery between repeats."
+        base_text = "Speed Intervals: Short, fast repeats at mile pace or faster. Focus on speed and running form with full recovery between repeats."
+        
+        # Look for 400m interval patterns
+        interval_400_match = re.search(r'(\d+)\s*×\s*400', desc_lower)
+        if interval_400_match:
+            reps = int(interval_400_match.group(1))
+            recovery_time = "90 seconds to 2 minutes" if reps >= 8 else "2-3 minutes"
+            return f"{base_text}\n\nExecution: Run {reps} × 400m repeats at mile pace or slightly faster with {recovery_time} complete recovery (walk/easy jog). Warm up thoroughly with dynamic drills. Focus on relaxed speed and good form - these should feel fast but controlled."
+        
+        # Look for other short speed intervals
+        short_interval_match = re.search(r'(\d+)\s*×\s*(\d+(?:\.\d+)?)\s*(?:mi|mile|miles)', desc_lower)
+        if short_interval_match and float(short_interval_match.group(2)) <= 0.5:  # Quarter-mile or shorter
+            reps = int(short_interval_match.group(1))
+            distance = short_interval_match.group(2)
+            return f"{base_text}\n\nExecution: Run {reps} × {distance}-mile repeats at mile pace with full recovery between each. These are neuromuscular speed sessions - focus on turnover and form rather than grinding out pace."
+        
+        return base_text
     
     elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
-        return "Hill Repeats: Run hard uphill efforts with easy recovery. Builds leg strength and power with less impact than track work."
+        base_text = "Hill Repeats: Run hard uphill efforts with easy recovery. Builds leg strength and power with less impact than track work."
+        
+        # Look for hill repeat patterns
+        hill_count_match = re.search(r'(\d+)\s*(?:×\s*)?hill', desc_lower)
+        if hill_count_match:
+            reps = int(hill_count_match.group(1))
+            return f"{base_text}\n\nExecution: Run {reps} hill repeats on a moderate grade (4-6%). Run uphill at 5K effort for 60-90 seconds, then walk/jog slowly back down for full recovery. Focus on strong arm drive and maintaining form. The effort should feel hard but sustainable across all repeats."
+        
+        # Look for time or distance-based hill work
+        hill_time_match = re.search(r'(\d+)\s*(?:×\s*)?(\d+)\s*(?:second|sec|minute|min)', desc_lower)
+        if hill_time_match:
+            reps = int(hill_time_match.group(1))
+            duration = hill_time_match.group(2)
+            unit = "seconds" if "sec" in desc_lower else "minutes"
+            return f"{base_text}\n\nExecution: Run {reps} × {duration}-{unit} hill repeats at 5K-10K effort. Use the downhill for complete recovery between repeats. Focus on driving with your arms and maintaining quick turnover uphill."
+        
+        # Generic hill workout advice
+        if 'hill' in desc_lower:
+            return f"{base_text}\n\nExecution: Find a steady 4-6% grade hill. Run uphill at a strong, controlled effort (5K pace feel), focusing on form and power. Walk or jog easily downhill for full recovery between efforts."
+        
+        return base_text
     
     elif 'marathon pace' in desc_lower or 'mp' in desc_lower:
         # Check for specific marathon pace segments and provide execution guidance
@@ -1358,7 +1474,20 @@ def get_activity_tooltip(activity_description):
         return base_text
     
     elif 'progression' in desc_lower:
-        return "Progression Run: Start slow and gradually increase pace, particularly in the second half. Challenging but sustainable workout."
+        base_text = "Progression Run: Start slow and gradually increase pace, particularly in the second half. Challenging but sustainable workout."
+        
+        # Look for progression run specifics
+        miles_match = re.search(r'(\d+(?:\.\d+)?)', orig)
+        if miles_match:
+            total_miles = float(miles_match.group(1))
+            if total_miles >= 8:
+                return f"{base_text}\n\nExecution: Start at easy pace for the first {total_miles//3:.0f} miles, progress to general aerobic pace for the middle third, then finish the final {total_miles//3:.0f} miles at tempo pace. The progression should feel natural and controlled."
+            elif total_miles >= 5:
+                return f"{base_text}\n\nExecution: Start at easy pace for the first half, then progress to tempo pace for the second half. Focus on negative splitting - each mile should be slightly faster than the previous."
+            else:
+                return f"{base_text}\n\nExecution: Start at easy pace, then gradually increase to tempo pace over the final 1-2 miles. The acceleration should feel smooth and controlled."
+        
+        return base_text
     
     elif 'half marathon' in desc_lower:
         return "Half Marathon: Goal race to assess fitness and practice race-day strategies. Use as training run, not all-out effort."
@@ -1367,6 +1496,24 @@ def get_activity_tooltip(activity_description):
         return "Marathon Race: Your goal race! Trust your training and execute your planned pace strategy."
     
     else:
+        # Check for other structured workout patterns
+        
+        # Fartlek patterns
+        if 'fartlek' in desc_lower:
+            return f"Fartlek: Unstructured speed play with varying paces and efforts. Mix periods of faster running (30 seconds to 3 minutes) with easy recovery. Keep it fun and spontaneous - use landmarks, terrain, or how you feel to guide the surges."
+        
+        # Strides or pickups
+        if 'stride' in desc_lower or 'pickup' in desc_lower:
+            stride_match = re.search(r'(\d+)\s*(?:×\s*)?stride', desc_lower)
+            if stride_match:
+                reps = stride_match.group(1)
+                return f"Strides: {reps} × 100m accelerations to 95% effort, focusing on form and turnover. Use these after easy runs or as part of pre-race preparation. Walk back for full recovery between each."
+            return f"Strides: Short, controlled accelerations to near-maximum speed focusing on running form and leg turnover."
+        
+        # Mixed pace workouts
+        if 'aerobic' in desc_lower and 'tempo' in desc_lower:
+            return f"Mixed Aerobic/Tempo: Combination workout alternating between comfortable aerobic pace and tempo efforts. Structure the segments with proper warm-up and recovery between different pace zones."
+        
         return f"Training Run: {orig}. Follow your plan and listen to your body."
 
 
