@@ -3,6 +3,12 @@ import os
 import sys
 import numpy as np
 import json
+import hashlib
+import time
+import traceback
+import requests
+import pandas as pd
+import re
 
 # Build/version identifier to verify deployment
 BUILD_SHA = "f3137ce"
@@ -828,82 +834,133 @@ def save_user_settings(user_hash, settings):
 
 
 def check_persistent_login():
-    """Check for persistent login data using a more reliable method."""
+    """Check for persistent login data using URL parameters or session storage."""
     if st.session_state.auth_checked:
         return
     
     st.session_state.auth_checked = True
     
-    # Use a simpler approach with HTML/JS that sets query parameters
-    js_code = """
-    <script>
-    // Check for stored user data
-    const userData = localStorage.getItem('strava_dashboard_user');
-    if (userData && !window.location.search.includes('restored=true')) {
-        try {
-            const user = JSON.parse(userData);
-            // Add restored flag to URL to trigger restoration
-            const params = new URLSearchParams(window.location.search);
-            params.set('restored', 'true');
-            params.set('user_email', user.email);
-            params.set('user_name', user.name);
-            params.set('user_picture', user.picture || '');
-            params.set('user_token', user.access_token || '');
-            window.location.search = params.toString();
-        } catch (e) {
-            localStorage.removeItem('strava_dashboard_user');
-        }
-    }
-    </script>
-    """
+    if _is_debug():
+        st.write("Debug: Checking for persistent login...")
     
-    st.html(js_code)
-    
-    # Check if we were restored from localStorage
+    # First, check if we have restoration data in query parameters
     if st.query_params.get("restored") == "true":
+        if _is_debug():
+            st.write("Debug: Found 'restored=true' in query params")
+        
         user_email = st.query_params.get("user_email")
         user_name = st.query_params.get("user_name") 
         user_picture = st.query_params.get("user_picture", "")
         user_token = st.query_params.get("user_token", "")
         
+        if _is_debug():
+            st.write(f"Debug: Extracted email: {user_email}, name: {user_name}")
+        
         if user_email and user_name:
+            # URL decode the values
+            try:
+                from urllib.parse import unquote
+                user_email = unquote(user_email)
+                user_name = unquote(user_name)
+                user_picture = unquote(user_picture) if user_picture else ""
+                user_token = unquote(user_token) if user_token else None
+            except:
+                pass
+                
             st.session_state.current_user = {
                 "email": user_email,
                 "name": user_name,
                 "picture": user_picture,
-                "access_token": user_token if user_token else None,
+                "access_token": user_token,
             }
+            if _is_debug():
+                st.write("Debug: User restored from localStorage, clearing query params and rerunning")
             # Clean up the URL
             st.query_params.clear()
             st.rerun()
+            return
+    
+    # Try to check localStorage and set up restoration parameters
+    # Use a simpler approach: create a hidden iframe that does the localStorage check
+    import streamlit.components.v1 as components
+    
+    if _is_debug():
+        st.write("Debug: Setting up localStorage check")
+    
+    # Create a more reliable localStorage checker using an iframe
+    iframe_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+        window.onload = function() {
+            try {
+                const userData = localStorage.getItem('strava_dashboard_user');
+                console.log('iframe: Checking localStorage:', userData ? 'found' : 'not found');
+                
+                if (userData && !window.parent.location.search.includes('restored=true')) {
+                    console.log('iframe: Found user data, redirecting parent');
+                    const user = JSON.parse(userData);
+                    
+                    // Build new URL with parameters
+                    const params = new URLSearchParams();
+                    params.set('restored', 'true');
+                    params.set('user_email', encodeURIComponent(user.email));
+                    params.set('user_name', encodeURIComponent(user.name));
+                    params.set('user_picture', encodeURIComponent(user.picture || ''));
+                    params.set('user_token', encodeURIComponent(user.access_token || ''));
+                    
+                    // Redirect parent window
+                    window.parent.location.href = window.parent.location.pathname + '?' + params.toString();
+                } else if (!userData) {
+                    console.log('iframe: No stored user data found');
+                }
+            } catch (e) {
+                console.error('iframe: Error:', e);
+                localStorage.removeItem('strava_dashboard_user');
+            }
+        };
+        </script>
+    </head>
+    <body></body>
+    </html>
+    """
+    
+    components.html(iframe_html, height=0)
 
 
 def save_user_to_storage(user_data):
     """Save user data to browser localStorage."""
+    import streamlit.components.v1 as components
+    
     js_code = f"""
     <script>
     try {{
         localStorage.setItem('strava_dashboard_user', JSON.stringify({json.dumps(user_data)}));
+        console.log('User data saved to localStorage');
     }} catch (e) {{
         console.error('Failed to save user data:', e);
     }}
     </script>
     """
-    st.html(js_code)
+    components.html(js_code, height=0)
 
 
 def clear_user_from_storage():
     """Clear user data from browser localStorage."""
+    import streamlit.components.v1 as components
+    
     js_code = """
     <script>
     try {
         localStorage.removeItem('strava_dashboard_user');
+        console.log('User data cleared from localStorage');
     } catch (e) {
         console.error('Failed to clear user data:', e);
     }
     </script>
     """
-    st.html(js_code)
+    components.html(js_code, height=0)
 
 
 def google_login():
@@ -2647,12 +2704,22 @@ def main():
     """Main application logic."""
     # Check for persistent login data first
     if not st.session_state.current_user:
+        if _is_debug():
+            st.write("Debug: No current user, checking persistent login...")
         check_persistent_login()
         
     if not st.session_state.current_user:
+        if _is_debug():
+            st.write("Debug: Still no current user after persistent login check, showing login page...")
+            # Show query params for debugging
+            if st.query_params:
+                st.write(f"Debug: Current query params: {dict(st.query_params)}")
         google_login()
         return
 
+    if _is_debug():
+        st.write(f"Debug: User logged in: {st.session_state.current_user.get('email', 'Unknown')}")
+    
     show_header()
     show_dashboard()
 
