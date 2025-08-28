@@ -1447,8 +1447,8 @@ def enhance_activity_description(activity_string):
         time_match = re.search(r'(\d+)\s*tempo', orig.lower())
         if time_match:
             minutes = time_match.group(1)
-            return f"{minutes}-Minute Tempo Run"
-        return "Tempo Run"
+            return f"Lactate Threshold Run ({minutes} min tempo)"
+        return "Lactate Threshold Run"
     
     if 'x 800' in orig.lower():
         num = re.search(r'(\d+)\s*x\s*800', orig.lower())
@@ -1473,18 +1473,16 @@ def enhance_activity_description(activity_string):
             else:
                 return f"Run with {mp_miles} miles at Marathon Pace"
         else:
-            # For generic MP workouts, try to extract the primary distance for context
+            # For generic MP workouts without specific segments, assume it's a marathon pace workout
             primary_miles = extract_primary_miles(orig)
             if primary_miles and primary_miles >= 8:
-                return f"Long Run at Marathon Pace"
-            elif primary_miles and primary_miles >= 5:
-                return f"Medium Run at Marathon Pace"
+                return f"Long Run with Marathon Pace segments"
             elif 'mlr' in orig.lower():
-                return f"Medium-Long Run at Marathon Pace"
+                return f"Medium-Long Run with Marathon Pace segments"
             elif 'lr' in orig.lower():
-                return f"Long Run at Marathon Pace"
+                return f"Long Run with Marathon Pace segments"
             else:
-                return f"Marathon Pace Training Run"
+                return f"Run with Marathon Pace segments"
     
     if 'half marathon' in orig.lower():
         return "Half Marathon Race"
@@ -1492,16 +1490,18 @@ def enhance_activity_description(activity_string):
     if 'marathon' in orig.lower() and 'half' not in orig.lower() and 'pace' not in orig.lower():
         return "Marathon Race"
     
-    # Handle simple distance runs - remove primary mileage but keep workout-specific distances
+    # Handle simple distance runs - categorize based on Pfitzinger methodology
     miles_match = re.search(r'(\d+(?:\.\d+)?)\s*mi(?:\s+run)?', orig.lower())
     if miles_match:
-        miles = miles_match.group(1)
-        if float(miles) <= 4:
-            return "Easy Run"
-        elif float(miles) <= 8:
-            return "General Aerobic"
+        miles = float(miles_match.group(1))
+        if miles <= 4:
+            return "Recovery Run"  # Short, easy runs for recovery
+        elif miles <= 8:
+            return "General Aerobic Run"  # Bread and butter easy runs
+        elif miles <= 12:
+            return "Medium-Long Run"  # ~2 hours, push pace slightly
         else:
-            return "Long Run"
+            return "Long Run"  # 2+ hours, push pace slightly
     
     if _is_debug():
         _debug_info(f"  → Using smart activity descriptions, preserving workout-specific mileage")
@@ -1509,6 +1509,52 @@ def enhance_activity_description(activity_string):
     # Fallback: use context-aware expansion for abbreviations, removing only the primary total distance
     def get_contextual_description(abbr, original_text):
         primary_miles = extract_primary_miles(original_text)
+        
+        if abbr == "GA":
+            if primary_miles and primary_miles <= 4:
+                return "Short General Aerobic Run"
+            elif primary_miles and primary_miles >= 10:
+                return "Long General Aerobic Run"
+            else:
+                return "General Aerobic Run"
+        
+        elif abbr == "Rec":
+            return "Recovery Run"  # Always easy, regardless of distance
+        
+        elif abbr == "MLR":
+            return "Medium-Long Run"  # ~2 hours, push pace slightly
+        
+        elif abbr == "LR":
+            return "Long Run"  # 2+ hours, push pace slightly
+        
+        elif abbr == "SP":
+            return "Speed Work"
+        
+        elif abbr in ["V8", "V9", "V10"]:
+            return "VO₂Max Intervals"  # 600m-1200m at 5K pace
+        
+        elif abbr == "LT":
+            # Lactate Threshold runs have significant portions at tempo pace
+            if primary_miles and primary_miles >= 8:
+                return "Long Run with Lactate Threshold segments"
+            else:
+                return "Lactate Threshold Run"
+        
+        elif abbr == "HMP":
+            # Half Marathon Pace workouts
+            if primary_miles and primary_miles >= 8:
+                return "Long Run with Half Marathon Pace segments"
+            else:
+                return "Half Marathon Pace Run"
+        
+        elif abbr == "MP":
+            # Marathon Pace - should specify it's segments, not the whole run
+            if primary_miles and primary_miles >= 8:
+                return "Long Run with Marathon Pace segments"
+            else:
+                return "Run with Marathon Pace segments"
+        
+        # Fallback to basic descriptions
         base_map = {
             "GA": "General Aerobic Run",
             "Rec": "Recovery Run", 
@@ -1520,26 +1566,10 @@ def enhance_activity_description(activity_string):
             "V10": "VO₂Max Intervals",
             "LT": "Lactate Threshold Run",
             "HMP": "Half Marathon Pace Run",
-            "MP": "Marathon Pace Training Run",
+            "MP": "Marathon Pace Run",
         }
         
-        base_desc = base_map.get(abbr, abbr)
-        
-        # Add context based on distance for certain workout types
-        if abbr == "MP" and primary_miles:
-            if primary_miles >= 8:
-                return "Long Run at Marathon Pace"
-            elif primary_miles >= 5:
-                return "Medium Run at Marathon Pace"
-            else:
-                return "Marathon Pace Training Run"
-        elif abbr in ["LT", "HMP"] and primary_miles:
-            if primary_miles >= 8:
-                return f"Long {base_desc}"
-            elif primary_miles >= 5:
-                return f"Medium {base_desc}"
-        
-        return base_desc
+        return base_map.get(abbr, abbr)
     
     activity_map = {
         "GA": lambda: get_contextual_description("GA", orig),
