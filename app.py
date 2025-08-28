@@ -1786,8 +1786,8 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return format_pace_range(recovery_seconds)
         
         elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
-            # Medium-Long: Similar to long run but slightly faster
-            mlr_seconds = marathon_pace_seconds + 75  # Between easy (90s) and GA (45s)
+            # Medium-Long: Flipped with GA - now faster (was 75s, now 45s)
+            mlr_seconds = marathon_pace_seconds + 45  # Faster than before
             return format_pace_range(mlr_seconds)
         
         elif 'easy' in desc_lower:
@@ -1796,8 +1796,8 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return format_pace_range(easy_seconds)
         
         elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
-            # GA: 30-60 seconds slower than marathon pace (was 15-45)
-            ga_seconds = marathon_pace_seconds + 45  # More conservative
+            # GA: Flipped with MLR - now slower (was 45s, now 75s)
+            ga_seconds = marathon_pace_seconds + 75  # Slower than before
             return format_pace_range(ga_seconds)
         
         elif 'hill repeat' in desc_lower:
@@ -1818,8 +1818,8 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return format_pace_range(marathon_pace_seconds)
         
         elif 'long run' in desc_lower:
-            # Long run: 60-120 seconds slower than marathon pace (was 30-90)
-            long_seconds = marathon_pace_seconds + 90  # More conservative
+            # Long run: Same pace as medium-long run (45s slower)
+            long_seconds = marathon_pace_seconds + 45  # Same as MLR
             return format_pace_range(long_seconds)
         
         elif 'half marathon' in desc_lower:
