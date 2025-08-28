@@ -1426,7 +1426,7 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
 
 
 def enhance_activity_description(activity_string):
-    """Convert raw activity string to enhanced, user-friendly description without mileage numbers."""
+    """Convert raw activity string to enhanced, user-friendly description, removing only the primary total distance."""
     orig = activity_string.strip()
     
     # Debug output for activity description generation
@@ -1460,16 +1460,28 @@ def enhance_activity_description(activity_string):
         count = num.group(1) if num else '400m'
         return f"{count} × 400m Intervals"
     
-    if 'pace' in orig.lower():
-        return "Marathon Pace Run"
+    # Handle complex marathon pace workouts like "MLR 15 w/ 4 @ MP" -> "Medium-Long Run with 4 miles at Marathon Pace"
+    if 'mp' in orig.lower() or 'marathon pace' in orig.lower():
+        # Look for patterns like "w/ X @ MP" or "X @ MP" or "X miles @ MP"
+        mp_match = re.search(r'(?:w/|with)?\s*(\d+(?:\.\d+)?)\s*(?:miles?)?\s*@?\s*(?:mp|marathon\s*pace)', orig.lower())
+        if mp_match:
+            mp_miles = mp_match.group(1)
+            if 'mlr' in orig.lower() or 'medium' in orig.lower():
+                return f"Medium-Long Run with {mp_miles} miles at Marathon Pace"
+            elif 'lr' in orig.lower() or 'long' in orig.lower():
+                return f"Long Run with {mp_miles} miles at Marathon Pace"
+            else:
+                return f"Run with {mp_miles} miles at Marathon Pace"
+        else:
+            return "Marathon Pace Run"
     
     if 'half marathon' in orig.lower():
         return "Half Marathon Race"
     
-    if 'marathon' in orig.lower() and 'half' not in orig.lower():
+    if 'marathon' in orig.lower() and 'half' not in orig.lower() and 'pace' not in orig.lower():
         return "Marathon Race"
     
-    # Handle simple distance runs - remove mileage for cleaner display
+    # Handle simple distance runs - remove primary mileage but keep workout-specific distances
     miles_match = re.search(r'(\d+(?:\.\d+)?)\s*mi(?:\s+run)?', orig.lower())
     if miles_match:
         miles = miles_match.group(1)
@@ -1481,9 +1493,9 @@ def enhance_activity_description(activity_string):
             return "Long Run"
     
     if _is_debug():
-        _debug_info(f"  → Using clean activity descriptions without mileage")
+        _debug_info(f"  → Using smart activity descriptions, preserving workout-specific mileage")
     
-    # Fallback: use basic expansion without miles
+    # Fallback: use basic expansion for abbreviations, removing only the primary total distance
     activity_map = {
         "GA": "General Aerobic",
         "Rec": "Recovery", 
@@ -1507,11 +1519,19 @@ def enhance_activity_description(activity_string):
             return result
     
     if _is_debug():
-        _debug_info(f"  → No pattern matched, cleaning original: '{orig}'")
+        _debug_info(f"  → No pattern matched, removing only primary distance from: '{orig}'")
     
-    # Final cleanup: remove mileage numbers from any remaining activity strings
-    # This catches cases like "MLR 12", "Recovery 5", etc. that don't match patterns above
-    cleaned = re.sub(r'\b\d+(?:\.\d+)?\b', '', orig).strip()
+    # Smart cleanup: remove only the first/primary distance number, preserve workout-specific numbers
+    # This removes patterns like "MLR 12" -> "MLR" but keeps "4 @ MP" -> "4 @ MP"
+    def remove_primary_distance(text):
+        # Remove leading distance like "12 MLR" -> "MLR"
+        text = re.sub(r'^\s*\d+(?:\.\d+)?\s+', '', text)
+        # Remove trailing distance like "MLR 12" -> "MLR" but preserve "MLR 12 w/ 4 @ MP"
+        if not re.search(r'(?:@|with|w/)', text.lower()):
+            text = re.sub(r'\s+\d+(?:\.\d+)?\s*$', '', text)
+        return text.strip()
+    
+    cleaned = remove_primary_distance(orig)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()  # Clean up extra spaces
     return cleaned if cleaned else orig
 
