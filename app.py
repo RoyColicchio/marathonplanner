@@ -413,6 +413,8 @@ if "current_week" not in st.session_state:
     st.session_state.current_week = 1
 if "last_plan_sig" not in st.session_state:
     st.session_state.last_plan_sig = None
+if "dismiss_strava_banner" not in st.session_state:
+    st.session_state.dismiss_strava_banner = False
 
 # --- Goal Time Coach helpers ---
 import re as _re_gc
@@ -1253,9 +1255,9 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         desc_lower = activity_description.lower()
         
         def format_pace_range(base_seconds):
-            """Return pace range: 3% faster to 3% slower"""
+            """Return pace range: 3% faster to 4% slower"""
             faster_seconds = base_seconds * 0.97
-            slower_seconds = base_seconds * 1.03
+            slower_seconds = base_seconds * 1.04  # Changed from 1.03 to 1.04 (4% slower)
             
             faster_pace = f"{int(faster_seconds//60)}:{int(faster_seconds%60):02d}"
             slower_pace = f"{int(slower_seconds//60)}:{int(slower_seconds%60):02d}"
@@ -1975,7 +1977,14 @@ def show_dashboard():
                 Try adjusting your plan start date or check if your activities are within the plan period.
                 """)
             elif actual_activities_count > 0:
-                st.success(f"✅ Successfully loaded {actual_activities_count} days of Strava data!")
+                if not st.session_state.get("dismiss_strava_banner", False):
+                    col1, col2 = st.columns([10, 1])
+                    with col1:
+                        st.success(f"✅ Successfully loaded {actual_activities_count} days of Strava data!")
+                    with col2:
+                        if st.button("✕", key="dismiss_strava_success"):
+                            st.session_state.dismiss_strava_banner = True
+                            st.rerun()
             
             merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0)
             merged_df['Actual_Pace'] = merged_df['Actual_Pace'].fillna("—")
@@ -2071,6 +2080,14 @@ def show_dashboard():
     
     gb = GridOptionsBuilder.from_dataframe(display_df)
 
+    # Disable all filters and sorting
+    gb.configure_default_column(
+        filterable=False, 
+        sortable=False, 
+        resizable=True,
+        suppressMenu=True
+    )
+
     date_renderer = JsCode("""
         class DateRenderer {
             init(params) {
@@ -2083,8 +2100,8 @@ def show_dashboard():
             getGui() { return this.eGui; }
         }
     """)
-    gb.configure_column("Date", cellRenderer=date_renderer, width=90, pinned='left')
-    gb.configure_column("Day", width=110, pinned='left')
+    gb.configure_column("Date", cellRenderer=date_renderer, width=80, pinned='left')
+    gb.configure_column("Day", width=100, pinned='left')
 
     workout_renderer = JsCode("""
         class WorkoutRenderer {
@@ -2099,12 +2116,12 @@ def show_dashboard():
             getGui() { return this.eGui; }
         }
     """)
-    gb.configure_column("Workout", cellRenderer=workout_renderer, width=300, wrapText=True, autoHeight=True)
+    gb.configure_column("Workout", cellRenderer=workout_renderer, width=280, wrapText=True, autoHeight=True)
     
-    gb.configure_column("Plan (mi)", width=100, type=["numericColumn", "numberColumnFilter", "customNumericFormat"], precision=1)
-    gb.configure_column("Actual (mi)", width=100, type=["numericColumn", "numberColumnFilter", "customNumericFormat"], precision=1)
-    gb.configure_column("Suggested Pace", width=140)
-    gb.configure_column("Actual Pace", width=120)
+    gb.configure_column("Plan (mi)", width=90, type=["numericColumn"], precision=1)
+    gb.configure_column("Actual (mi)", width=90, type=["numericColumn"], precision=1)
+    gb.configure_column("Suggested Pace", width=130)
+    gb.configure_column("Actual Pace", width=110)
 
     pace_range_renderer = JsCode("""
         class PaceRangeRenderer {
@@ -2210,7 +2227,10 @@ def show_dashboard():
     gb.configure_grid_options(
         domLayout='autoHeight',
         rowStyle={'background': 'transparent'},
-        getRowStyle=get_row_style
+        getRowStyle=get_row_style,
+        suppressHorizontalScroll=False,
+        alwaysShowHorizontalScroll=False,
+        suppressColumnVirtualisation=True
     )
     grid_options = gb.build()
 
@@ -2220,6 +2240,8 @@ def show_dashboard():
         data_return_mode=DataReturnMode.AS_INPUT,
         allow_unsafe_jscode=True,
         enable_enterprise_modules=False,
+        fit_columns_on_grid_load=True,
+        width='100%',
         key='training_plan_grid'
     )
     
