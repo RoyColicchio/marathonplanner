@@ -2411,6 +2411,15 @@ def show_dashboard():
     # Debug: Show what's selected if debug mode is on
     _debug_info(f"Selected {len(selected_rows)} rows", [row.get('Date', 'Unknown') for row in selected_rows if isinstance(row, dict)])
     
+    # Additional debug for swap logic
+    if _is_debug() and selected_rows:
+        for i, row in enumerate(selected_rows):
+            _debug_info(f"Row {i+1} type: {type(row)}")
+            if isinstance(row, dict):
+                _debug_info(f"Row {i+1} keys: {list(row.keys())}")
+                _debug_info(f"Row {i+1} DateISO: {row.get('DateISO', 'MISSING')}")
+                _debug_info(f"Row {i+1} Date: {row.get('Date', 'MISSING')}")
+    
     # --- Swap Days Button ---
     today = datetime.now().date()
     can_swap = False
@@ -2425,12 +2434,15 @@ def show_dashboard():
             if date_str:
                 try:
                     row_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    _debug_info(f"Checking date: {date_str} -> {row_date} >= {today} = {row_date >= today}")
                     if row_date >= today:
                         future_selected_count += 1
-                except:
-                    pass
+                except Exception as e:
+                    _debug_info(f"Date parsing error: {e}")
         
         can_swap = future_selected_count == 2
+    
+    _debug_info(f"Swap logic: future_selected_count={future_selected_count}, can_swap={can_swap}")
     
     # Always show the button, but disable it when conditions aren't met
     button_disabled = not can_swap
