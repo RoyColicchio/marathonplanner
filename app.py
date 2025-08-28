@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import sys
 import numpy as np
+import json
 
 # Build/version identifier to verify deployment
 BUILD_SHA = "f3137ce"
@@ -407,6 +408,8 @@ if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "google_oauth_component" not in st.session_state:
     st.session_state.google_oauth_component = None
+if "auth_checked" not in st.session_state:
+    st.session_state.auth_checked = False
 # Goal Time Coach state
 if "goal_coach_open" not in st.session_state:
     st.session_state.goal_coach_open = False
@@ -824,6 +827,85 @@ def save_user_settings(user_hash, settings):
         st.error(f"Error saving user settings: {e}")
 
 
+def check_persistent_login():
+    """Check for persistent login data using a more reliable method."""
+    if st.session_state.auth_checked:
+        return
+    
+    st.session_state.auth_checked = True
+    
+    # Use a simpler approach with HTML/JS that sets query parameters
+    js_code = """
+    <script>
+    // Check for stored user data
+    const userData = localStorage.getItem('strava_dashboard_user');
+    if (userData && !window.location.search.includes('restored=true')) {
+        try {
+            const user = JSON.parse(userData);
+            // Add restored flag to URL to trigger restoration
+            const params = new URLSearchParams(window.location.search);
+            params.set('restored', 'true');
+            params.set('user_email', user.email);
+            params.set('user_name', user.name);
+            params.set('user_picture', user.picture || '');
+            params.set('user_token', user.access_token || '');
+            window.location.search = params.toString();
+        } catch (e) {
+            localStorage.removeItem('strava_dashboard_user');
+        }
+    }
+    </script>
+    """
+    
+    st.html(js_code)
+    
+    # Check if we were restored from localStorage
+    if st.query_params.get("restored") == "true":
+        user_email = st.query_params.get("user_email")
+        user_name = st.query_params.get("user_name") 
+        user_picture = st.query_params.get("user_picture", "")
+        user_token = st.query_params.get("user_token", "")
+        
+        if user_email and user_name:
+            st.session_state.current_user = {
+                "email": user_email,
+                "name": user_name,
+                "picture": user_picture,
+                "access_token": user_token if user_token else None,
+            }
+            # Clean up the URL
+            st.query_params.clear()
+            st.rerun()
+
+
+def save_user_to_storage(user_data):
+    """Save user data to browser localStorage."""
+    js_code = f"""
+    <script>
+    try {{
+        localStorage.setItem('strava_dashboard_user', JSON.stringify({json.dumps(user_data)}));
+    }} catch (e) {{
+        console.error('Failed to save user data:', e);
+    }}
+    </script>
+    """
+    st.html(js_code)
+
+
+def clear_user_from_storage():
+    """Clear user data from browser localStorage."""
+    js_code = """
+    <script>
+    try {
+        localStorage.removeItem('strava_dashboard_user');
+    } catch (e) {
+        console.error('Failed to clear user data:', e);
+    }
+    </script>
+    """
+    st.html(js_code)
+
+
 def google_login():
     """Handle Google OAuth login or a graceful dev fallback when creds are missing."""
     st.title("Marathon Training Dashboard")
@@ -878,23 +960,27 @@ def google_login():
                     dev_email = st.text_input("Email", value="demo@local")
                     dev_name = st.text_input("Name", value="Demo User")
                     if st.button("Continue"):
-                        st.session_state.current_user = {
+                        user_data = {
                             "email": dev_email.strip() or "demo@local",
                             "name": dev_name.strip() or "Demo User",
                             "picture": "",
                             "access_token": None,
                         }
+                        st.session_state.current_user = user_data
+                        save_user_to_storage(user_data)
                         st.rerun()
             else:
                 if result and "token" in result:
                     user_info = get_user_info(result["token"]["access_token"])
                     if user_info:
-                        st.session_state.current_user = {
+                        user_data = {
                             "email": user_info.get("email"),
                             "name": user_info.get("name", user_info.get("email")),
                             "picture": user_info.get("picture", ""),
                             "access_token": result["token"]["access_token"],
                         }
+                        st.session_state.current_user = user_data
+                        save_user_to_storage(user_data)
                         st.rerun()
         except Exception as e:
             fallback_needed = True
@@ -907,12 +993,14 @@ def google_login():
             dev_email = st.text_input("Email", value="demo@local")
             dev_name = st.text_input("Name", value="Demo User")
             if st.button("Continue"):
-                st.session_state.current_user = {
+                user_data = {
                     "email": dev_email.strip() or "demo@local",
                     "name": dev_name.strip() or "Demo User",
                     "picture": "",
                     "access_token": None,
                 }
+                st.session_state.current_user = user_data
+                save_user_to_storage(user_data)
                 st.rerun()
 
 
@@ -933,6 +1021,7 @@ def show_header():
                 st.button("Sign Out", key="signout")
                 if st.session_state.get("signout"):
                     st.session_state.current_user = None
+                    clear_user_from_storage()
                     st.rerun()
 
 
@@ -1345,13 +1434,13 @@ def get_activity_tooltip(activity_description):
             total_miles = float(lt_segment_match.group(1))
             tempo_miles = float(lt_segment_match.group(2))
             if tempo_miles >= 4:
-                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {tempo_miles} miles at lactate threshold pace. Run the first {total_miles - tempo_miles} miles at easy pace, then execute all {tempo_miles} miles at sustained tempo effort (15K-half marathon pace) as one continuous block, followed by easy running to finish."
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {tempo_miles} miles at lactate threshold pace. Run the first {total_miles - tempo_miles} miles at easy pace, then execute all {tempo_miles} miles at sustained tempo effort (15K-half marathon pace) as one continuous block, followed by easy running to finish. If unable to complete as one block, split into two segments with 2-3 minutes easy running between them."
             else:
-                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {tempo_miles} miles at lactate threshold pace. After warming up, run the {tempo_miles}-mile tempo segment continuously at sustained effort, then finish with easy running."
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {tempo_miles} miles at lactate threshold pace. After warming up, run the {tempo_miles}-mile tempo segment continuously at sustained effort, then finish with easy running. If needed, you can split this into two shorter segments with brief recovery between."
         elif tempo_miles_match:
             tempo_miles = float(tempo_miles_match.group(1))
             if tempo_miles >= 5:
-                return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace as one continuous block. Start with 2-3 miles easy warm-up, then sustain tempo effort for all {tempo_miles} miles, followed by 1-2 miles easy cool-down. Focus on controlled breathing and steady rhythm."
+                return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace as one continuous block. Start with 2-3 miles easy warm-up, then sustain tempo effort for all {tempo_miles} miles, followed by 1-2 miles easy cool-down. Focus on controlled breathing and steady rhythm. If unable to maintain pace for the full distance, split into two segments with 2-3 minutes easy recovery between them."
             elif tempo_miles >= 3:
                 return f"{base_text}\n\nExecution: Run {tempo_miles} miles at tempo pace continuously in the middle of your run. Warm up for 15-20 minutes, then maintain steady tempo effort. If struggling to sustain pace, you can break into 2 segments with 2-3 minutes recovery."
             else:
@@ -1451,7 +1540,7 @@ def get_activity_tooltip(activity_description):
             total_miles = float(mp_lt_segment_match.group(1))
             segment_miles = float(mp_lt_segment_match.group(2))
             if segment_miles >= 6:
-                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {segment_miles} miles at marathon pace. Run the first {total_miles - segment_miles} miles at easy pace, then execute all {segment_miles} miles at goal marathon pace as one continuous block, followed by easy cool-down miles."
+                return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {segment_miles} miles at marathon pace. Run the first {total_miles - segment_miles} miles at easy pace, then execute all {segment_miles} miles at goal marathon pace as one continuous block, followed by easy cool-down miles. If unable to complete as one block, split into two segments with 1-2 miles easy running between them."
             elif segment_miles >= 3:
                 return f"{base_text}\n\nExecution: This is a {total_miles}-mile run with {segment_miles} miles at marathon pace. After warming up, run the {segment_miles}-mile marathon pace segment continuously, or split into two segments with 1 mile of general aerobic pace between them if needed."
             else:
@@ -1459,7 +1548,7 @@ def get_activity_tooltip(activity_description):
         elif segment_match:
             segment_miles = float(segment_match.group(1))
             if segment_miles >= 6:
-                return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles as one continuous block in the middle of your run. Start with 2-3 miles of easy warm-up, then execute all {segment_miles} miles at goal pace, followed by easy cool-down miles."
+                return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles as one continuous block in the middle of your run. Start with 2-3 miles of easy warm-up, then execute all {segment_miles} miles at goal pace, followed by easy cool-down miles. If unable to complete as one block, split into two segments with 1-2 miles easy running between them."
             elif segment_miles >= 3:
                 return f"{base_text}\n\nExecution: Run the {segment_miles} marathon pace miles in the middle of your run after a proper warm-up. If this feels too challenging, you can split into two segments (e.g., {segment_miles//2}mi + {segment_miles-segment_miles//2}mi) with 1 mile of general aerobic pace between them."
             else:
@@ -1517,9 +1606,9 @@ def get_activity_tooltip(activity_description):
         if miles_match:
             total_miles = float(miles_match.group(1))
             if total_miles >= 8:
-                return f"{base_text}\n\nExecution: Start at easy pace for the first {total_miles//3:.0f} miles, progress to general aerobic pace for the middle third, then finish the final {total_miles//3:.0f} miles at tempo pace. The progression should feel natural and controlled."
+                return f"{base_text}\n\nExecution: Start at easy pace for the first {total_miles//3:.0f} miles, progress to general aerobic pace for the middle third, then finish the final {total_miles//3:.0f} miles at tempo pace. The progression should feel natural and controlled. If the tempo finish feels too aggressive, you can ease back to half-marathon pace instead."
             elif total_miles >= 5:
-                return f"{base_text}\n\nExecution: Start at easy pace for the first half, then progress to tempo pace for the second half. Focus on negative splitting - each mile should be slightly faster than the previous."
+                return f"{base_text}\n\nExecution: Start at easy pace for the first half, then progress to tempo pace for the second half. Focus on negative splitting - each mile should be slightly faster than the previous. If tempo pace feels unsustainable, target half-marathon pace instead."
             else:
                 return f"{base_text}\n\nExecution: Start at easy pace, then gradually increase to tempo pace over the final 1-2 miles. The acceleration should feel smooth and controlled."
         
@@ -2556,6 +2645,10 @@ st.markdown("<div style='opacity:0.6;font-size:0.9rem'>Initializing app…</div>
 
 def main():
     """Main application logic."""
+    # Check for persistent login data first
+    if not st.session_state.current_user:
+        check_persistent_login()
+        
     if not st.session_state.current_user:
         google_login()
         return
