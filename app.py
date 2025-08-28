@@ -1562,7 +1562,7 @@ def adjust_training_plan(df, start_date=None, week_adjust=0, weekly_miles_delta=
                 idx = group[miles_col].nlargest(min(k, len(group))).index
                 group.loc[idx, miles_col] = (group.loc[idx, miles_col] + (1 * sign)).clip(lower=0)
                 return group
-            out = out.groupby("_mp_week", group_keys=False).apply(_adjust_week)
+            out = out.groupby("_mp_week", group_keys=False).apply(_adjust_week, include_groups=False)
 
         if "_mp_week" in out.columns:
             out.drop(columns=["_mp_week"], inplace=True)
@@ -2101,6 +2101,20 @@ def show_dashboard():
     
     get_row_style = JsCode("""
         function(params) {
+            // Helper function to parse pace strings to seconds
+            function parsePaceToSeconds(paceStr) {
+                if (!paceStr || typeof paceStr !== 'string') return null;
+                const parts = paceStr.split(':');
+                if (parts.length === 2) {
+                    const minutes = parseInt(parts[0]);
+                    const seconds = parseInt(parts[1]);
+                    if (!isNaN(minutes) && !isNaN(seconds)) {
+                        return minutes * 60 + seconds;
+                    }
+                }
+                return null;
+            }
+            
             if (params.data.Workout && params.data.Workout.includes('Summary')) {
                 return { 
                     'background-color': 'rgba(100, 116, 139, 0.15)',
@@ -2159,19 +2173,6 @@ def show_dashboard():
             
             return null;
         }
-        
-        function parsePaceToSeconds(paceStr) {
-            if (!paceStr || typeof paceStr !== 'string') return null;
-            const parts = paceStr.split(':');
-            if (parts.length === 2) {
-                const minutes = parseInt(parts[0]);
-                const seconds = parseInt(parts[1]);
-                if (!isNaN(minutes) && !isNaN(seconds)) {
-                    return minutes * 60 + seconds;
-                }
-            }
-            return null;
-        }
     """)
 
     gb.configure_grid_options(
@@ -2185,11 +2186,9 @@ def show_dashboard():
         display_df,
         gridOptions=grid_options,
         data_return_mode=DataReturnMode.AS_INPUT,
-        update_mode=GridUpdateMode.MODEL_CHANGED,
         allow_unsafe_jscode=True,
         enable_enterprise_modules=False,
-        key='training_plan_grid',
-        reload_data=st.session_state.get("plan_needs_refresh", False)
+        key='training_plan_grid'
     )
     
     if st.session_state.get("plan_needs_refresh"):
