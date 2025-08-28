@@ -1229,8 +1229,8 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         goal_seconds = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
         marathon_pace_seconds = goal_seconds / 26.2  # seconds per mile
         
-        # Apply 5% slower adjustment to all paces
-        marathon_pace_seconds *= 1.05
+        # Apply 10% slower adjustment to all paces (was 5%, now more conservative)
+        marathon_pace_seconds *= 1.10
         
         desc_lower = activity_description.lower()
         
@@ -1238,21 +1238,21 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return "—"
         
         elif 'easy' in desc_lower:
-            # Easy: 30-90 seconds slower than marathon pace
-            easy_seconds = marathon_pace_seconds + 60  # Use middle of range
+            # Easy: 60-120 seconds slower than marathon pace (was 30-90)
+            easy_seconds = marathon_pace_seconds + 90  # More conservative
             return f"{int(easy_seconds//60)}:{int(easy_seconds%60):02d}"
         
         elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
-            # GA: 15-45 seconds slower than marathon pace  
-            ga_seconds = marathon_pace_seconds + 30
+            # GA: 30-60 seconds slower than marathon pace (was 15-45)
+            ga_seconds = marathon_pace_seconds + 45  # More conservative
             return f"{int(ga_seconds//60)}:{int(ga_seconds%60):02d}"
         
         elif 'hill repeat' in desc_lower:
             return "Hard uphill effort"
         
         elif 'tempo' in desc_lower:
-            # Tempo: Near 10K pace (roughly 15-30 seconds faster than marathon pace)
-            tempo_seconds = marathon_pace_seconds - 20
+            # Tempo: Near 10K pace (roughly 10-20 seconds faster than marathon pace, was 15-30 faster)
+            tempo_seconds = marathon_pace_seconds - 15
             return f"{int(tempo_seconds//60)}:{int(tempo_seconds%60):02d}"
         
         elif '800m interval' in desc_lower or '800' in desc_lower:
@@ -1265,13 +1265,13 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return f"{int(marathon_pace_seconds//60)}:{int(marathon_pace_seconds%60):02d}"
         
         elif 'long run' in desc_lower:
-            # Long run: 30-90 seconds slower than marathon pace
-            long_seconds = marathon_pace_seconds + 60
+            # Long run: 60-120 seconds slower than marathon pace (was 30-90)
+            long_seconds = marathon_pace_seconds + 90  # More conservative
             return f"{int(long_seconds//60)}:{int(long_seconds%60):02d}"
         
         elif 'half marathon' in desc_lower:
-            # Half marathon: ~15 seconds faster than marathon pace
-            hm_seconds = marathon_pace_seconds - 15
+            # Half marathon: ~10 seconds faster than marathon pace (was 15 faster)
+            hm_seconds = marathon_pace_seconds - 10
             return f"{int(hm_seconds//60)}:{int(hm_seconds%60):02d}"
         
         elif 'marathon' in desc_lower and 'pace' not in desc_lower:
@@ -1279,7 +1279,7 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         
         else:
             # Default to general aerobic
-            default_seconds = marathon_pace_seconds + 30
+            default_seconds = marathon_pace_seconds + 45  # More conservative
             return f"{int(default_seconds//60)}:{int(default_seconds%60):02d}"
             
     except Exception:
@@ -1967,6 +1967,11 @@ def show_dashboard():
 
     # Add pace ranges using our custom pace calculation
     merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
+    
+    # Debug: Show some pace calculations if debug mode is on
+    if _is_debug() and not merged_df.empty:
+        sample_activities = merged_df[['Activity', 'Pace']].head(5).values.tolist()
+        _debug_info(f"Goal time: {goal_time}, Sample paces", sample_activities)
 
     # Add week number to the DataFrame
     merged_df['Week'] = _compute_week_index(merged_df, 'Date', start_date)
