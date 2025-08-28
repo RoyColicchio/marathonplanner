@@ -1310,7 +1310,7 @@ def get_activity_short_description(activity_description):
     orig = activity_description.strip()
     
     if 'rest' in desc_lower:
-        return "Complete rest day for recovery and injury prevention."
+        return "Rest day for recovery - no running, but light cross-training is fine."
     
     elif 'easy' in desc_lower:
         miles = re.search(r'(\d+(?:\.\d+)?)', orig)
@@ -1467,7 +1467,7 @@ def get_activity_tooltip(activity_description):
     orig = activity_description.strip()
     
     if 'rest' in desc_lower:
-        return "Complete rest day. No running or cross-training. Rest is crucial for muscle recovery and injury prevention."
+        return "Rest day. No running, but light cross-training (swimming, yoga, walking) is fine. Rest is crucial for muscle recovery and injury prevention."
     
     elif 'easy' in desc_lower:
         return "Easy pace: Comfortable, conversational pace to build aerobic base fitness. Should feel relaxed and sustainable."
