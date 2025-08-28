@@ -3097,8 +3097,46 @@ def show_dashboard():
         }
     """)
     
+    # Actual mileage renderer with green highlighting when within 1 mile of planned
+    actual_mileage_renderer = JsCode("""
+        class ActualMileageRenderer {
+            init(params) {
+                this.eGui = document.createElement('span');
+                if (params.value !== null && params.value !== undefined) {
+                    this.eGui.innerHTML = params.value;
+                    
+                    // Check if within 1 mile of planned distance
+                    const actualMiles = parseFloat(params.value);
+                    const plannedMiles = parseFloat(params.data['Plan (mi)']);
+                    
+                    if (!isNaN(actualMiles) && !isNaN(plannedMiles) && actualMiles > 0 && plannedMiles > 0) {
+                        const diff = Math.abs(actualMiles - plannedMiles);
+                        if (diff <= 1.0) {
+                            this.eGui.style.backgroundColor = 'rgba(34, 197, 94, 0.2)';
+                            this.eGui.style.color = '#22c55e';
+                            this.eGui.style.fontWeight = 'bold';
+                            this.eGui.style.padding = '2px 4px';
+                            this.eGui.style.borderRadius = '3px';
+                            this.eGui.title = `Actual distance: ${params.value} miles - within 1 mile of planned ${plannedMiles} miles!`;
+                        } else {
+                            this.eGui.title = `Actual distance completed: ${params.value} miles (from Strava)`;
+                        }
+                    } else if (params.value && params.value > 0) {
+                        this.eGui.title = `Actual distance completed: ${params.value} miles (from Strava)`;
+                    } else {
+                        this.eGui.title = 'Distance will appear here after completing the workout';
+                    }
+                } else {
+                    this.eGui.innerHTML = '—';
+                    this.eGui.title = 'Complete the workout to see distance';
+                }
+            }
+            getGui() { return this.eGui; }
+        }
+    """)
+    
     gb.configure_column("Plan (mi)", cellRenderer=mileage_renderer, width=90, type=["numericColumn"], precision=1)
-    gb.configure_column("Actual (mi)", cellRenderer=mileage_renderer, width=90, type=["numericColumn"], precision=2)
+    gb.configure_column("Actual (mi)", cellRenderer=actual_mileage_renderer, width=90, type=["numericColumn"], precision=2)
     gb.configure_column("Suggested Pace", width=130)
     gb.configure_column("Actual Pace", width=110)
 
@@ -3216,17 +3254,18 @@ def show_dashboard():
                 }
             }
             
-            // Check miles range (within 10%)
+            // Check miles range (within 10%) - now handled at cell level for Actual Miles
             if (actualMiles && plannedMiles) {
                 const actual = parseFloat(actualMiles);
                 const planned = parseFloat(plannedMiles);
                 if (!isNaN(actual) && !isNaN(planned) && planned > 0) {
-                    milesInRange = Math.abs(actual - planned) / planned <= 0.10;
+                    // Miles highlighting is now handled at cell level, not row level
+                    milesInRange = false; // Don't highlight entire row for miles
                 }
             }
             
-            // Highlight if either pace or miles is in range
-            if (paceInRange || milesInRange) {
+            // Highlight row only if pace is in range (not miles)
+            if (paceInRange) {
                 return {
                     'background-color': 'rgba(34, 197, 94, 0.1)',
                     'border-left': '2px solid rgba(34, 197, 94, 0.5)'
