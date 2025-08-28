@@ -2129,15 +2129,17 @@ def show_dashboard():
                 axis=1
             )
             
-            merged_df = pd.merge(final_plan_df, daily_strava[['Date', 'Actual_Miles', 'Actual_Pace', 'Strava_URL']], on='Date', how='left')
+            # Rename the Date column to DateISO for consistent merging
+            daily_strava['DateISO'] = daily_strava['Date']
+            merged_df = pd.merge(final_plan_df, daily_strava[['DateISO', 'Actual_Miles', 'Actual_Pace', 'Strava_URL']], on='DateISO', how='left')
             actual_activities_count = len(merged_df[merged_df['Actual_Miles'] > 0])
             _debug_info(f"Merged data shows {actual_activities_count} days with actual miles > 0")
             
             # Show diagnostic if activities exist but none show up in plan
             if actual_activities_count == 0 and not daily_strava.empty:
                 st.info("ℹ️ Found Strava running activities, but none match your training plan dates.")
-                plan_date_range = f"{final_plan_df['Date'].min()} to {final_plan_df['Date'].max()}"
-                strava_date_range = f"{daily_strava['Date'].min()} to {daily_strava['Date'].max()}"
+                plan_date_range = f"{final_plan_df['DateISO'].min()} to {final_plan_df['DateISO'].max()}"
+                strava_date_range = f"{daily_strava['DateISO'].min()} to {daily_strava['DateISO'].max()}"
                 st.markdown(f"""
                 - **Plan date range**: {plan_date_range}
                 - **Strava activities date range**: {strava_date_range}
