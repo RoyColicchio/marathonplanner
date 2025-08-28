@@ -114,7 +114,24 @@ import json
 import hashlib
 from pathlib import Path
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode, GridUpdateMode, DataReturnMode
-from pace_utils import marathon_pace_seconds, get_pace_range
+
+# Import pace_utils with error handling
+try:
+    from pace_utils import marathon_pace_seconds, get_pace_range
+except ImportError as e:
+    st.error(f"Failed to import pace_utils: {e}")
+    # Provide fallback functions
+    def marathon_pace_seconds(goal_time: str) -> float:
+        try:
+            h, m, s = map(int, goal_time.split(':'))
+            total_seconds = h * 3600 + m * 60 + s
+            return total_seconds / 26.2188
+        except Exception:
+            return 600.0
+    
+    def get_pace_range(activity_description: str, goal_marathon_pace_seconds: float, plan_file: str = "") -> str:
+        return "—"
+
 import requests
 import time
 import os
@@ -1660,7 +1677,13 @@ def adjust_training_plan(df, start_date=None, week_adjust=0, weekly_miles_delta=
             def _adjust_week(group):
                 if k <= 0 or len(group) == 0:
                     return group
-                idx = group[miles_col].nlargest(min(k, len(group))).index
+                # Fix DataFrame boolean context issue
+                if miles_col not in group.columns:
+                    return group
+                largest_values = group[miles_col].nlargest(min(k, len(group)))
+                if largest_values.empty:
+                    return group
+                idx = largest_values.index
                 group.loc[idx, miles_col] = (group.loc[idx, miles_col] + (1 * sign)).clip(lower=0)
                 return group
             out = out.groupby("_mp_week", group_keys=False).apply(_adjust_week, include_groups=False)
@@ -2061,9 +2084,9 @@ def show_dashboard():
                             st.session_state.dismiss_strava_banner = True
                             st.rerun()
             
-            merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0)
+            merged_df['Actual_Miles'] = merged_df['Actual_Miles'].fillna(0.0)
             merged_df['Actual_Pace'] = merged_df['Actual_Pace'].fillna("—")
-            merged_df['Strava_URL'] = merged_df['Strava_URL'].fillna(None)
+            merged_df['Strava_URL'] = merged_df['Strava_URL'].fillna("")
         else:
             # No activities found - provide diagnostic info
             st.info("ℹ️ Strava connected but no activities found. This could be because:")
