@@ -1965,9 +1965,8 @@ def show_dashboard():
         merged_df['Actual_Miles'] = 0
         merged_df['Actual_Pace'] = "—"
 
-    # Add pace ranges
-    goal_time_seconds = marathon_pace_seconds(goal_time)
-    merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_pace_range(x, goal_time_seconds, plan_file))
+    # Add pace ranges using our custom pace calculation
+    merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
 
     # Add week number to the DataFrame
     merged_df['Week'] = _compute_week_index(merged_df, 'Date', start_date)
