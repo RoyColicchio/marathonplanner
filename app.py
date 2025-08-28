@@ -1946,7 +1946,7 @@ def show_dashboard():
             runs_only = strava_df[strava_df['type'] == 'Run']
             _debug_info(f"Found {len(runs_only)} running activities out of {len(strava_df)} total")
             strava_df = runs_only
-            strava_df['Actual_Miles'] = strava_df['distance'] * 0.000621371
+            strava_df['Actual_Miles'] = (strava_df['distance'] * 0.000621371).round(2)
             strava_df['Actual_Pace_Sec'] = strava_df['moving_time'] / strava_df['Actual_Miles']
             
             daily_strava = strava_df.groupby('Date').agg(
@@ -1954,6 +1954,9 @@ def show_dashboard():
                 Moving_Time_Sec=('moving_time', 'sum'),
                 Activity_Count=('id', 'count')
             ).reset_index()
+            
+            # Round aggregated actual miles to 2 decimal places
+            daily_strava['Actual_Miles'] = daily_strava['Actual_Miles'].round(2)
             
             # Calculate weighted average pace for the day
             daily_strava['Actual_Pace'] = daily_strava.apply(
@@ -2046,7 +2049,7 @@ def show_dashboard():
                 'Day': '',
                 'Activity': f'**Week {week_num} Summary**',
                 'Plan_Miles': week_df['Plan_Miles'].sum(),
-                'Actual_Miles': week_df['Actual_Miles'].sum(),
+                'Actual_Miles': round(week_df['Actual_Miles'].sum(), 2),
                 'Pace': '',
                 'Actual_Pace': '',
                 'Week': week_num,
@@ -2119,7 +2122,7 @@ def show_dashboard():
     gb.configure_column("Workout", cellRenderer=workout_renderer, width=280, wrapText=True, autoHeight=True)
     
     gb.configure_column("Plan (mi)", width=90, type=["numericColumn"], precision=1)
-    gb.configure_column("Actual (mi)", width=90, type=["numericColumn"], precision=1)
+    gb.configure_column("Actual (mi)", width=90, type=["numericColumn"], precision=2)
     gb.configure_column("Suggested Pace", width=130)
     gb.configure_column("Actual Pace", width=110)
 
