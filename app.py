@@ -2221,6 +2221,8 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         # Also apply the overrides directly to the global plan DataFrame for immediate effect
         if 'DateISO' in plan_df.columns:
             a_mask = (plan_df['DateISO'] == date_a_str)
+            b_mask = (plan_df['DateISO'] == date_b_str)
+        else:
             a_mask = (plan_df['Date'] == date_a)
             b_mask = (plan_df['Date'] == date_b)
             
@@ -2239,6 +2241,19 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
                 except Exception as e:
                     if _is_debug():
                         st.write(f"Error swapping {field}: {e}")
+        
+        # Regenerate tooltip columns for the swapped rows
+        if any(a_mask) and any(b_mask):
+            # Get the new activity descriptions after swap
+            new_activity_a = plan_df.loc[a_mask, 'Activity'].values[0]
+            new_activity_b = plan_df.loc[b_mask, 'Activity'].values[0]
+            
+            # Regenerate tooltips and short descriptions for both swapped activities
+            plan_df.loc[a_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_a)
+            plan_df.loc[a_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_a)
+            
+            plan_df.loc[b_mask, 'Activity_Tooltip'] = get_activity_tooltip(new_activity_b)  
+            plan_df.loc[b_mask, 'Activity_Short_Description'] = get_activity_short_description(new_activity_b)
         
         return True
     except Exception as e:
