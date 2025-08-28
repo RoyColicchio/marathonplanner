@@ -2398,8 +2398,18 @@ def show_dashboard():
     if selected_rows is None:
         selected_rows = []
     
+    # Ensure selected_rows contains dictionaries, not strings
+    valid_selected_rows = []
+    for row in selected_rows:
+        if isinstance(row, dict):
+            valid_selected_rows.append(row)
+        elif isinstance(row, str):
+            # Skip string entries - they may be from grid state issues
+            continue
+    selected_rows = valid_selected_rows
+    
     # Debug: Show what's selected if debug mode is on
-    _debug_info(f"Selected {len(selected_rows)} rows", [row.get('Date', 'Unknown') for row in selected_rows])
+    _debug_info(f"Selected {len(selected_rows)} rows", [row.get('Date', 'Unknown') for row in selected_rows if isinstance(row, dict)])
     
     # --- Swap Days Button ---
     today = datetime.now().date()
@@ -2409,6 +2419,8 @@ def show_dashboard():
     if selected_rows and len(selected_rows) == 2:
         # Check if both selected days are current or future
         for row in selected_rows:
+            if not isinstance(row, dict):
+                continue
             date_str = row.get('DateISO', row.get('Date'))
             if date_str:
                 try:
@@ -2439,6 +2451,11 @@ def show_dashboard():
         row_a = selected_rows[0]
         row_b = selected_rows[1]
         
+        # Safety check - ensure both rows are dictionaries
+        if not isinstance(row_a, dict) or not isinstance(row_b, dict):
+            st.error("Invalid row selection. Please try selecting the rows again.")
+            return
+        
         date_a_str = row_a.get('DateISO', row_a.get('Date'))
         date_b_str = row_b.get('DateISO', row_b.get('Date'))
 
@@ -2463,6 +2480,12 @@ def show_dashboard():
     if selected_rows and len(selected_rows) == 1:
         st.subheader("Clear Override")
         row_x = selected_rows[0]
+        
+        # Safety check - ensure row is a dictionary
+        if not isinstance(row_x, dict):
+            st.warning("Invalid row selection. Please try selecting the row again.")
+            return
+            
         date_x_str = row_x.get('DateISO', row_x.get('Date'))
         if not date_x_str:
             st.warning("Could not identify date to clear.")
