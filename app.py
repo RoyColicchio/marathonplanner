@@ -2843,6 +2843,16 @@ def show_dashboard():
         # Clear the result after showing it once
         del st.session_state.swap_result
 
+    # Show real-time swap status
+    if "swap_in_progress" in st.session_state:
+        st.warning("🔄 Swap operation in progress...")
+        
+    # Show any recent swap errors prominently
+    if "swap_debug_history" in st.session_state:
+        recent_errors = [e for e in st.session_state.swap_debug_history[-3:] if 'error' in e or e.get('operation') == 'swap_failed']
+        if recent_errors:
+            st.error(f"⚠️ Recent swap issue: {recent_errors[-1].get('operation', 'Unknown error')}")
+
     # Debug mode information and persistent debug history
     if _is_debug():
         st.warning("🔧 Debug mode active (add ?debug to URL to enable)")
@@ -2859,16 +2869,55 @@ def show_dashboard():
         
         # Show persistent debug history
         if "swap_debug_history" in st.session_state and st.session_state.swap_debug_history:
-            with st.expander("Debug History (Persistent)", expanded=True):
-                for i, entry in enumerate(reversed(st.session_state.swap_debug_history[-10:])):  # Show last 10 entries
-                    st.code(f"[{entry['timestamp']}] {entry['operation']}")
+            with st.expander("Debug History (Persistent) - Click to expand", expanded=True):
+                # Show most recent entries first, limit to last 15 for readability
+                recent_entries = list(reversed(st.session_state.swap_debug_history[-15:]))
+                
+                for i, entry in enumerate(recent_entries):
+                    # Color code different operations
+                    if entry['operation'] == 'swap_success':
+                        st.success(f"✅ [{entry['timestamp'][-8:]}] {entry['operation']}")
+                    elif entry['operation'] == 'swap_failed':
+                        st.error(f"❌ [{entry['timestamp'][-8:]}] {entry['operation']}")
+                    elif 'error' in entry:
+                        st.error(f"⚠️ [{entry['timestamp'][-8:]}] {entry['operation']}")
+                    else:
+                        st.info(f"🔧 [{entry['timestamp'][-8:]}] {entry['operation']}")
+                    
+                    # Show details in a code block
+                    details = []
                     for key, value in entry.items():
                         if key not in ['timestamp', 'operation']:
-                            st.code(f"  {key}: {value}")
+                            details.append(f"  {key}: {value}")
+                    if details:
+                        st.code("\n".join(details))
+                    
+                    # Add separator between entries
+                    if i < len(recent_entries) - 1:
+                        st.markdown("---")
                 
-                if st.button("Clear Debug History"):
-                    st.session_state.swap_debug_history = []
-                    st.rerun()
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    if st.button("Clear Debug History"):
+                        st.session_state.swap_debug_history = []
+                        st.rerun()
+                with col2:
+                    st.caption(f"Showing {len(recent_entries)} of {len(st.session_state.swap_debug_history)} total debug entries")
+        
+        # Add a manual debug snapshot button
+        if st.button("📸 Capture Current State"):
+            plan_sig = _plan_signature(settings)
+            current_overrides = _get_overrides_for_plan(settings)
+            if "swap_debug_history" not in st.session_state:
+                st.session_state.swap_debug_history = []
+            st.session_state.swap_debug_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "operation": "manual_state_snapshot",
+                "plan_signature": plan_sig,
+                "override_count": len(current_overrides) if current_overrides else 0,
+                "session_state_keys": list(st.session_state.keys())
+            })
+            st.rerun()
     
     start_date_str = settings.get("start_date")
     if not start_date_str:
@@ -3521,6 +3570,18 @@ def show_dashboard():
 
         if _is_debug():
             _debug_info(f"Swap button clicked - date_a_str: {date_a_str}, date_b_str: {date_b_str}")
+            
+            # Store immediate debug info in session state
+            if "swap_debug_history" not in st.session_state:
+                st.session_state.swap_debug_history = []
+            st.session_state.swap_debug_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "operation": "swap_button_clicked",
+                "date_a_str": date_a_str,
+                "date_b_str": date_b_str,
+                "row_a_workout": row_a.get('Workout', 'Unknown'),
+                "row_b_workout": row_b.get('Workout', 'Unknown')
+            })
 
         if date_a_str and date_b_str:
             try:
@@ -3530,8 +3591,24 @@ def show_dashboard():
                 if _is_debug():
                     _debug_info(f"Parsed dates - date_a: {date_a}, date_b: {date_b}")
                     _debug_info(f"About to call swap_plan_days with merged_df shape: {merged_df.shape}")
+                    
+                    # Store parsed dates info
+                    st.session_state.swap_debug_history.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "operation": "dates_parsed",
+                        "date_a": str(date_a),
+                        "date_b": str(date_b),
+                        "merged_df_shape": str(merged_df.shape)
+                    })
+                
+                # Set swap in progress flag
+                st.session_state.swap_in_progress = True
                 
                 success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
+                
+                # Clear the in progress flag
+                if "swap_in_progress" in st.session_state:
+                    del st.session_state.swap_in_progress
                 if success:
                     # Store swap result in session state so it persists across reruns
                     st.session_state.swap_result = {
