@@ -2449,7 +2449,7 @@ def _plan_signature(settings: dict) -> str:
     signature = f"{plan_file}|{start_date}"
     
     if _is_debug():
-        print(f"DEBUG: Plan signature = {signature}, from {plan_file} and {start_date}")
+        _debug_info(f"Plan signature: {signature} (plan_file={plan_file}, start_date={start_date})")
         
     return signature
 
@@ -3534,10 +3534,19 @@ def show_dashboard():
     if st.session_state.get("plan_needs_refresh"):
         st.session_state.plan_needs_refresh = False
 
-    # Get selected rows with better error handling
-    selected_rows = grid_response.get('selected_rows', [])
+    # Get selected rows with better error handling - try multiple possible keys
+    selected_rows = None
+    for key in ['selected_data', 'selected_rows']:
+        if key in grid_response and grid_response[key] is not None:
+            selected_rows = grid_response[key]
+            if _is_debug():
+                _debug_info(f"Found selection data in key '{key}': {len(selected_rows) if isinstance(selected_rows, list) else 'not a list'}")
+            break
+    
     if selected_rows is None:
         selected_rows = []
+        if _is_debug():
+            _debug_info("No selection data found in grid response")
     
     # Debug: Show raw grid response if debug mode is on
     if _is_debug():
