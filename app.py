@@ -11,7 +11,7 @@ import pandas as pd
 import re
 
 # Build/version identifier to verify deployment
-BUILD_SHA = "1db2022"
+BUILD_SHA = "ec9d27a"
 
 # Enable debugging if needed - for local development only
 DEBUG_SECRETS = os.getenv("DEBUG_SECRETS", "").lower() in ("true", "1", "yes")
@@ -2538,6 +2538,9 @@ def _save_overrides_for_plan(user_hash: str, settings: dict, overrides: dict):
 def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
     """Apply user-defined overrides to the plan DataFrame."""
     try:
+        if _is_debug():
+            st.write(f"🔧 DEBUG: apply_plan_overrides called with build {BUILD_SHA}")
+        
         overrides = _get_overrides_for_plan(settings)
         
         if _is_debug():
