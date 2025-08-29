@@ -2574,6 +2574,21 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
         if not overrides or plan_df is None or plan_df.empty:
             if _is_debug():
                 st.write(f"Debug apply_plan_overrides: Early exit - overrides empty: {not overrides}, plan_df empty: {plan_df is None or plan_df.empty}")
+                st.write(f"  Overrides type: {type(overrides)}")
+                st.write(f"  Overrides length: {len(overrides) if hasattr(overrides, '__len__') else 'N/A'}")
+                st.write(f"  Plan_df is None: {plan_df is None}")
+                st.write(f"  Plan_df is empty: {plan_df.empty if plan_df is not None else 'N/A'}")
+                
+                # Store early exit debug info
+                st.session_state.swap_debug_history.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "operation": "apply_overrides_early_exit",
+                    "overrides_empty": not overrides,
+                    "plan_df_none": plan_df is None,
+                    "plan_df_empty": plan_df.empty if plan_df is not None else True,
+                    "overrides_type": str(type(overrides)),
+                    "overrides_len": len(overrides) if hasattr(overrides, '__len__') else 0
+                })
             return plan_df
             
         # Make a fresh copy to avoid modifying the original
@@ -2585,6 +2600,12 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
             
         # For each date with an override, apply the changes
         applied_overrides = []
+        
+        if _is_debug():
+            st.write(f"Debug apply_plan_overrides: Starting override processing loop...")
+            st.write(f"  Processing {len(overrides)} override(s)")
+            for i, (k, v) in enumerate(overrides.items()):
+                st.write(f"  Override {i+1}: {k} -> {v}")
         
         for date_iso, payload in overrides.items():
             try:
