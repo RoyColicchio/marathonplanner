@@ -2679,6 +2679,16 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             st.write(f"  Date A ({date_a_str}) will get: {pa}")
             st.write(f"  Date B ({date_b_str}) will get: {pb}")
             _debug_info(f"swap_plan_days: Creating override data - pa={pa}, pb={pb}")
+            
+            # Store debug info in session state
+            if "swap_debug_history" not in st.session_state:
+                st.session_state.swap_debug_history = []
+            st.session_state.swap_debug_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "operation": "swap_data_created",
+                "dates": f"{date_a_str} <-> {date_b_str}",
+                "override_data": f"A gets: {pa}, B gets: {pb}"
+            })
         
         # Generate fresh tooltips for the swapped activities
         # pa contains row_b's activity, so generate tooltip for that activity  
@@ -2711,6 +2721,17 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             st.write(f"  {date_b_str}: {overrides[date_b_str]}")
             _debug_info(f"swap_plan_days: Updated overrides - total count: {len(overrides)}")
             _debug_info(f"swap_plan_days: About to save overrides for plan: {plan_sig}")
+            
+            # Store debug info in session state
+            if "swap_debug_history" not in st.session_state:
+                st.session_state.swap_debug_history = []
+            st.session_state.swap_debug_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "operation": "saving_overrides",
+                "plan_sig": plan_sig,
+                "override_count": len(overrides),
+                "dates": f"{date_a_str}, {date_b_str}"
+            })
         
         # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
@@ -2724,6 +2745,15 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             if saved_overrides and date_b_str in saved_overrides:
                 st.write(f"  {date_b_str}: {saved_overrides[date_b_str]}")
             _debug_info(f"swap_plan_days: Verification - saved overrides count: {len(saved_overrides) if saved_overrides else 0}")
+            
+            # Store verification info in session state
+            st.session_state.swap_debug_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "operation": "override_verification",
+                "saved_count": len(saved_overrides) if saved_overrides else 0,
+                "found_date_a": date_a_str in saved_overrides if saved_overrides else False,
+                "found_date_b": date_b_str in saved_overrides if saved_overrides else False
+            })
         
         # Force refresh of plan to ensure changes are visible
         st.session_state.plan_needs_refresh = True
@@ -2805,9 +2835,40 @@ def show_dashboard():
     st.markdown("---")
     st.header("Your Training Schedule")
 
-    # Debug mode toggle (show if debug parameter in URL)
-    if "debug" in st.query_params:
+    # Show persistent swap results if they exist
+    if "swap_result" in st.session_state:
+        swap_result = st.session_state.swap_result
+        if swap_result.get("success"):
+            st.success(swap_result["message"])
+        # Clear the result after showing it once
+        del st.session_state.swap_result
+
+    # Debug mode information and persistent debug history
+    if _is_debug():
         st.warning("🔧 Debug mode active (add ?debug to URL to enable)")
+        
+        # Show current overrides state
+        with st.expander("Current Overrides State", expanded=False):
+            plan_sig = _plan_signature(settings)
+            current_overrides = _get_overrides_for_plan(settings)
+            st.code(f"Plan signature: {plan_sig}")
+            st.code(f"Override count: {len(current_overrides) if current_overrides else 0}")
+            if current_overrides:
+                for date_key, override_data in list(current_overrides.items())[:10]:  # Show first 10
+                    st.code(f"{date_key}: {override_data}")
+        
+        # Show persistent debug history
+        if "swap_debug_history" in st.session_state and st.session_state.swap_debug_history:
+            with st.expander("Debug History (Persistent)", expanded=True):
+                for i, entry in enumerate(reversed(st.session_state.swap_debug_history[-10:])):  # Show last 10 entries
+                    st.code(f"[{entry['timestamp']}] {entry['operation']}")
+                    for key, value in entry.items():
+                        if key not in ['timestamp', 'operation']:
+                            st.code(f"  {key}: {value}")
+                
+                if st.button("Clear Debug History"):
+                    st.session_state.swap_debug_history = []
+                    st.rerun()
     
     start_date_str = settings.get("start_date")
     if not start_date_str:
@@ -3472,13 +3533,36 @@ def show_dashboard():
                 
                 success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
                 if success:
-                    st.success(f"Swapped **{row_a['Workout']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Workout']}** on {date_b.strftime('%a, %b %d')}!")
+                    # Store swap result in session state so it persists across reruns
+                    st.session_state.swap_result = {
+                        "success": True,
+                        "message": f"Swapped **{row_a['Workout']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Workout']}** on {date_b.strftime('%a, %b %d')}!",
+                        "timestamp": datetime.now().isoformat()
+                    }
                     st.session_state.plan_needs_refresh = True
                     if _is_debug():
-                        _debug_info("Swap successful, triggering rerun")
+                        _debug_info("Swap successful, storing result and triggering rerun")
+                        # Store debug info in session state so it persists
+                        if "swap_debug_history" not in st.session_state:
+                            st.session_state.swap_debug_history = []
+                        st.session_state.swap_debug_history.append({
+                            "timestamp": datetime.now().isoformat(),
+                            "operation": "swap_success",
+                            "dates": f"{date_a} <-> {date_b}",
+                            "workouts": f"{row_a['Workout']} <-> {row_b['Workout']}"
+                        })
                     st.rerun()
                 else:
                     st.error("Could not perform swap.")
+                    if _is_debug():
+                        if "swap_debug_history" not in st.session_state:
+                            st.session_state.swap_debug_history = []
+                        st.session_state.swap_debug_history.append({
+                            "timestamp": datetime.now().isoformat(),
+                            "operation": "swap_failed",
+                            "dates": f"{date_a} <-> {date_b}",
+                            "error": "swap_plan_days returned False"
+                        })
             except Exception as e:
                 st.error(f"Error performing swap: {e}")
                 if _is_debug():
