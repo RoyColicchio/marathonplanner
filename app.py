@@ -2547,6 +2547,25 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
                 st.write(f"  Sample DateISO values: {sample_dates}")
             else:
                 st.write("  No DateISO column found!")
+            
+            # Add detailed override debug info
+            st.write(f"Debug apply_plan_overrides: Checking overrides...")
+            plan_sig = _plan_signature(settings)
+            st.write(f"  Plan signature: {plan_sig}")
+            st.write(f"  Overrides found: {overrides}")
+            st.write(f"  Override keys: {list(overrides.keys()) if overrides else 'None'}")
+            
+            # Store this in session state for persistent debugging
+            if "swap_debug_history" not in st.session_state:
+                st.session_state.swap_debug_history = []
+            st.session_state.swap_debug_history.append({
+                "timestamp": datetime.now().isoformat(),
+                "operation": "apply_overrides_start",
+                "plan_sig": plan_sig,
+                "override_count": len(overrides) if overrides else 0,
+                "override_keys": list(overrides.keys()) if overrides else [],
+                "plan_df_has_dateiso": 'DateISO' in (plan_df.columns if plan_df is not None else [])
+            })
         
         # Fix for None vs empty dict confusion
         if overrides is None:
@@ -2569,25 +2588,46 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
         
         for date_iso, payload in overrides.items():
             try:
+                if _is_debug():
+                    st.write(f"Debug apply_plan_overrides: Processing override for {date_iso}")
+                    st.write(f"  Payload: {payload}")
+                    
                 dt = datetime.strptime(str(date_iso), "%Y-%m-%d").date()
                 
                 # Try finding the row with DateISO first, then fall back to Date
                 if "DateISO" in out.columns:
                     mask = (out["DateISO"] == date_iso)
+                    if _is_debug():
+                        st.write(f"  Using DateISO column, mask matches: {mask.sum()}")
+                        if mask.sum() == 0:
+                            # Show what DateISO values we have
+                            unique_dates = out["DateISO"].unique()[:10]  # Show first 10
+                            st.write(f"  Available DateISO values (first 10): {unique_dates}")
                 else:
                     mask = (out["Date"] == dt)
+                    if _is_debug():
+                        st.write(f"  Using Date column, mask matches: {mask.sum()}")
                 
                 if mask is not None and mask.any():
                     applied_overrides.append(date_iso)
+                    if _is_debug():
+                        st.write(f"  ✓ Found matching row(s) for {date_iso}")
+                        matching_indices = out[mask].index.tolist()
+                        st.write(f"    Matching indices: {matching_indices}")
+                        
                     # Apply each field from the override to the matching row
                     for k, v in payload.items():
                         if k in out.columns:
                             if _is_debug():
                                 old_val = out.loc[mask, k].values[0] if any(mask) else "N/A"
-                                st.write(f"Debug apply_plan_overrides: {date_iso} {k}: '{old_val}' -> '{v}'")
+                                st.write(f"    Updating {k}: '{old_val}' -> '{v}'")
                             out.loc[mask, k] = v
+                        elif _is_debug():
+                            st.write(f"    Skipping field {k} - not in DataFrame columns")
                 elif _is_debug():
-                    st.write(f"Debug apply_plan_overrides: No matching row found for date {date_iso}")
+                    st.write(f"  ❌ No matching row found for date {date_iso}")
+                    st.write(f"     Mask is None: {mask is None}")
+                    st.write(f"     Mask any(): {mask.any() if mask is not None else 'N/A'}")
             except Exception as e:
                 if _is_debug():
                     st.error(f"Override apply error for {date_iso}: {e}")
