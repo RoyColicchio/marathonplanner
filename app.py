@@ -2618,10 +2618,18 @@ def _override_payload_from_row(row: pd.Series) -> dict:
 
 def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a, date_b):
     """Swap the workout details between two days in the plan."""
+    if _is_debug():
+        _debug_info(f"swap_plan_days: Starting swap between {date_a} and {date_b}")
+        _debug_info(f"swap_plan_days: DataFrame columns: {list(plan_df.columns)}")
+        _debug_info(f"swap_plan_days: DataFrame shape: {plan_df.shape}")
+    
     try:
         # Use merged_df with DateISO to ensure correct row selection
         df = plan_df.copy()
         df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        
+        if _is_debug():
+            _debug_info(f"swap_plan_days: After Date conversion, DateISO in columns: {'DateISO' in df.columns}")
         
         # Find the rows for the two selected dates
         if "DateISO" in df.columns:
@@ -2629,18 +2637,36 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             date_b_str = date_b.strftime("%Y-%m-%d")
             row_a = df[df["DateISO"] == date_a_str]
             row_b = df[df["DateISO"] == date_b_str]
+            
+            if _is_debug():
+                _debug_info(f"swap_plan_days: Looking for DateISO {date_a_str}, found {len(row_a)} rows")
+                _debug_info(f"swap_plan_days: Looking for DateISO {date_b_str}, found {len(row_b)} rows")
         else:
             date_a_str = date_a.strftime("%Y-%m-%d")
             date_b_str = date_b.strftime("%Y-%m-%d")
             row_a = df[df["Date"] == date_a]
             row_b = df[df["Date"] == date_b]
             
+            if _is_debug():
+                _debug_info(f"swap_plan_days: Looking for Date {date_a}, found {len(row_a)} rows")
+                _debug_info(f"swap_plan_days: Looking for Date {date_b}, found {len(row_b)} rows")
+            
         if row_a.empty or row_b.empty:
             error_msg = f"Selected dates are not in the plan: {date_a}, {date_b}"
+            if _is_debug():
+                _debug_info(f"swap_plan_days: ERROR - {error_msg}")
+                if row_a.empty:
+                    _debug_info(f"swap_plan_days: Row A empty for date {date_a_str}")
+                if row_b.empty:
+                    _debug_info(f"swap_plan_days: Row B empty for date {date_b_str}")
             raise ValueError(error_msg)
             
         # Only swap workout fields, not date/day
         workout_fields = ["Activity_Abbr", "Activity", "Plan_Miles"]
+        
+        if _is_debug():
+            _debug_info(f"swap_plan_days: Row A data: {dict(row_a.iloc[0])}")
+            _debug_info(f"swap_plan_days: Row B data: {dict(row_b.iloc[0])}")
         
         # Extract the workout details from each row and swap them
         # pa will be stored as the override for date A, so it should contain row_b's data
@@ -2652,6 +2678,7 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             st.write(f"Debug swap_plan_days: Swapping {date_a_str} <-> {date_b_str}")
             st.write(f"  Date A ({date_a_str}) will get: {pa}")
             st.write(f"  Date B ({date_b_str}) will get: {pb}")
+            _debug_info(f"swap_plan_days: Creating override data - pa={pa}, pb={pb}")
         
         # Generate fresh tooltips for the swapped activities
         # pa contains row_b's activity, so generate tooltip for that activity  
@@ -2664,9 +2691,15 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             pb["Activity_Short_Description"] = get_activity_short_description(pb["Activity"])
         
         # Get existing overrides 
+        plan_sig = _plan_signature(settings)
         overrides = _get_overrides_for_plan(settings)
         if overrides is None:
             overrides = {}
+            
+        if _is_debug():
+            _debug_info(f"swap_plan_days: Plan signature: {plan_sig}")
+            _debug_info(f"swap_plan_days: Existing overrides count: {len(overrides)}")
+            _debug_info(f"swap_plan_days: Existing overrides keys: {list(overrides.keys())}")
             
         # Store the workouts swapped (b's workout goes to a's date, a's workout goes to b's date)
         overrides[date_a_str] = pb
@@ -2676,6 +2709,8 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             st.write(f"Debug: Saving overrides: {len(overrides)} total overrides")
             st.write(f"  {date_a_str}: {overrides[date_a_str]}")
             st.write(f"  {date_b_str}: {overrides[date_b_str]}")
+            _debug_info(f"swap_plan_days: Updated overrides - total count: {len(overrides)}")
+            _debug_info(f"swap_plan_days: About to save overrides for plan: {plan_sig}")
         
         # Save the updated overrides
         _save_overrides_for_plan(user_hash, settings, overrides)
@@ -2688,9 +2723,13 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
                 st.write(f"  {date_a_str}: {saved_overrides[date_a_str]}")
             if saved_overrides and date_b_str in saved_overrides:
                 st.write(f"  {date_b_str}: {saved_overrides[date_b_str]}")
+            _debug_info(f"swap_plan_days: Verification - saved overrides count: {len(saved_overrides) if saved_overrides else 0}")
         
         # Force refresh of plan to ensure changes are visible
         st.session_state.plan_needs_refresh = True
+        
+        if _is_debug():
+            _debug_info("swap_plan_days: Swap completed successfully, plan refresh triggered")
         
         return True
     except Exception as e:
@@ -3419,20 +3458,32 @@ def show_dashboard():
         date_a_str = row_a.get('DateISO', row_a.get('Date'))
         date_b_str = row_b.get('DateISO', row_b.get('Date'))
 
+        if _is_debug():
+            _debug_info(f"Swap button clicked - date_a_str: {date_a_str}, date_b_str: {date_b_str}")
+
         if date_a_str and date_b_str:
             try:
                 date_a = datetime.strptime(date_a_str, '%Y-%m-%d').date()
                 date_b = datetime.strptime(date_b_str, '%Y-%m-%d').date()
                 
+                if _is_debug():
+                    _debug_info(f"Parsed dates - date_a: {date_a}, date_b: {date_b}")
+                    _debug_info(f"About to call swap_plan_days with merged_df shape: {merged_df.shape}")
+                
                 success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
                 if success:
                     st.success(f"Swapped **{row_a['Workout']}** on {date_a.strftime('%a, %b %d')} with **{row_b['Workout']}** on {date_b.strftime('%a, %b %d')}!")
                     st.session_state.plan_needs_refresh = True
+                    if _is_debug():
+                        _debug_info("Swap successful, triggering rerun")
                     st.rerun()
                 else:
                     st.error("Could not perform swap.")
             except Exception as e:
                 st.error(f"Error performing swap: {e}")
+                if _is_debug():
+                    import traceback
+                    _debug_info(f"Swap error: {traceback.format_exc()}")
         else:
             st.error("Could not identify dates to swap.")
     
