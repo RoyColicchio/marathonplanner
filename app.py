@@ -2392,7 +2392,9 @@ def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00
         })
         
         # Add activity tooltips
-        new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
+        new_plan_df['Activity_Tooltip'] = new_plan_df.apply(
+            lambda row: get_activity_tooltip(row.get('Activity_Abbr', row.get('Activity', ''))), axis=1
+        )
         new_plan_df['Activity_Short_Description'] = new_plan_df['Activity'].apply(get_activity_short_description)
         # Do not add single-value pace here; we'll compute ranges later using get_pace_range
         
@@ -2608,7 +2610,9 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         adjusted_df['Activity'] = adjusted_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr']), axis=1)
         
         # Also update tooltips based on new activity descriptions
-        adjusted_df['Activity_Tooltip'] = adjusted_df.apply(lambda row: get_activity_tooltip(row['Activity']), axis=1)
+        adjusted_df['Activity_Tooltip'] = adjusted_df.apply(
+            lambda row: get_activity_tooltip(row.get('Activity_Abbr', row.get('Activity', ''))), axis=1
+        )
         adjusted_df['Activity_Short_Description'] = adjusted_df.apply(lambda row: get_activity_short_description(row['Activity']), axis=1)
         
         if _is_debug():
@@ -3231,7 +3235,9 @@ def show_dashboard():
     
     # Regenerate tooltips and descriptions for all rows (they should match current Activity values)
     if 'Activity' in final_plan_df.columns:
-        final_plan_df['Activity_Tooltip'] = final_plan_df['Activity'].apply(get_activity_tooltip)
+        final_plan_df['Activity_Tooltip'] = final_plan_df.apply(
+            lambda row: get_activity_tooltip(row.get('Activity_Abbr', row.get('Activity', ''))), axis=1
+        )
         final_plan_df['Activity_Short_Description'] = final_plan_df['Activity'].apply(get_activity_short_description)
 
     # Strava data merge
