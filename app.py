@@ -1369,6 +1369,60 @@ def replace_primary_miles(text: str, new_miles: float) -> str:
     return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
 
 
+# JD workout parser to extract total miles and segments (LT/Tempo, MP, strides)
+def _parse_jd_workout(activity_text: str):
+    try:
+        s = str(activity_text or "").strip()
+        s_lower = s.lower()
+        # Total miles: try patterns like 'tempo 6', 'mp 8', 'lr 16', 'dress rehearsal 6', 'easy 5'
+        m_total = re.search(r"\b(?:tempo|mp|marathon\s*pace|lr|long\s*run|dress\s*rehearsal|easy)\s*(\d+(?:\.\d+)?)", s_lower)
+        total = float(m_total.group(1)) if m_total else None
+        # Fallback: a number before a 'w/' segment
+        if total is None:
+            m_first = re.search(r"\b(\d+(?:\.\d+)?)\b[^\n]*?w/", s_lower)
+            if m_first:
+                total = float(m_first.group(1))
+        breakdown = {"LT": 0.0, "MP": 0.0}
+        segments = []  # tuples: (type, miles, reps or None, seg_len or None)
+        # Parse 'w/ <reps>x<seg_mi> @ <label>' or 'w/ <seg_mi> @ <label>'
+        for m in re.finditer(r"(?i)w/\s*(?:(\d+)\s*x\s*)?(\d+(?:\.\d+)?)\s*@\s*([A-Za-z ]+)", s):
+            reps = int(m.group(1)) if m.group(1) else 1
+            seg_mi = float(m.group(2))
+            label = m.group(3).strip().lower()
+            miles = seg_mi * reps
+            if any(k in label for k in ["tempo", "15k", "hmp", "lactate"]):
+                breakdown["LT"] += miles
+                segments.append(("LT", miles, reps if m.group(1) else None, seg_mi if m.group(1) else None))
+            elif "mp" in label or "marathon" in label:
+                breakdown["MP"] += miles
+                segments.append(("MP", miles, reps if m.group(1) else None, seg_mi if m.group(1) else None))
+            else:
+                segments.append(("Other", miles, reps if m.group(1) else None, seg_mi if m.group(1) else None))
+        # MP continuous pattern
+        m_cont = re.search(r"(?i)\bmp\s*(\d+(?:\.\d+)?)\s*(?:mi|mile|miles)?\s*continuous", s)
+        if m_cont:
+            mi = float(m_cont.group(1))
+            breakdown["MP"] += mi
+            total = total or mi
+        # Strides pattern: 'Easy X w/ N x 100m strides'
+        strides = None
+        m_strides = re.search(r"(?i)\b(\d+(?:\.\d+)?)\b[^\n]*?w/\s*(\d+)\s*x\s*(\d+)\s*(?:m|meter|meters)\s*strides", s)
+        if m_strides:
+            total = total or float(m_strides.group(1))
+            strides = (int(m_strides.group(2)), int(m_strides.group(3)))
+        easy = None
+        if total is not None:
+            easy = max(0.0, total - (breakdown["LT"] + breakdown["MP"]))
+        return {
+            "total": total,
+            "breakdown": breakdown,
+            "strides": strides,
+            "segments": segments,
+            "raw": s,
+        }
+    except Exception:
+        return None
+
 def get_activity_short_description(activity_description):
     """Generate short, one-sentence descriptions for activity hover tooltips based on Pfitzinger principles."""
     desc_lower = activity_description.lower()
