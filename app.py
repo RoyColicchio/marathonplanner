@@ -216,6 +216,55 @@ def list_available_plans():
 def plan_display_name(p: str) -> str:
     name = Path(p).name
     lname = name.lower()
+
+    # Helper to compute peak weekly mileage for CSV plans with weekday columns
+    def _compute_peak_weekly_miles(csv_path: str):
+        try:
+            df = pd.read_csv(csv_path, header=0)
+            df.columns = [str(c).strip() for c in df.columns]
+            day_cols = [c for c in df.columns if c.lower() in [
+                "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+            ]]
+            if not day_cols:
+                return None
+            peak = 0.0
+            for _, row in df.iterrows():
+                # Skip race week totals so peak reflects training, not marathon week
+                row_text = " ".join(str(row.get(c, "")) for c in day_cols)
+                if isinstance(row_text, str) and "marathon race" in row_text.lower():
+                    continue
+                total = 0.0
+                for c in day_cols:
+                    cell = row.get(c, "")
+                    if pd.isna(cell):
+                        continue
+                    s = str(cell).strip()
+                    if not s or s.lower() == "nan":
+                        continue
+                    # Extract the first primary miles number, ignoring x-reps and K distances
+                    found = None
+                    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\b", s):
+                        start, end = m.span(1)
+                        # Ignore kilometer tokens like 10K
+                        if end < len(s) and s[end].lower() == 'k':
+                            continue
+                        # Ignore repeated segment counts like 6 x 1 mile
+                        prev = s[max(0, start-2):start].lower()
+                        if 'x' in prev:
+                            continue
+                        try:
+                            found = float(m.group(1))
+                            break
+                        except Exception:
+                            pass
+                    if found is not None:
+                        total += found
+                peak = max(peak, total)
+            return int(round(peak)) if peak > 0 else None
+        except Exception:
+            return None
+
+    # Known mappings
     if name == "run_plan.csv":
         return "18 Weeks, 55 Mile/Week Peak"
     if lname in ("unofficial-pfitz-18-63.ics", "pfitz-18-63.ics"):
@@ -224,14 +273,22 @@ def plan_display_name(p: str) -> str:
         return "18 Weeks, 50 Miles/Week Peak (Hal)"
     if lname.endswith(".ics") and "63" in lname:
         return "18 Weeks, 63 Mile/Week Peak"
-    if lname == "jd-2q-18w-mid.csv":
-        return "Jack Daniels 2Q (18 Weeks, Mid Volume)"
-    if lname == "jd-2q-18w-low.csv":
-        return "Jack Daniels 2Q (18 Weeks, Low Volume)"
-    if lname == "jd-2q-18w-high.csv":
-        return "Jack Daniels 2Q (18 Weeks, High Volume)"
-    if lname == "jd-2q-18w-elite.csv":
-        return "Jack Daniels 2Q (18 Weeks, Elite)"
+
+    # Jack Daniels 2Q variants with dynamic peak MPW
+    if lname.startswith("jd-2q-18w-") and lname.endswith(".csv"):
+        vol = "Volume"
+        if "low" in lname:
+            vol = "Low Volume"
+        elif "mid" in lname:
+            vol = "Mid Volume"
+        elif "high" in lname:
+            vol = "High Volume"
+        elif "elite" in lname:
+            vol = "Elite"
+        peak = _compute_peak_weekly_miles(p)
+        suffix = f", Peak {peak} mi/wk" if peak else ""
+        return f"Jack Daniels 2Q (18 Weeks, {vol}{suffix})"
+
     return name
 
 # Lightweight ICS parser for plan activities
@@ -1316,6 +1373,38 @@ def get_activity_short_description(activity_description):
     """Generate short, one-sentence descriptions for activity hover tooltips based on Pfitzinger principles."""
     desc_lower = activity_description.lower()
     orig = activity_description.strip()
+
+    # Prefer explicit breakdowns for JD-style entries when possible
+    try:
+        # Pattern: Total X with Y @ Tempo/MP/etc.
+        m = re.search(r'(?i)\b(?P<total>\d+(?:\.\d+)?)\b[^\n]*?w/\s*(?P<seg>\d+(?:\.\d+)?)\s*@\s*(?P<label>tempo|mp|marathon\s*pace|15k\s*to\s*hmp|hmp)', orig)
+        if m:
+            total = float(m.group('total'))
+            seg = float(m.group('seg'))
+            remain = max(0.0, total - seg)
+            label = m.group('label').lower()
+            if label in ('tempo', '15k to hmp', 'hmp'):
+                pace_name = 'Lactate Threshold (Tempo)'
+            else:
+                pace_name = 'Marathon Pace'
+            total_str = f"{int(total)}" if abs(total - round(total)) < 0.05 else f"{total:.1f}"
+            seg_str = f"{int(seg)}" if abs(seg - round(seg)) < 0.05 else f"{seg:.1f}"
+            rem_str = f"{int(remain)}" if abs(remain - round(remain)) < 0.05 else f"{remain:.1f}"
+            return f"Total {total_str} mi: {seg_str} mi at {pace_name}, {rem_str} mi easy."
+        # Pattern: MP X continuous
+        m2 = re.search(r'(?i)\bmp\s*(?P<total>\d+(?:\.\d+)?)\s*(?:mi|mile|miles)?\s*continuous', orig)
+        if m2:
+            total = float(m2.group('total'))
+            total_str = f"{int(total)}" if abs(total - round(total)) < 0.05 else f"{total:.1f}"
+            return f"Total {total_str} mi at Marathon Pace (continuous)."
+        # Pattern: Easy X w/ N x 100 strides
+        m3 = re.search(r'(?i)\beasy\s*(?P<total>\d+(?:\.\d+)?)\b[^\n]*?w/\s*(?P<reps>\d+)\s*x\s*(?P<dist>\d+)\s*(?:m|meter|meters)', orig)
+        if m3:
+            total = float(m3.group('total')); reps = int(m3.group('reps')); dist = int(m3.group('dist'))
+            total_str = f"{int(total)}" if abs(total - round(total)) < 0.05 else f"{total:.1f}"
+            return f"Easy {total_str} mi with {reps} × {dist}m strides."
+    except Exception:
+        pass
     
     if 'rest' in desc_lower:
         return "Rest day for recovery - no running, but light cross-training is fine."
