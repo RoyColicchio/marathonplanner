@@ -224,6 +224,14 @@ def plan_display_name(p: str) -> str:
         return "18 Weeks, 50 Miles/Week Peak (Hal)"
     if lname.endswith(".ics") and "63" in lname:
         return "18 Weeks, 63 Mile/Week Peak"
+    if lname == "jd-2q-18w-mid.csv":
+        return "Jack Daniels 2Q (18 Weeks, Mid Volume)"
+    if lname == "jd-2q-18w-low.csv":
+        return "Jack Daniels 2Q (18 Weeks, Low Volume)"
+    if lname == "jd-2q-18w-high.csv":
+        return "Jack Daniels 2Q (18 Weeks, High Volume)"
+    if lname == "jd-2q-18w-elite.csv":
+        return "Jack Daniels 2Q (18 Weeks, Elite)"
     return name
 
 # Lightweight ICS parser for plan activities
