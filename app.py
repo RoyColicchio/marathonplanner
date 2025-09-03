@@ -1617,6 +1617,45 @@ def get_activity_tooltip(activity_description):
     desc_lower = activity_description.lower()
     orig = activity_description.strip()
     
+    # JD-style explicit, actionable instructions when segments detected
+    try:
+        parsed = _parse_jd_workout(orig)
+        if parsed and parsed.get("total") and (parsed["breakdown"].get("LT", 0) > 0 or parsed["breakdown"].get("MP", 0) > 0):
+            total = parsed["total"] or 0.0
+            lt = parsed["breakdown"].get("LT", 0.0)
+            mp = parsed["breakdown"].get("MP", 0.0)
+            easy = max(0.0, total - lt - mp)
+            def _fmt(x):
+                return f"{int(x)}" if abs(x - round(x)) < 0.05 else f"{x:.1f}"
+            lines = [f"Do a {_fmt(total)}-mile run:"]
+            # Segment details (prefer rep formats when available)
+            lt_seg = next((seg for seg in parsed["segments"] if seg[0] == "LT" and seg[2]), None)
+            mp_seg = next((seg for seg in parsed["segments"] if seg[0] == "MP" and seg[2]), None)
+            if lt > 0:
+                if lt_seg:
+                    lines.append(f"- LT/Tempo: {lt_seg[2]} × {_fmt(lt_seg[3])} mi (total {_fmt(lt)} mi) at LT (15K–HMP effort)")
+                else:
+                    lines.append(f"- LT/Tempo: {_fmt(lt)} mi continuous at 15K–HMP effort")
+            if mp > 0:
+                if mp_seg:
+                    lines.append(f"- Marathon Pace: {mp_seg[2]} × {_fmt(mp_seg[3])} mi (total {_fmt(mp)} mi) at goal MP")
+                else:
+                    lines.append(f"- Marathon Pace: {_fmt(mp)} mi continuous at goal MP")
+            if easy > 0:
+                lines.append(f"- Easy: {_fmt(easy)} mi easy pace to complete the total")
+            # Execution guidance
+            lines.append("Execution: Warm up 15–20 min easy. Place LT/MP work in the middle. Cool down easy to reach the total distance. Keep LT as comfortably-hard and MP as steady race pace.")
+            return "\n".join(lines)
+        # Strides explicit
+        if parsed and parsed.get("strides") and parsed.get("total"):
+            reps, distm = parsed["strides"]
+            t = parsed["total"]
+            def _fmt(x):
+                return f"{int(x)}" if abs(x - round(x)) < 0.05 else f"{x:.1f}"
+            return f"Do an easy {_fmt(t)}-mile run with {reps} × {distm}m strides (95% effort, full recovery) near the end."
+    except Exception:
+        pass
+
     if 'rest' in desc_lower:
         return "Rest day. No running, but light cross-training (swimming, yoga, walking) is fine. Rest is crucial for muscle recovery and injury prevention."
     
