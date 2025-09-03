@@ -291,6 +291,85 @@ def plan_display_name(p: str) -> str:
 
     return name
 
+# ---- Plan stats helpers for UI ----
+def compute_peak_weekly_miles(csv_path: str):
+    try:
+        if not str(csv_path).lower().endswith('.csv'):
+            return None
+        df = pd.read_csv(csv_path, header=0)
+        df.columns = [str(c).strip() for c in df.columns]
+        day_cols = [c for c in df.columns if c.lower() in [
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        ]]
+        if not day_cols:
+            return None
+        peak = 0.0
+        for _, row in df.iterrows():
+            row_text = " ".join(str(row.get(c, "")) for c in day_cols)
+            if isinstance(row_text, str) and "marathon race" in row_text.lower():
+                continue
+            total = 0.0
+            for c in day_cols:
+                val = row.get(c, "")
+                if pd.isna(val) or not str(val).strip():
+                    continue
+                miles = extract_primary_miles(str(val))
+                if miles:
+                    total += float(miles)
+            peak = max(peak, total)
+        return int(round(peak)) if peak > 0 else None
+    except Exception:
+        return None
+
+def compute_weekly_miles_series(csv_path: str):
+    try:
+        if not str(csv_path).lower().endswith('.csv'):
+            return []
+        df = pd.read_csv(csv_path, header=0)
+        df.columns = [str(c).strip() for c in df.columns]
+        day_cols = [c for c in df.columns if c.lower() in [
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        ]]
+        if not day_cols:
+            return []
+        series = []
+        for _, row in df.iterrows():
+            row_text = " ".join(str(row.get(c, "")) for c in day_cols)
+            if isinstance(row_text, str) and "marathon race" in row_text.lower():
+                continue
+            total = 0.0
+            for c in day_cols:
+                val = row.get(c, "")
+                if pd.isna(val) or not str(val).strip():
+                    continue
+                miles = extract_primary_miles(str(val))
+                if miles:
+                    total += float(miles)
+            series.append(total)
+        return series
+    except Exception:
+        return []
+
+def count_weeks(csv_path: str):
+    try:
+        if not str(csv_path).lower().endswith('.csv'):
+            return None
+        df = pd.read_csv(csv_path, header=0)
+        df.columns = [str(c).strip() for c in df.columns]
+        day_cols = [c for c in df.columns if c.lower() in [
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        ]]
+        if not day_cols:
+            return None
+        # Count rows that have any non-empty day value
+        valid_rows = 0
+        for _, row in df.iterrows():
+            if any(bool(str(row.get(c, "")).strip()) for c in day_cols):
+                valid_rows += 1
+        return valid_rows or None
+    except Exception:
+        return None
+
 # Lightweight ICS parser for plan activities
 def parse_ics_activities(file_path: str) -> list[str]:
     try:
