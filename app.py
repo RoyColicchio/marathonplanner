@@ -1795,82 +1795,103 @@ def is_miles_in_range(actual_miles, suggested_miles):
 def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
     """Calculate suggested pace range based on activity type and goal marathon time."""
     try:
-        # Parse goal marathon time
+        # Parse goal marathon time and convert to seconds per mile
         time_parts = goal_marathon_time_str.split(":")
         goal_seconds = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-        marathon_pace_seconds = goal_seconds / 26.2  # seconds per mile
-        
-        # Apply 10% slower adjustment to all paces (was 5%, now more conservative)
-        marathon_pace_seconds *= 1.10
+        gmp_sec_per_mile = goal_seconds / 26.2  # Goal Marathon Pace in seconds per mile
         
         desc_lower = activity_description.lower()
         
+        def seconds_to_pace(seconds_per_mile):
+            """Convert seconds per mile to MM:SS format."""
+            minutes = int(seconds_per_mile // 60)
+            secs = round(seconds_per_mile % 60)
+            if secs == 60:
+                minutes += 1
+                secs = 0
+            return f"{minutes}:{secs:02d}"
+        
         def format_pace_range(base_seconds):
-            """Return pace range: 3% faster to 4% slower"""
-            faster_seconds = base_seconds * 0.97
-            slower_seconds = base_seconds * 1.04  # Changed from 1.03 to 1.04 (4% slower)
+            """Return pace range: ±2% for modest variation."""
+            # Typical variation is about 2% (±~3 seconds for 8:20 pace)
+            faster_seconds = base_seconds * 0.98  # 2% faster
+            slower_seconds = base_seconds * 1.02  # 2% slower
             
-            faster_pace = f"{int(faster_seconds//60)}:{int(faster_seconds%60):02d}"
-            slower_pace = f"{int(slower_seconds//60)}:{int(slower_seconds%60):02d}"
+            faster_pace = seconds_to_pace(faster_seconds)
+            slower_pace = seconds_to_pace(slower_seconds)
             
             return f"{faster_pace} - {slower_pace}"
         
-        if 'rest' in desc_lower:
+        # Pfitzinger-style offsets (in seconds per mile, relative to GMP)
+        if 'rest' in desc_lower or 'cross-training' in desc_lower:
             return "—"
         
         elif 'recovery' in desc_lower or 'rec' in desc_lower:
-            # Recovery: Slowest pace - 120+ seconds slower than marathon pace
-            recovery_seconds = marathon_pace_seconds + 120  # Much slower than easy
+            # Recovery: +60 s/mile (easy, conversational pace)
+            recovery_seconds = gmp_sec_per_mile + 60
             return format_pace_range(recovery_seconds)
         
-        elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
-            # Medium-Long: Flipped with GA - now faster (was 75s, now 45s)
-            mlr_seconds = marathon_pace_seconds + 45  # Faster than before
-            return format_pace_range(mlr_seconds)
-        
         elif 'easy' in desc_lower:
-            # Easy: 60-120 seconds slower than marathon pace (was 30-90)
-            easy_seconds = marathon_pace_seconds + 90  # More conservative
+            # Easy: +60 s/mile (conversational, comfortable)
+            easy_seconds = gmp_sec_per_mile + 60
             return format_pace_range(easy_seconds)
         
         elif 'general aerobic' in desc_lower or 'aerobic' in desc_lower:
-            # GA: Flipped with MLR - now slower (was 45s, now 75s)
-            ga_seconds = marathon_pace_seconds + 75  # Slower than before
+            # General Aerobic: +45 s/mile (slightly quicker than easy, still conversational)
+            ga_seconds = gmp_sec_per_mile + 45
             return format_pace_range(ga_seconds)
         
-        elif 'hill repeat' in desc_lower:
-            return "Hard uphill effort"
-        
-        elif 'tempo' in desc_lower:
-            # Tempo: Near 10K pace (roughly 10-20 seconds faster than marathon pace, was 15-30 faster)
-            tempo_seconds = marathon_pace_seconds - 15
-            return format_pace_range(tempo_seconds)
-        
-        elif '800m interval' in desc_lower or '800' in desc_lower:
-            return "Yasso 800s pace"
-        
-        elif '400m interval' in desc_lower or '400' in desc_lower:
-            return "Mile pace or faster"
-        
-        elif 'marathon pace' in desc_lower:
-            return format_pace_range(marathon_pace_seconds)
-        
-        elif 'long run' in desc_lower:
-            # Long run: Same pace as medium-long run (45s slower)
-            long_seconds = marathon_pace_seconds + 45  # Same as MLR
+        elif 'long run' in desc_lower or 'endurance' in desc_lower:
+            # Long/Endurance: +30 s/mile (steady effort, controlled but quicker)
+            long_seconds = gmp_sec_per_mile + 30
             return format_pace_range(long_seconds)
         
-        elif 'half marathon' in desc_lower:
-            # Half marathon: ~10 seconds faster than marathon pace (was 15 faster)
-            hm_seconds = marathon_pace_seconds - 10
+        elif 'medium-long' in desc_lower or 'mlr' in desc_lower:
+            # Medium-Long Run: +30 s/mile (same as long run)
+            mlr_seconds = gmp_sec_per_mile + 30
+            return format_pace_range(mlr_seconds)
+        
+        elif 'tempo' in desc_lower or 'lactate' in desc_lower or 'threshold' in desc_lower:
+            # Tempo/Lactate Threshold: -20 s/mile (half-marathon effort)
+            tempo_seconds = gmp_sec_per_mile - 20
+            return format_pace_range(tempo_seconds)
+        
+        elif 'vo2' in desc_lower or 'vo₂' in desc_lower or '5k' in desc_lower or '5-k' in desc_lower:
+            # VO₂ max / 5K pace: -40 s/mile
+            vo2_seconds = gmp_sec_per_mile - 40
+            return format_pace_range(vo2_seconds)
+        
+        elif 'mile repeat' in desc_lower or 'speed' in desc_lower or 'speed work' in desc_lower:
+            # Mile repeats/speed work: -60 s/mile (mile pace)
+            speed_seconds = gmp_sec_per_mile - 60
+            return format_pace_range(speed_seconds)
+        
+        elif '800m' in desc_lower or '800' in desc_lower:
+            # 800m intervals: -50 to -60 s/mile (between 5K and mile pace)
+            interval_800_seconds = gmp_sec_per_mile - 55
+            return format_pace_range(interval_800_seconds)
+        
+        elif '400m' in desc_lower or '400' in desc_lower:
+            # 400m intervals: faster, use -70 s/mile estimate
+            interval_400_seconds = gmp_sec_per_mile - 70
+            return format_pace_range(interval_400_seconds)
+        
+        elif 'hill repeat' in desc_lower or 'hill' in desc_lower:
+            # Hill repeats: effort-based, suggest "Hard uphill effort"
+            return "Hard uphill effort"
+        
+        elif 'marathon pace' in desc_lower or 'race' in desc_lower:
+            # Marathon/Race pace: 0 offset (exact GMP)
+            return format_pace_range(gmp_sec_per_mile)
+        
+        elif 'half marathon' in desc_lower or 'hm' in desc_lower:
+            # Half marathon pace: -20 to -30 s/mile, use -25 as middle ground
+            hm_seconds = gmp_sec_per_mile - 25
             return format_pace_range(hm_seconds)
         
-        elif 'marathon' in desc_lower and 'pace' not in desc_lower:
-            return format_pace_range(marathon_pace_seconds)
-        
         else:
-            # Default to general aerobic
-            default_seconds = marathon_pace_seconds + 45  # More conservative
+            # Default to general aerobic pace (+45 s/mile)
+            default_seconds = gmp_sec_per_mile + 45
             return format_pace_range(default_seconds)
             
     except Exception:
