@@ -48,9 +48,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Show a tiny build tag to confirm which version is running
-st.caption(f"Build: {BUILD_SHA}")
-
 # Simple, clean styling that doesn't interfere with functionality
 st.markdown("""
 <style>
@@ -1812,10 +1809,13 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return f"{minutes}:{secs:02d}"
         
         def format_pace_range(base_seconds):
-            """Return pace range: ±2% for modest variation."""
+            """Return pace range: ±2% for modest variation, with 5% slower overall adjustment."""
+            # Apply 5% slower adjustment to the base pace
+            adjusted_seconds = base_seconds * 1.05
+            
             # Typical variation is about 2% (±~3 seconds for 8:20 pace)
-            faster_seconds = base_seconds * 0.98  # 2% faster
-            slower_seconds = base_seconds * 1.02  # 2% slower
+            faster_seconds = adjusted_seconds * 0.98  # 2% faster
+            slower_seconds = adjusted_seconds * 1.02  # 2% slower
             
             faster_pace = seconds_to_pace(faster_seconds)
             slower_pace = seconds_to_pace(slower_seconds)
@@ -2598,7 +2598,7 @@ def apply_plan_overrides(plan_df: pd.DataFrame, settings: dict) -> pd.DataFrame:
     """Apply user-defined overrides to the plan DataFrame."""
     try:
         if _is_debug():
-            st.write(f"🔧 DEBUG: apply_plan_overrides called with build {BUILD_SHA}")
+            st.write(f"🔧 DEBUG: apply_plan_overrides called")
         
         overrides = _get_overrides_for_plan(settings)
         
