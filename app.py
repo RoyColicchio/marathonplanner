@@ -2744,18 +2744,21 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
                     _debug_info(f"swap_plan_days: Row B empty for date {date_b_str}")
             raise ValueError(error_msg)
             
-        # Only swap workout fields, not date/day
-        workout_fields = ["Activity_Abbr", "Activity", "Plan_Miles"]
+        # Only swap plan fields, not actual data or date/day
+        # Plan fields: Activity, Plan_Miles, Suggested Pace, Activity_Abbr
+        # Actual fields that should NOT swap: Actual_Miles, Actual_Pace
+        plan_fields = ["Activity_Abbr", "Activity", "Plan_Miles", "Suggested_Pace"]
         
         if _is_debug():
             _debug_info(f"swap_plan_days: Row A data: {dict(row_a.iloc[0])}")
             _debug_info(f"swap_plan_days: Row B data: {dict(row_b.iloc[0])}")
+            _debug_info(f"swap_plan_days: Only swapping plan fields: {plan_fields}")
         
-        # Extract the workout details from each row and swap them
-        # pa will be stored as the override for date A, so it should contain row_b's data
-        # pb will be stored as the override for date B, so it should contain row_a's data  
-        pa = {k: row_b.iloc[0][k] for k in workout_fields if k in row_b.columns}
-        pb = {k: row_a.iloc[0][k] for k in workout_fields if k in row_a.columns}
+        # Extract only the plan fields from each row and swap them
+        # pa will be stored as the override for date A, so it should contain row_b's plan data
+        # pb will be stored as the override for date B, so it should contain row_a's plan data  
+        pa = {k: row_b.iloc[0][k] for k in plan_fields if k in row_b.columns}
+        pb = {k: row_a.iloc[0][k] for k in plan_fields if k in row_a.columns}
         
         if _is_debug():
             st.write(f"Debug swap_plan_days: Swapping {date_a_str} <-> {date_b_str}")
@@ -3611,28 +3614,13 @@ def show_dashboard():
                 _debug_info(f"Row {i+1} Date: {row.get('Date', 'MISSING')}")
     
     # --- Swap Days Button ---
-    today = datetime.now().date()
     can_swap = False
-    future_selected_count = 0
     
     if selected_rows and len(selected_rows) == 2:
-        # Check if both selected days are current or future
-        for row in selected_rows:
-            if not isinstance(row, dict):
-                continue
-            date_str = row.get('DateISO', row.get('Date'))
-            if date_str:
-                try:
-                    row_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                    _debug_info(f"Checking date: {date_str} -> {row_date} >= {today} = {row_date >= today}")
-                    if row_date >= today:
-                        future_selected_count += 1
-                except Exception as e:
-                    _debug_info(f"Date parsing error: {e}")
-        
-        can_swap = future_selected_count == 2
-    
-    _debug_info(f"Swap logic: future_selected_count={future_selected_count}, can_swap={can_swap}")
+        # Allow swapping any dates - both past and future
+        # Just need exactly 2 rows selected
+        can_swap = True
+        _debug_info(f"Swap logic: 2 rows selected, can_swap={can_swap}")
     
     # Always show the button, but disable it when conditions aren't met
     button_disabled = not can_swap
@@ -3643,8 +3631,6 @@ def show_dashboard():
         button_text = "Swap Days (select 1 more row)"
     elif len(selected_rows) > 2:
         button_text = "Swap Days (select only 2 rows)"
-    elif not can_swap:
-        button_text = "Swap Days (past dates cannot be swapped)"
     
     swap_clicked = st.button(button_text, disabled=button_disabled, use_container_width=True)
     
