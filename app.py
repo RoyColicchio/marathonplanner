@@ -2819,9 +2819,11 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
             _debug_info(f"swap_plan_days: Existing overrides count: {len(overrides)}")
             _debug_info(f"swap_plan_days: Existing overrides keys: {list(overrides.keys())}")
             
-        # Store the workouts swapped (b's workout goes to a's date, a's workout goes to b's date)
-        overrides[date_a_str] = pb
-        overrides[date_b_str] = pa
+        # Store the workouts swapped (row_b's workout goes to date_a, row_a's workout goes to date_b)
+        # pa contains row_b's data, should go to date_a
+        # pb contains row_a's data, should go to date_b
+        overrides[date_a_str] = pa
+        overrides[date_b_str] = pb
         
         if _is_debug():
             st.write(f"Debug: Saving overrides: {len(overrides)} total overrides")
@@ -3748,8 +3750,13 @@ def show_dashboard():
                 
                 # Set swap in progress flag
                 st.session_state.swap_in_progress = True
+                st.write(f"**About to swap:** {date_a} ↔ {date_b}")
+                st.write(f"  Row A: {row_a.get('Workout', '?')}")
+                st.write(f"  Row B: {row_b.get('Workout', '?')}")
                 
                 success = swap_plan_days(user_hash, settings, merged_df, date_a, date_b)
+                
+                st.write(f"**Swap function returned:** success={success}")
                 
                 # Clear the in progress flag
                 if "swap_in_progress" in st.session_state:
