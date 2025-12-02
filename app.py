@@ -663,20 +663,24 @@ def training_plan_setup():
         default_plan_path = settings.get("plan_file", "run_plan.csv")
         if default_plan_path not in available_paths and available_paths:
             default_plan_path = available_paths[0]
-        labels = [plan_display_name(p) for p in available_paths] or ["18 Weeks, 55 Mile/Week Peak"]
-        # index must match the order of labels/paths
+        # Create label-to-path mapping and sort alphabetically
+        label_to_path = {plan_display_name(p): p for p in available_paths}
+        sorted_labels = sorted(label_to_path.keys())
+        labels = sorted_labels or ["18 Weeks, 55 Mile/Week Peak"]
+        
+        # Find the index of the default plan in the sorted list
         try:
-            default_index = available_paths.index(default_plan_path) if available_paths else 0
-        except ValueError:
+            default_label = plan_display_name(default_plan_path)
+            default_index = sorted_labels.index(default_label) if default_label in sorted_labels else 0
+        except (ValueError, IndexError):
             default_index = 0
+        
         selected_label = st.selectbox(
             "Training Plan",
             options=labels,
             index=min(default_index, len(labels)-1),
             help="Select a plan. Place CSVs or ICS files in the repo root or plans/ folder."
         )
-        # map label back to path
-        label_to_path = {plan_display_name(p): p for p in available_paths}
         selected_plan_path = label_to_path.get(selected_label, default_plan_path)
 
         # Adjustment controls with persisted defaults
@@ -2879,10 +2883,11 @@ def clear_all_overrides(user_hash: str, settings: dict):
 
 def main():
     """Main application logic."""
-    # Check for persistent login data first
-    if not st.session_state.current_user:
+    # Always check for persistent login data, even if session state has a user
+    # This ensures we restore from localStorage on fresh page loads
+    if not st.session_state.get('auth_checked', False):
         if _is_debug():
-            st.write("Debug: No current user, checking persistent login...")
+            st.write("Debug: First load, checking persistent login...")
         check_persistent_login()
         
     if not st.session_state.current_user:
