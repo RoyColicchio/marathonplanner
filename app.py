@@ -2824,10 +2824,19 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         
         if _is_debug():
             st.write("Debug: Checking if overrides were saved correctly...")
+            # Reload fresh from disk to verify
+            fresh_settings = load_user_settings(user_hash)
+            fresh_sig = _plan_signature(fresh_settings)
+            fresh_overrides = fresh_settings.get('overrides_by_plan', {}).get(fresh_sig, {})
+            st.write(f"  Fresh load from disk - overrides count: {len(fresh_overrides) if fresh_overrides else 0}")
+            if fresh_overrides and date_a_str in fresh_overrides:
+                st.write(f"  ✓ {date_a_str}: {fresh_overrides[date_a_str]}")
+            else:
+                st.write(f"  ✗ {date_a_str} NOT FOUND in fresh load")
+            
+            # Also check current session overrides
             saved_overrides = _get_overrides_for_plan(settings)
-            st.write(f"  Saved overrides count: {len(saved_overrides) if saved_overrides else 0}")
-            if saved_overrides and date_a_str in saved_overrides:
-                st.write(f"  {date_a_str}: {saved_overrides[date_a_str]}")
+            st.write(f"  Current session overrides count: {len(saved_overrides) if saved_overrides else 0}")
             if saved_overrides and date_b_str in saved_overrides:
                 st.write(f"  {date_b_str}: {saved_overrides[date_b_str]}")
             _debug_info(f"swap_plan_days: Verification - saved overrides count: {len(saved_overrides) if saved_overrides else 0}")
@@ -3034,6 +3043,23 @@ def show_dashboard():
     
     # IMPORTANT: Apply overrides *after* adjustments and *after* DateISO is added
     final_plan_df = apply_plan_overrides(adjusted_plan_df, settings)
+    
+    if _is_debug():
+        st.write("🔍 DEBUG: After applying overrides:")
+        st.write(f"  Final plan has {len(final_plan_df)} rows")
+        # Show a few rows to see if overrides were applied
+        sample_dates = adjusted_plan_df['DateISO'].head(3).tolist() if 'DateISO' in adjusted_plan_df.columns else []
+        if sample_dates:
+            for sample_date in sample_dates:
+                adj_row = adjusted_plan_df[adjusted_plan_df['DateISO'] == sample_date] if 'DateISO' in adjusted_plan_df.columns else pd.DataFrame()
+                final_row = final_plan_df[final_plan_df['DateISO'] == sample_date] if 'DateISO' in final_plan_df.columns else pd.DataFrame()
+                if not adj_row.empty and not final_row.empty:
+                    adj_activity = adj_row.iloc[0].get('Activity', 'N/A')
+                    final_activity = final_row.iloc[0].get('Activity', 'N/A')
+                    if adj_activity != final_activity:
+                        st.write(f"  ✓ {sample_date}: '{adj_activity}' → '{final_activity}' (OVERRIDE APPLIED)")
+                    else:
+                        st.write(f"  - {sample_date}: '{final_activity}' (no override)")
     
     # Only regenerate activity descriptions for rows that don't have overrides
     # (to avoid overwriting swapped activities)
