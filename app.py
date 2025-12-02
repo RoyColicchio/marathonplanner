@@ -216,55 +216,6 @@ def list_available_plans():
 def plan_display_name(p: str) -> str:
     name = Path(p).name
     lname = name.lower()
-
-    # Helper to compute peak weekly mileage for CSV plans with weekday columns
-    def _compute_peak_weekly_miles(csv_path: str):
-        try:
-            df = pd.read_csv(csv_path, header=0)
-            df.columns = [str(c).strip() for c in df.columns]
-            day_cols = [c for c in df.columns if c.lower() in [
-                "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-            ]]
-            if not day_cols:
-                return None
-            peak = 0.0
-            for _, row in df.iterrows():
-                # Skip race week totals so peak reflects training, not marathon week
-                row_text = " ".join(str(row.get(c, "")) for c in day_cols)
-                if isinstance(row_text, str) and "marathon race" in row_text.lower():
-                    continue
-                total = 0.0
-                for c in day_cols:
-                    cell = row.get(c, "")
-                    if pd.isna(cell):
-                        continue
-                    s = str(cell).strip()
-                    if not s or s.lower() == "nan":
-                        continue
-                    # Extract the first primary miles number, ignoring x-reps and K distances
-                    found = None
-                    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\b", s):
-                        start, end = m.span(1)
-                        # Ignore kilometer tokens like 10K
-                        if end < len(s) and s[end].lower() == 'k':
-                            continue
-                        # Ignore repeated segment counts like 6 x 1 mile
-                        prev = s[max(0, start-2):start].lower()
-                        if 'x' in prev:
-                            continue
-                        try:
-                            found = float(m.group(1))
-                            break
-                        except Exception:
-                            pass
-                    if found is not None:
-                        total += found
-                peak = max(peak, total)
-            return int(round(peak)) if peak > 0 else None
-        except Exception:
-            return None
-
-    # Known mappings
     if name == "run_plan.csv":
         return "18 Weeks, 55 Mile/Week Peak"
     if lname in ("unofficial-pfitz-18-63.ics", "pfitz-18-63.ics"):
@@ -273,102 +224,22 @@ def plan_display_name(p: str) -> str:
         return "18 Weeks, 50 Miles/Week Peak (Hal)"
     if lname.endswith(".ics") and "63" in lname:
         return "18 Weeks, 63 Mile/Week Peak"
-
-    # Jack Daniels 2Q variants with dynamic peak MPW
-    if lname.startswith("jd-2q-18w-") and lname.endswith(".csv"):
-        vol = "Volume"
-        if "low" in lname:
-            vol = "Low Volume"
-        elif "mid" in lname:
-            vol = "Mid Volume"
-        elif "high" in lname:
-            vol = "High Volume"
-        elif "elite" in lname:
-            vol = "Elite"
-        peak = _compute_peak_weekly_miles(p)
-        suffix = f", Peak {peak} mi/wk" if peak else ""
-        return f"Jack Daniels 2Q (18 Weeks, {vol}{suffix})"
-
+    if lname == "jd-2q-18w-mid.csv":
+        return "Jack Daniels 2Q (18 Weeks, Mid Volume)"
+    if lname == "jd-2q-18w-low.csv":
+        return "Jack Daniels 2Q (18 Weeks, Low Volume)"
+    if lname == "jd-2q-18w-high.csv":
+        return "Jack Daniels 2Q (18 Weeks, High Volume)"
+    if lname == "jd-2q-18w-elite.csv":
+        return "Jack Daniels 2Q (18 Weeks, Elite)"
+    # Base building plans
+    if "30 mpw" in lname or "building up to 30" in lname:
+        return "Base Building: 30 Miles/Week"
+    if "45 mpw" in lname or "building up to 45" in lname:
+        return "Base Building: 45 Miles/Week"
+    if "60 mpw" in lname or "building up to 60" in lname:
+        return "Base Building: 60 Miles/Week"
     return name
-
-# ---- Plan stats helpers for UI ----
-def compute_peak_weekly_miles(csv_path: str):
-    try:
-        if not str(csv_path).lower().endswith('.csv'):
-            return None
-        df = pd.read_csv(csv_path, header=0)
-        df.columns = [str(c).strip() for c in df.columns]
-        day_cols = [c for c in df.columns if c.lower() in [
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-        ]]
-        if not day_cols:
-            return None
-        peak = 0.0
-        for _, row in df.iterrows():
-            row_text = " ".join(str(row.get(c, "")) for c in day_cols)
-            if isinstance(row_text, str) and "marathon race" in row_text.lower():
-                continue
-            total = 0.0
-            for c in day_cols:
-                val = row.get(c, "")
-                if pd.isna(val) or not str(val).strip():
-                    continue
-                miles = extract_primary_miles(str(val))
-                if miles:
-                    total += float(miles)
-            peak = max(peak, total)
-        return int(round(peak)) if peak > 0 else None
-    except Exception:
-        return None
-
-def compute_weekly_miles_series(csv_path: str):
-    try:
-        if not str(csv_path).lower().endswith('.csv'):
-            return []
-        df = pd.read_csv(csv_path, header=0)
-        df.columns = [str(c).strip() for c in df.columns]
-        day_cols = [c for c in df.columns if c.lower() in [
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-        ]]
-        if not day_cols:
-            return []
-        series = []
-        for _, row in df.iterrows():
-            row_text = " ".join(str(row.get(c, "")) for c in day_cols)
-            if isinstance(row_text, str) and "marathon race" in row_text.lower():
-                continue
-            total = 0.0
-            for c in day_cols:
-                val = row.get(c, "")
-                if pd.isna(val) or not str(val).strip():
-                    continue
-                miles = extract_primary_miles(str(val))
-                if miles:
-                    total += float(miles)
-            series.append(total)
-        return series
-    except Exception:
-        return []
-
-def count_weeks(csv_path: str):
-    try:
-        if not str(csv_path).lower().endswith('.csv'):
-            return None
-        df = pd.read_csv(csv_path, header=0)
-        df.columns = [str(c).strip() for c in df.columns]
-        day_cols = [c for c in df.columns if c.lower() in [
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-        ]]
-        if not day_cols:
-            return None
-        # Count rows that have any non-empty day value
-        valid_rows = 0
-        for _, row in df.iterrows():
-            if any(bool(str(row.get(c, "")).strip()) for c in day_cols):
-                valid_rows += 1
-        return valid_rows or None
-    except Exception:
-        return None
 
 # Lightweight ICS parser for plan activities
 def parse_ics_activities(file_path: str) -> list[str]:
@@ -1448,96 +1319,10 @@ def replace_primary_miles(text: str, new_miles: float) -> str:
     return re.sub(r"\b(\d+(?:\.\d+)?)\b", _repl, text, count=1)
 
 
-# JD workout parser to extract total miles and segments (LT/Tempo, MP, strides)
-def _parse_jd_workout(activity_text: str):
-    try:
-        s = str(activity_text or "").strip()
-        s_lower = s.lower()
-        # Total miles: try patterns like 'tempo 6', 'mp 8', 'lr 16', 'dress rehearsal 6', 'easy 5'
-        m_total = re.search(r"\b(?:tempo|mp|marathon\s*pace|lr|long\s*run|dress\s*rehearsal|easy)\s*(\d+(?:\.\d+)?)", s_lower)
-        total = float(m_total.group(1)) if m_total else None
-        # Fallback: a number before a 'w/' segment
-        if total is None:
-            m_first = re.search(r"\b(\d+(?:\.\d+)?)\b[^\n]*?w/", s_lower)
-            if m_first:
-                total = float(m_first.group(1))
-        breakdown = {"LT": 0.0, "MP": 0.0}
-        segments = []  # tuples: (type, miles, reps or None, seg_len or None)
-        # Parse 'w/ <reps>x<seg_mi> @ <label>' or 'w/ <seg_mi> @ <label>'
-        for m in re.finditer(r"(?i)w/\s*(?:(\d+)\s*x\s*)?(\d+(?:\.\d+)?)\s*@\s*([A-Za-z ]+)", s):
-            reps = int(m.group(1)) if m.group(1) else 1
-            seg_mi = float(m.group(2))
-            label = m.group(3).strip().lower()
-            miles = seg_mi * reps
-            if any(k in label for k in ["tempo", "15k", "hmp", "lactate"]):
-                breakdown["LT"] += miles
-                segments.append(("LT", miles, reps if m.group(1) else None, seg_mi if m.group(1) else None))
-            elif "mp" in label or "marathon" in label:
-                breakdown["MP"] += miles
-                segments.append(("MP", miles, reps if m.group(1) else None, seg_mi if m.group(1) else None))
-            else:
-                segments.append(("Other", miles, reps if m.group(1) else None, seg_mi if m.group(1) else None))
-        # MP continuous pattern
-        m_cont = re.search(r"(?i)\bmp\s*(\d+(?:\.\d+)?)\s*(?:mi|mile|miles)?\s*continuous", s)
-        if m_cont:
-            mi = float(m_cont.group(1))
-            breakdown["MP"] += mi
-            total = total or mi
-        # Strides pattern: 'Easy X w/ N x 100m strides'
-        strides = None
-        m_strides = re.search(r"(?i)\b(\d+(?:\.\d+)?)\b[^\n]*?w/\s*(\d+)\s*x\s*(\d+)\s*(?:m|meter|meters)\s*strides", s)
-        if m_strides:
-            total = total or float(m_strides.group(1))
-            strides = (int(m_strides.group(2)), int(m_strides.group(3)))
-        easy = None
-        if total is not None:
-            easy = max(0.0, total - (breakdown["LT"] + breakdown["MP"]))
-        return {
-            "total": total,
-            "breakdown": breakdown,
-            "strides": strides,
-            "segments": segments,
-            "raw": s,
-        }
-    except Exception:
-        return None
-
 def get_activity_short_description(activity_description):
     """Generate short, one-sentence descriptions for activity hover tooltips based on Pfitzinger principles."""
     desc_lower = activity_description.lower()
     orig = activity_description.strip()
-
-    # Prefer explicit breakdowns for JD-style entries when possible
-    try:
-        # Pattern: Total X with Y @ Tempo/MP/etc.
-        m = re.search(r'(?i)\b(?P<total>\d+(?:\.\d+)?)\b[^\n]*?w/\s*(?P<seg>\d+(?:\.\d+)?)\s*@\s*(?P<label>tempo|mp|marathon\s*pace|15k\s*to\s*hmp|hmp)', orig)
-        if m:
-            total = float(m.group('total'))
-            seg = float(m.group('seg'))
-            remain = max(0.0, total - seg)
-            label = m.group('label').lower()
-            if label in ('tempo', '15k to hmp', 'hmp'):
-                pace_name = 'Lactate Threshold (Tempo)'
-            else:
-                pace_name = 'Marathon Pace'
-            total_str = f"{int(total)}" if abs(total - round(total)) < 0.05 else f"{total:.1f}"
-            seg_str = f"{int(seg)}" if abs(seg - round(seg)) < 0.05 else f"{seg:.1f}"
-            rem_str = f"{int(remain)}" if abs(remain - round(remain)) < 0.05 else f"{remain:.1f}"
-            return f"Total {total_str} mi: {seg_str} mi at {pace_name}, {rem_str} mi easy."
-        # Pattern: MP X continuous
-        m2 = re.search(r'(?i)\bmp\s*(?P<total>\d+(?:\.\d+)?)\s*(?:mi|mile|miles)?\s*continuous', orig)
-        if m2:
-            total = float(m2.group('total'))
-            total_str = f"{int(total)}" if abs(total - round(total)) < 0.05 else f"{total:.1f}"
-            return f"Total {total_str} mi at Marathon Pace (continuous)."
-        # Pattern: Easy X w/ N x 100 strides
-        m3 = re.search(r'(?i)\beasy\s*(?P<total>\d+(?:\.\d+)?)\b[^\n]*?w/\s*(?P<reps>\d+)\s*x\s*(?P<dist>\d+)\s*(?:m|meter|meters)', orig)
-        if m3:
-            total = float(m3.group('total')); reps = int(m3.group('reps')); dist = int(m3.group('dist'))
-            total_str = f"{int(total)}" if abs(total - round(total)) < 0.05 else f"{total:.1f}"
-            return f"Easy {total_str} mi with {reps} × {dist}m strides."
-    except Exception:
-        pass
     
     if 'rest' in desc_lower:
         return "Rest day for recovery - no running, but light cross-training is fine."
@@ -1696,45 +1481,6 @@ def get_activity_tooltip(activity_description):
     desc_lower = activity_description.lower()
     orig = activity_description.strip()
     
-    # JD-style explicit, actionable instructions when segments detected
-    try:
-        parsed = _parse_jd_workout(orig)
-        if parsed and parsed.get("total") and (parsed["breakdown"].get("LT", 0) > 0 or parsed["breakdown"].get("MP", 0) > 0):
-            total = parsed["total"] or 0.0
-            lt = parsed["breakdown"].get("LT", 0.0)
-            mp = parsed["breakdown"].get("MP", 0.0)
-            easy = max(0.0, total - lt - mp)
-            def _fmt(x):
-                return f"{int(x)}" if abs(x - round(x)) < 0.05 else f"{x:.1f}"
-            lines = [f"Do a {_fmt(total)}-mile run:"]
-            # Segment details (prefer rep formats when available)
-            lt_seg = next((seg for seg in parsed["segments"] if seg[0] == "LT" and seg[2]), None)
-            mp_seg = next((seg for seg in parsed["segments"] if seg[0] == "MP" and seg[2]), None)
-            if lt > 0:
-                if lt_seg:
-                    lines.append(f"- LT/Tempo: {lt_seg[2]} × {_fmt(lt_seg[3])} mi (total {_fmt(lt)} mi) at LT (15K–HMP effort)")
-                else:
-                    lines.append(f"- LT/Tempo: {_fmt(lt)} mi continuous at 15K–HMP effort")
-            if mp > 0:
-                if mp_seg:
-                    lines.append(f"- Marathon Pace: {mp_seg[2]} × {_fmt(mp_seg[3])} mi (total {_fmt(mp)} mi) at goal MP")
-                else:
-                    lines.append(f"- Marathon Pace: {_fmt(mp)} mi continuous at goal MP")
-            if easy > 0:
-                lines.append(f"- Easy: {_fmt(easy)} mi easy pace to complete the total")
-            # Execution guidance
-            lines.append("Execution: Warm up 15–20 min easy. Place LT/MP work in the middle. Cool down easy to reach the total distance. Keep LT as comfortably-hard and MP as steady race pace.")
-            return "\n".join(lines)
-        # Strides explicit
-        if parsed and parsed.get("strides") and parsed.get("total"):
-            reps, distm = parsed["strides"]
-            t = parsed["total"]
-            def _fmt(x):
-                return f"{int(x)}" if abs(x - round(x)) < 0.05 else f"{x:.1f}"
-            return f"Do an easy {_fmt(t)}-mile run with {reps} × {distm}m strides (95% effort, full recovery) near the end."
-    except Exception:
-        pass
-
     if 'rest' in desc_lower:
         return "Rest day. No running, but light cross-training (swimming, yoga, walking) is fine. Rest is crucial for muscle recovery and injury prevention."
     
@@ -2471,9 +2217,7 @@ def generate_training_plan(start_date, plan_file=None, goal_time: str = "4:00:00
         })
         
         # Add activity tooltips
-        new_plan_df['Activity_Tooltip'] = new_plan_df.apply(
-            lambda row: get_activity_tooltip(row.get('Activity_Abbr', row.get('Activity', ''))), axis=1
-        )
+        new_plan_df['Activity_Tooltip'] = new_plan_df['Activity'].apply(get_activity_tooltip)
         new_plan_df['Activity_Short_Description'] = new_plan_df['Activity'].apply(get_activity_short_description)
         # Do not add single-value pace here; we'll compute ranges later using get_pace_range
         
@@ -2689,9 +2433,7 @@ def apply_user_plan_adjustments(plan_df, settings, start_date):
         adjusted_df['Activity'] = adjusted_df.apply(lambda row: enhance_activity_description(row['Activity_Abbr']), axis=1)
         
         # Also update tooltips based on new activity descriptions
-        adjusted_df['Activity_Tooltip'] = adjusted_df.apply(
-            lambda row: get_activity_tooltip(row.get('Activity_Abbr', row.get('Activity', ''))), axis=1
-        )
+        adjusted_df['Activity_Tooltip'] = adjusted_df.apply(lambda row: get_activity_tooltip(row['Activity']), axis=1)
         adjusted_df['Activity_Short_Description'] = adjusted_df.apply(lambda row: get_activity_short_description(row['Activity']), axis=1)
         
         if _is_debug():
@@ -3314,9 +3056,7 @@ def show_dashboard():
     
     # Regenerate tooltips and descriptions for all rows (they should match current Activity values)
     if 'Activity' in final_plan_df.columns:
-        final_plan_df['Activity_Tooltip'] = final_plan_df.apply(
-            lambda row: get_activity_tooltip(row.get('Activity_Abbr', row.get('Activity', ''))), axis=1
-        )
+        final_plan_df['Activity_Tooltip'] = final_plan_df['Activity'].apply(get_activity_tooltip)
         final_plan_df['Activity_Short_Description'] = final_plan_df['Activity'].apply(get_activity_short_description)
 
     # Strava data merge
