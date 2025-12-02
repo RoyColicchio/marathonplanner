@@ -797,6 +797,13 @@ def load_user_settings(user_hash):
             with settings_path.open("r") as f:
                 all_settings = json.load(f)
             settings = all_settings.get(user_hash, {})
+            if _is_debug():
+                st.write(f"✅ Loaded settings for user {user_hash[:8]}... from {settings_path}")
+                if 'overrides_by_plan' in settings:
+                    st.write(f"   Contains {len(settings.get('overrides_by_plan', {}))} plan signatures with overrides")
+        else:
+            if _is_debug():
+                st.write(f"ℹ️ Settings file not found: {settings_path}")
         
         # Initialize default settings structure if missing keys
         if "goal_time" not in settings:
@@ -846,8 +853,20 @@ def save_user_settings(user_hash, settings):
         all_settings[user_hash] = settings
         with settings_path.open("w") as f:
             json.dump(all_settings, f, indent=2)
+        
+        # Debug: Verify the file was actually written
+        if _is_debug():
+            import os
+            file_size = os.path.getsize(settings_path)
+            st.write(f"✅ Saved user settings to {settings_path} ({file_size} bytes)")
+            # Show a sample of what was saved
+            if 'overrides_by_plan' in settings:
+                st.write(f"   Contains overrides_by_plan with {len(settings.get('overrides_by_plan', {}))} plan signatures")
     except Exception as e:
         st.error(f"Error saving user settings: {e}")
+        if _is_debug():
+            import traceback
+            st.code(traceback.format_exc())
 
 
 def check_persistent_login():
@@ -3601,6 +3620,7 @@ def show_dashboard():
     selected_rows = None
     for key in ['selected_data', 'selected_rows']:
         if key in grid_response and grid_response[key] is not None:
+            # Don't skip empty lists - they're still valid selection states
             selected_rows = grid_response[key]
             if _is_debug():
                 _debug_info(f"Found selection data in key '{key}': {len(selected_rows) if isinstance(selected_rows, list) else 'not a list'}")
