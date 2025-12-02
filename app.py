@@ -3043,6 +3043,15 @@ def show_dashboard():
         if overrides:
             for date_key, override_data in list(overrides.items())[:3]:  # Show first 3
                 st.write(f"  {date_key}: {override_data}")
+        else:
+            st.write("  No overrides loaded!")
+        # Check if we just completed a swap
+        if "swap_debug_history" in st.session_state:
+            recent = st.session_state.swap_debug_history[-1] if st.session_state.swap_debug_history else None
+            if recent and recent.get('operation') in ['swap_success', 'saving_overrides']:
+                st.write(f"  ✓ Recent swap operation: {recent.get('operation')}")
+                st.write(f"    Timestamp: {recent.get('timestamp')[-8:]}")
+    
     
     if 'Activity_Abbr' in final_plan_df.columns and 'Activity' in final_plan_df.columns:
         if overrides:
@@ -3542,6 +3551,9 @@ def show_dashboard():
     )
     grid_options = gb.build()
 
+    # Use a dynamic key to force grid re-initialization after swaps
+    grid_key = f"training_plan_grid_{st.session_state.get('_grid_key_counter', 0)}"
+    
     grid_response = AgGrid(
         display_df,
         gridOptions=grid_options,
@@ -3551,11 +3563,13 @@ def show_dashboard():
         enable_enterprise_modules=False,
         fit_columns_on_grid_load=True,
         width='100%',
-        key='training_plan_grid'
+        key=grid_key
     )
     
     if st.session_state.get("plan_needs_refresh"):
         st.session_state.plan_needs_refresh = False
+        if _is_debug():
+            st.write("🔄 Plan refresh flag was set, clearing it for next cycle")
 
     # Get selected rows with better error handling - try multiple possible keys
     selected_rows = None
@@ -3696,8 +3710,13 @@ def show_dashboard():
                         "timestamp": datetime.now().isoformat()
                     }
                     st.session_state.plan_needs_refresh = True
+                    
+                    # Increment grid key counter to force grid re-initialization
+                    st.session_state['_grid_key_counter'] = st.session_state.get('_grid_key_counter', 0) + 1
+                    
                     if _is_debug():
                         _debug_info("Swap successful, storing result and triggering rerun")
+                        _debug_info(f"Grid key counter incremented to {st.session_state['_grid_key_counter']}")
                         # Store debug info in session state so it persists
                         if "swap_debug_history" not in st.session_state:
                             st.session_state.swap_debug_history = []
