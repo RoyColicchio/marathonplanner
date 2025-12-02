@@ -447,6 +447,10 @@ if "plan_needs_refresh" not in st.session_state:
     st.session_state.plan_needs_refresh = False
 if "plan_setup_visible" not in st.session_state:
     st.session_state.plan_setup_visible = False  # Collapsed by default
+if "plan_setup_mode" not in st.session_state:
+    st.session_state.plan_setup_mode = "view"  # "view", "edit", "new"
+if "plan_setup_plan_id" not in st.session_state:
+    st.session_state.plan_setup_plan_id = None  # ID of plan being edited
 if "current_week" not in st.session_state:
     st.session_state.current_week = 1
 if "last_plan_sig" not in st.session_state:
@@ -619,26 +623,87 @@ if "plan_setup_visible" not in st.session_state:
     st.session_state.plan_setup_visible = False  # Collapsed by default
 
 def training_plan_setup():
-    """Handle training plan configuration."""
+    """Handle training plan configuration with multi-plan support."""
     user_hash = get_user_hash(st.session_state.current_user["email"])
     settings = load_user_settings(user_hash)
+    
+    # Get all plans and current plan
+    plans = settings.get("plans", [])
+    current_plan_id = settings.get("current_plan_id")
+    current_plan = get_current_plan(settings)
 
+    # If not in setup mode, show plan selector and return
     if not st.session_state.plan_setup_visible:
-        if st.button("Adjust Plan"):
-            st.session_state.plan_setup_visible = True
-            st.rerun()
-        return settings
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            # Plan selector dropdown
+            plan_options = {p.get("name", p.get("id", "Unknown")): p.get("id") for p in plans}
+            selected_plan_name = st.selectbox(
+                "Select Plan",
+                options=list(plan_options.keys()),
+                index=next((i for i, p in enumerate(plans) if p.get("id") == current_plan_id), 0),
+                key="plan_selector",
+                label_visibility="collapsed"
+            )
+            
+            # Switch plan if selection changed
+            selected_plan_id = plan_options.get(selected_plan_name)
+            if selected_plan_id and selected_plan_id != current_plan_id:
+                settings["current_plan_id"] = selected_plan_id
+                save_user_settings(user_hash, settings)
+                st.session_state.plan_needs_refresh = True
+                st.rerun()
+        
+        with col2:
+            if st.button("✏️ Adjust Plan", use_container_width=True):
+                st.session_state.plan_setup_visible = True
+                st.session_state.plan_setup_mode = "edit"
+                st.session_state.plan_setup_plan_id = current_plan_id
+                st.rerun()
+        
+        with col3:
+            if st.button("➕ New Plan", use_container_width=True):
+                st.session_state.plan_setup_visible = True
+                st.session_state.plan_setup_mode = "new"
+                st.rerun()
+        
+        # Return settings with current plan data merged in for backward compatibility
+        return {**settings, **settings_for_plan(settings, current_plan)}
 
+    # --- SETUP/EDIT MODE ---
     with st.container():
-        st.header("Training Plan Setup")
+        is_new_plan = st.session_state.plan_setup_mode == "new"
+        st.header("New Plan" if is_new_plan else "Edit Plan")
+        
+        # For new plans, generate a unique ID
+        if is_new_plan:
+            plan_id = f"plan_{int(datetime.now().timestamp())}"
+            editing_plan = {
+                "id": plan_id,
+                "name": "",
+                "start_date": datetime.now().strftime("%Y-%m-%d"),
+                "goal_time": "4:00:00",
+                "plan_file": "run_plan.csv",
+                "week_adjust": 0,
+                "weekly_miles_delta": 0,
+            }
+        else:
+            plan_id = st.session_state.plan_setup_plan_id
+            editing_plan = get_plan_by_id(settings, plan_id) or current_plan
+            if not editing_plan:
+                st.error("Plan not found")
+                st.session_state.plan_setup_visible = False
+                st.rerun()
 
         col1, col2 = st.columns(2)
 
         with col1:
             start_date = st.date_input(
                 "Start Date",
-                value=datetime.strptime(settings.get("start_date", str(datetime.now().date())), "%Y-%m-%d").date(),
-                help="The start date of your training plan"
+                value=datetime.strptime(editing_plan.get("start_date", str(datetime.now().date())), "%Y-%m-%d").date(),
+                help="The start date of your training plan",
+                key="plan_start_date"
             )
 
         with col2:
@@ -647,7 +712,7 @@ def training_plan_setup():
             with sub1:
                 goal_time = st.text_input(
                     "Goal Marathon Time (HH:MM:SS)",
-                    value=settings.get("goal_time", "4:00:00"),
+                    value=editing_plan.get("goal_time", "4:00:00"),
                     key="goal_time_input",
                     help="Your target marathon finish time"
                 )
@@ -657,7 +722,7 @@ def training_plan_setup():
 
         # Plan selection with friendly titles; defaults to run_plan.csv
         available_paths = list_available_plans()
-        default_plan_path = settings.get("plan_file", "run_plan.csv")
+        default_plan_path = editing_plan.get("plan_file", "run_plan.csv")
         if default_plan_path not in available_paths and available_paths:
             default_plan_path = available_paths[0]
         # Create label-to-path mapping and sort alphabetically
@@ -676,7 +741,8 @@ def training_plan_setup():
             "Training Plan",
             options=labels,
             index=min(default_index, len(labels)-1),
-            help="Select a plan. Place CSVs or ICS files in the repo root or plans/ folder."
+            help="Select a plan. Place CSVs or ICS files in the repo root or plans/ folder.",
+            key="plan_file_select"
         )
         selected_plan_path = label_to_path.get(selected_label, default_plan_path)
 
@@ -686,14 +752,16 @@ def training_plan_setup():
             week_adjust = st.selectbox(
                 "Adjust plan length (weeks)",
                 options=[-2, -1, 0, 1, 2],
-                index=[-2, -1, 0, 1, 2].index(int(settings.get("week_adjust", 0) or 0)),
+                index=[-2, -1, 0, 1, 2].index(int(editing_plan.get("week_adjust", 0) or 0)),
                 help="-1: combine w1&2; -2: also combine w3&4; +1: duplicate w6; +2: duplicate w6 & w12",
+                key="plan_week_adjust"
             )
         with c2:
             weekly_miles_delta = st.slider(
                 "Weekly mileage adjustment (mi/week)",
-                min_value=-5, max_value=5, step=1, value=int(settings.get("weekly_miles_delta", 0) or 0),
+                min_value=-5, max_value=5, step=1, value=int(editing_plan.get("weekly_miles_delta", 0) or 0),
                 help="Adjust K longest runs per week by ±1 mile (K = |value|)",
+                key="plan_miles_delta"
             )
 
         # Goal Coach UI (chat-like) below the controls
@@ -740,32 +808,26 @@ def training_plan_setup():
         st.markdown("---")
         
         # Plan naming section
-        st.subheader("Save Your Plan")
+        st.subheader("Plan Details")
         
         plan_name = st.text_input(
             "Plan Name",
-            value=settings.get("plan_name", ""),
+            value=editing_plan.get("name", ""),
             placeholder="e.g., 'Boston Marathon 2026' or 'Spring Training'",
-            help="Give your training plan a memorable name"
+            help="Give your training plan a memorable name",
+            key="plan_name_input"
         )
         
         # Calculate and display plan details
         if plan_name:
             try:
-                # Parse dates
-                user_start_date = start_date
-                user_end_date = user_start_date + timedelta(weeks=18)  # Default 18 weeks
-                
                 # Load plan to get actual week count
-                base_plan_df = generate_training_plan(user_start_date, selected_plan_path, goal_time)
+                base_plan_df = generate_training_plan(start_date, selected_plan_path, goal_time)
                 if not base_plan_df.empty:
                     plan_start = pd.to_datetime(base_plan_df['Date'].min()).date()
                     plan_end = pd.to_datetime(base_plan_df['Date'].max()).date()
                     total_weeks = (plan_end - plan_start).days // 7 + 1
                     total_miles = base_plan_df['Plan_Miles'].sum() if 'Plan_Miles' in base_plan_df.columns else 0
-                    
-                    # Extract plan details from filename
-                    plan_filename = selected_plan_path.split('/')[-1].replace('.csv', '').replace('.ics', '')
                     
                     # Display plan summary
                     st.caption(f"📋 {total_weeks} weeks | 💪 {total_miles:.0f} miles | 🎯 {goal_time} goal")
@@ -774,22 +836,61 @@ def training_plan_setup():
                 if _is_debug():
                     st.write(f"Debug: Could not load plan preview: {e}")
 
-        if st.button("Save Training Plan", use_container_width=True):
-            new_settings = {
-                **settings,
-                "start_date": start_date.strftime("%Y-%m-%d"),
-                "goal_time": st.session_state.get("goal_time_input", goal_time),
-                "plan_file": selected_plan_path,
-                "week_adjust": int(week_adjust),
-                "weekly_miles_delta": int(weekly_miles_delta),
-                "plan_name": plan_name,
-            }
-            save_user_settings(user_hash, new_settings)
-            st.session_state.plan_setup_visible = False
-            st.success(f"✅ Plan '{plan_name}' saved!" if plan_name else "✅ Training plan saved!")
-            st.rerun()
+        # Save or Update button
+        col_save, col_cancel, col_delete = st.columns([1, 1, 1])
+        
+        with col_save:
+            if st.button("Save Plan", use_container_width=True, key="save_plan_btn"):
+                if not plan_name:
+                    st.error("Please give your plan a name")
+                else:
+                    # Update or create the plan
+                    updated_plan = {
+                        "id": plan_id,
+                        "name": plan_name,
+                        "start_date": start_date.strftime("%Y-%m-%d"),
+                        "goal_time": st.session_state.get("goal_time_input", goal_time),
+                        "plan_file": selected_plan_path,
+                        "week_adjust": int(week_adjust),
+                        "weekly_miles_delta": int(weekly_miles_delta),
+                    }
+                    
+                    # Update settings
+                    if is_new_plan:
+                        settings["plans"].append(updated_plan)
+                        settings["current_plan_id"] = plan_id
+                        st.success(f"✅ Plan '{plan_name}' created!")
+                    else:
+                        # Find and update the plan
+                        for i, p in enumerate(settings["plans"]):
+                            if p.get("id") == plan_id:
+                                settings["plans"][i] = updated_plan
+                                break
+                        st.success(f"✅ Plan '{plan_name}' updated!")
+                    
+                    save_user_settings(user_hash, settings)
+                    st.session_state.plan_setup_visible = False
+                    st.session_state.plan_needs_refresh = True
+                    st.rerun()
+        
+        with col_cancel:
+            if st.button("Cancel", use_container_width=True, key="cancel_plan_btn"):
+                st.session_state.plan_setup_visible = False
+                st.rerun()
+        
+        with col_delete:
+            if not is_new_plan and len(plans) > 1:
+                if st.button("🗑️ Delete", use_container_width=True, key="delete_plan_btn"):
+                    settings["plans"] = [p for p in settings["plans"] if p.get("id") != plan_id]
+                    if settings.get("current_plan_id") == plan_id:
+                        settings["current_plan_id"] = settings["plans"][0].get("id") if settings["plans"] else None
+                    save_user_settings(user_hash, settings)
+                    st.success("✅ Plan deleted!")
+                    st.session_state.plan_setup_visible = False
+                    st.session_state.plan_needs_refresh = True
+                    st.rerun()
 
-    return settings
+    return {**settings, **settings_for_plan(settings, current_plan)}
 
 def get_google_oauth_component():
     """Initialize Google OAuth component."""
@@ -849,6 +950,25 @@ def load_user_settings(user_hash):
             
         if "plan_file" not in settings:
             settings["plan_file"] = "run_plan.csv"
+        
+        # Migrate from old single-plan structure to multi-plan structure
+        # If plans list doesn't exist, create it from current settings
+        if "plans" not in settings:
+            old_plan = {
+                "id": "default",
+                "name": settings.get("plan_name", "Default Plan"),
+                "start_date": settings.get("start_date", ""),
+                "goal_time": settings.get("goal_time", "4:00:00"),
+                "plan_file": settings.get("plan_file", "run_plan.csv"),
+                "week_adjust": settings.get("week_adjust", 0),
+                "weekly_miles_delta": settings.get("weekly_miles_delta", 0),
+            }
+            settings["plans"] = [old_plan]
+            settings["current_plan_id"] = "default"
+        
+        # Ensure current_plan_id is set
+        if "current_plan_id" not in settings:
+            settings["current_plan_id"] = settings["plans"][0]["id"] if settings.get("plans") else None
             
         # Make sure overrides structure exists
         if "overrides_by_plan" not in settings:
@@ -869,10 +989,18 @@ def load_user_settings(user_hash):
         return settings
     except Exception as e:
         st.error(f"Error loading user settings: {e}")
-        return {
-            "goal_time": "4:00:00",
+        default_plan = {
+            "id": "default",
+            "name": "Default Plan",
             "start_date": datetime.now().strftime("%Y-%m-%d"),
+            "goal_time": "4:00:00",
             "plan_file": "run_plan.csv",
+            "week_adjust": 0,
+            "weekly_miles_delta": 0,
+        }
+        return {
+            "plans": [default_plan],
+            "current_plan_id": "default",
             "overrides_by_plan": {}
         }
 
@@ -902,6 +1030,54 @@ def save_user_settings(user_hash, settings):
         if _is_debug():
             import traceback
             st.code(traceback.format_exc())
+
+
+def get_current_plan(settings):
+    """Get the currently active plan from settings."""
+    plans = settings.get("plans", [])
+    current_id = settings.get("current_plan_id")
+    
+    if not plans:
+        # Fallback: create a default plan
+        return {
+            "id": "default",
+            "name": "Default Plan",
+            "start_date": datetime.now().strftime("%Y-%m-%d"),
+            "goal_time": "4:00:00",
+            "plan_file": "run_plan.csv",
+            "week_adjust": 0,
+            "weekly_miles_delta": 0,
+        }
+    
+    # Find the current plan
+    for plan in plans:
+        if plan.get("id") == current_id:
+            return plan
+    
+    # Fallback to first plan if current_id not found
+    return plans[0]
+
+
+def get_plan_by_id(settings, plan_id):
+    """Get a specific plan by ID."""
+    plans = settings.get("plans", [])
+    for plan in plans:
+        if plan.get("id") == plan_id:
+            return plan
+    return None
+
+
+def settings_for_plan(settings, plan):
+    """Convert a plan dict into settings compatible with old code."""
+    return {
+        "start_date": plan.get("start_date", ""),
+        "goal_time": plan.get("goal_time", "4:00:00"),
+        "plan_file": plan.get("plan_file", "run_plan.csv"),
+        "week_adjust": plan.get("week_adjust", 0),
+        "weekly_miles_delta": plan.get("weekly_miles_delta", 0),
+        "plan_name": plan.get("name", ""),
+        "overrides_by_plan": settings.get("overrides_by_plan", {}),
+    }
 
 
 def check_persistent_login():
