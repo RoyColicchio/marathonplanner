@@ -2720,6 +2720,9 @@ def _override_payload_from_row(row: pd.Series) -> dict:
 
 def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a, date_b):
     """Swap the workout details between two days in the plan."""
+    st.write("🔄 **swap_plan_days() called**")
+    st.write(f"  Swapping {date_a} ↔ {date_b}")
+    
     if _is_debug():
         _debug_info(f"swap_plan_days: Starting swap between {date_a} and {date_b}")
         _debug_info(f"swap_plan_days: DataFrame columns: {list(plan_df.columns)}")
@@ -2875,12 +2878,15 @@ def swap_plan_days(user_hash: str, settings: dict, plan_df: pd.DataFrame, date_a
         if _is_debug():
             _debug_info("swap_plan_days: Swap completed successfully, plan refresh triggered")
         
+        st.write("✅ **Swap completed successfully!**")
         return True
     except Exception as e:
-        st.error(f"Swap failed: {e}")
+        st.error(f"❌ Swap failed with error: {e}")
         if _is_debug():
             import traceback
             st.code(traceback.format_exc())
+            _debug_info(f"swap_plan_days: ERROR - {e}")
+        return False
         return False
 
 
