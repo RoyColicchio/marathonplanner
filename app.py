@@ -737,6 +737,43 @@ def training_plan_setup():
                     st.rerun()
                 c3b.button("Close Coach", key="close_goal_coach", on_click=lambda: st.session_state.update({"goal_coach_open": False}))
 
+        st.markdown("---")
+        
+        # Plan naming section
+        st.subheader("Save Your Plan")
+        
+        plan_name = st.text_input(
+            "Plan Name",
+            value=settings.get("plan_name", ""),
+            placeholder="e.g., 'Boston Marathon 2026' or 'Spring Training'",
+            help="Give your training plan a memorable name"
+        )
+        
+        # Calculate and display plan details
+        if plan_name:
+            try:
+                # Parse dates
+                user_start_date = start_date
+                user_end_date = user_start_date + timedelta(weeks=18)  # Default 18 weeks
+                
+                # Load plan to get actual week count
+                base_plan_df = generate_training_plan(user_start_date, selected_plan_path, goal_time)
+                if not base_plan_df.empty:
+                    plan_start = pd.to_datetime(base_plan_df['Date'].min()).date()
+                    plan_end = pd.to_datetime(base_plan_df['Date'].max()).date()
+                    total_weeks = (plan_end - plan_start).days // 7 + 1
+                    total_miles = base_plan_df['Plan_Miles'].sum() if 'Plan_Miles' in base_plan_df.columns else 0
+                    
+                    # Extract plan details from filename
+                    plan_filename = selected_plan_path.split('/')[-1].replace('.csv', '').replace('.ics', '')
+                    
+                    # Display plan summary
+                    st.caption(f"📋 {total_weeks} weeks | 💪 {total_miles:.0f} miles | 🎯 {goal_time} goal")
+                    st.caption(f"📅 {plan_start.strftime('%b %d, %Y')} → {plan_end.strftime('%b %d, %Y')}")
+            except Exception as e:
+                if _is_debug():
+                    st.write(f"Debug: Could not load plan preview: {e}")
+
         if st.button("Save Training Plan", use_container_width=True):
             new_settings = {
                 **settings,
@@ -745,10 +782,11 @@ def training_plan_setup():
                 "plan_file": selected_plan_path,
                 "week_adjust": int(week_adjust),
                 "weekly_miles_delta": int(weekly_miles_delta),
+                "plan_name": plan_name,
             }
             save_user_settings(user_hash, new_settings)
             st.session_state.plan_setup_visible = False
-            st.success("Training plan saved!")
+            st.success(f"✅ Plan '{plan_name}' saved!" if plan_name else "✅ Training plan saved!")
             st.rerun()
 
     return settings
@@ -2977,7 +3015,34 @@ def show_dashboard():
     settings = training_plan_setup()
 
     st.markdown("---")
-    st.header("Your Training Schedule")
+    
+    # Display plan name if one is saved
+    plan_name = settings.get("plan_name", "")
+    if plan_name:
+        st.header(f"📅 {plan_name}")
+        
+        # Show plan details underneath
+        try:
+            start_date_str = settings.get("start_date", "")
+            goal_time = settings.get("goal_time", "4:00:00")
+            plan_file = settings.get("plan_file", "run_plan.csv")
+            
+            if start_date_str:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                user_start_date = start_date - timedelta(days=start_date.weekday())
+                
+                base_plan_df = generate_training_plan(user_start_date, plan_file, goal_time)
+                if not base_plan_df.empty:
+                    plan_start = pd.to_datetime(base_plan_df['Date'].min()).date()
+                    plan_end = pd.to_datetime(base_plan_df['Date'].max()).date()
+                    total_weeks = (plan_end - plan_start).days // 7 + 1
+                    total_miles = base_plan_df['Plan_Miles'].sum() if 'Plan_Miles' in base_plan_df.columns else 0
+                    
+                    st.caption(f"{total_weeks} weeks • {total_miles:.0f} miles • {goal_time} goal • {plan_start.strftime('%b %d')} – {plan_end.strftime('%b %d, %Y')}")
+        except Exception:
+            pass
+    else:
+        st.header("Your Training Schedule")
 
     # Show persistent swap results if they exist
     if "swap_result" in st.session_state:
