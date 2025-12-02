@@ -1860,6 +1860,10 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             
             return f"{faster_pace} - {slower_pace}"
         
+        # Check for compound workouts (e.g., "LT 8 w/ 4 @ 15K", "MP 13 w/ 8 @ MP")
+        if ' w/ ' in desc_lower:
+            return _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pace_range)
+        
         # Pfitzinger-style offsets (in seconds per mile, relative to GMP)
         if 'rest' in desc_lower or 'cross-training' in desc_lower:
             return "—"
@@ -1934,6 +1938,90 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             
     except Exception:
         return "See plan"
+
+
+def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pace_range_func):
+    """Parse and calculate paces for compound workouts like 'LT 8 w/ 4 @ 15K'."""
+    desc_lower = activity_description.lower()
+    
+    def get_pace_for_type(workout_type):
+        """Get base pace offset for a workout type."""
+        if 'lt' in workout_type or 'lactate' in workout_type or 'threshold' in workout_type:
+            return gmp_sec_per_mile - 20  # Tempo/LT pace
+        elif 'mp' in workout_type or 'marathon' in workout_type:
+            return gmp_sec_per_mile  # Marathon pace
+        elif '5k' in workout_type or 'vo2' in workout_type or 'vo₂' in workout_type:
+            return gmp_sec_per_mile - 40  # 5K pace
+        elif '15k' in workout_type or '15-k' in workout_type:
+            return gmp_sec_per_mile - 25  # ~15K pace (between HMP and 5K)
+        elif 'hmp' in workout_type or 'half' in workout_type:
+            return gmp_sec_per_mile - 25  # Half marathon pace
+        elif 'mile' in workout_type:
+            return gmp_sec_per_mile - 60  # Mile pace
+        elif 'ga' in workout_type or 'aerobic' in workout_type:
+            return gmp_sec_per_mile + 45  # General aerobic
+        elif 'rec' in workout_type or 'recovery' in workout_type or 'easy' in workout_type:
+            return gmp_sec_per_mile + 60  # Easy pace
+        else:
+            return gmp_sec_per_mile + 45  # Default to GA
+    
+    try:
+        # Split on ' w/ ' to get main and secondary segments
+        parts = desc_lower.split(' w/ ')
+        if len(parts) < 2:
+            return None
+        
+        main_part = parts[0].strip()  # e.g., "lt 8"
+        secondary_part = parts[1].strip()  # e.g., "4 @ 15k"
+        
+        # Extract distances if present
+        import re
+        main_distance = None
+        main_type = main_part
+        
+        # Try to extract distance from main part (e.g., "lt 8" -> 8)
+        dist_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:mi|miles)?$', main_part)
+        if dist_match:
+            main_distance = float(dist_match.group(1))
+            main_type = main_part[:dist_match.start()].strip()
+        
+        # Extract secondary distance (e.g., "4 @ 15k" -> 4)
+        secondary_distance = None
+        secondary_type = secondary_part
+        
+        dist_match = re.search(r'^(\d+(?:\.\d+)?)\s*(?:mi|miles)?\s*@', secondary_part)
+        if dist_match:
+            secondary_distance = float(dist_match.group(1))
+            # Extract type after @
+            type_match = re.search(r'@\s*(.+?)(?:\s*\||$)', secondary_part)
+            if type_match:
+                secondary_type = type_match.group(1).strip()
+        
+        # Calculate paces
+        main_pace = get_pace_for_type(main_type)
+        secondary_pace = get_pace_for_type(secondary_type)
+        
+        # Format the display
+        if main_distance is not None and secondary_distance is not None:
+            main_pace_str = format_pace_range_func(main_pace)
+            secondary_pace_str = format_pace_range_func(secondary_pace)
+            
+            remaining_distance = main_distance - secondary_distance if main_distance > secondary_distance else 0
+            
+            if remaining_distance > 0:
+                return f"{main_pace_str} ({remaining_distance:.0f}mi) + {secondary_pace_str} ({secondary_distance:.0f}mi)"
+            else:
+                return f"{secondary_pace_str} ({secondary_distance:.0f}mi) + {main_pace_str} ({remaining_distance:.0f}mi)"
+        else:
+            # Fallback: just show primary and secondary paces
+            main_pace_str = format_pace_range_func(main_pace)
+            secondary_pace_str = format_pace_range_func(secondary_pace)
+            return f"{main_pace_str} + {secondary_pace_str}"
+    
+    except Exception as e:
+        if _is_debug():
+            _debug_info(f"Could not parse compound workout '{activity_description}': {e}")
+        return None
 
 
 def enhance_activity_description(activity_string):
