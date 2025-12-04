@@ -4348,7 +4348,6 @@ def show_dashboard():
     
     # === ANALYTICS SECTION ===
     st.markdown("---")
-    st.subheader("📊 Training Analytics")
     
     # Calculate analytics
     weekly_stats = calculate_weekly_stats(final_plan_df, merged_df)
@@ -4361,34 +4360,37 @@ def show_dashboard():
         latest_week = weekly_stats.iloc[-1]
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Plan Miles (This Week)", f"{latest_week['Plan_Miles']:.1f}")
+            st.metric("This Week — Plan", f"{latest_week['Plan_Miles']:.1f} mi")
         with col2:
-            st.metric("Actual Miles (This Week)", f"{latest_week['Actual_Miles']:.1f}")
+            st.metric("This Week — Actual", f"{latest_week['Actual_Miles']:.1f} mi")
         with col3:
-            st.metric("Completion %", f"{latest_week['Completion_Pct']:.0f}%")
+            st.metric("Completion", f"{latest_week['Completion_Pct']:.0f}%")
         with col4:
             st.metric("Rest Days", int(latest_week['Rest_Days']))
     
     # Weekly Stats Table
     if not weekly_stats.empty:
-        st.markdown("#### Weekly Summary")
+        st.markdown("**Weekly Summary**")
         display_weekly = weekly_stats[['Week', 'Plan_Miles', 'Actual_Miles', 'Completion_Pct', 'Rest_Days']].copy()
         display_weekly.columns = ['Week', 'Plan (mi)', 'Actual (mi)', 'Completion %', 'Rest Days']
         st.dataframe(display_weekly, use_container_width=True, hide_index=True)
     
     # Pace Trends
     if not pace_trends.empty:
-        st.markdown("#### Pace Trends by Workout Type")
+        st.markdown("**Pace Trends**")
         st.dataframe(pace_trends, use_container_width=True, hide_index=True)
     
     # Marathon Projection
     if marathon_projection:
-        st.markdown("#### Marathon Projection")
-        st.info(f"📍 Estimated Finish Time: **{marathon_projection}** (based on recent MP runs)")
+        col1, col2 = st.columns([2, 3])
+        with col1:
+            st.markdown("**Marathon Projection**")
+        with col2:
+            st.success(f"Estimated: **{marathon_projection}**")
     
     # Rest Day Analysis
     if not rest_analysis.empty:
-        st.markdown("#### Rest Day Patterns")
+        st.markdown("**Rest Day Patterns**")
         st.dataframe(rest_analysis, use_container_width=True, hide_index=True)
     
     st.markdown("---")
