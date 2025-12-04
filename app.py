@@ -2266,7 +2266,8 @@ def enhance_activity_description(activity_string):
         return f"{count} Hill Repeats"
     
     if 'tempo' in orig.lower():
-        time_match = re.search(r'(\d+)\s*tempo', orig.lower())
+        # Match patterns like "20 min tempo", "20 minute tempo", "20min tempo", or just "20 tempo"
+        time_match = re.search(r'(\d+)\s*(?:min|minute)?s?\s*tempo', orig.lower())
         if time_match:
             minutes = time_match.group(1)
             return f"Lactate Threshold Run ({minutes} min tempo)"
