@@ -3610,18 +3610,35 @@ def show_dashboard():
                             base_plan_df_copy = base_plan_df.copy()
                             base_plan_df_copy['Date'] = pd.to_datetime(base_plan_df_copy['Date'])
                             base_plan_df_copy['Plan_Miles'] = pd.to_numeric(base_plan_df_copy['Plan_Miles'], errors='coerce').fillna(0)
+                            
+                            # Debug: show sample of Plan_Miles
+                            if _is_debug():
+                                st.write(f"Debug Plan_Miles sample: {base_plan_df_copy['Plan_Miles'].head(10).tolist()}")
+                                st.write(f"Debug Plan_Miles sum: {base_plan_df_copy['Plan_Miles'].sum()}")
+                            
                             base_plan_df_copy['Week'] = ((base_plan_df_copy['Date'] - plan_start).dt.days // 7) + 1
                             weekly_miles = base_plan_df_copy.groupby('Week')['Plan_Miles'].sum()
                             max_weekly_miles = float(weekly_miles.max()) if not weekly_miles.empty else 0
+                            
+                            if _is_debug():
+                                st.write(f"Debug Weekly miles: {weekly_miles.to_dict()}")
+                                st.write(f"Debug Max weekly miles: {max_weekly_miles}")
                         except Exception as e:
                             if _is_debug():
                                 st.write(f"Debug: Error calculating max weekly miles: {e}")
+                                import traceback
+                                st.write(traceback.format_exc())
                             max_weekly_miles = 0
+                    else:
+                        if _is_debug():
+                            st.write(f"Debug: Plan_Miles column not found. Columns: {list(base_plan_df.columns)}")
                     
                     st.caption(f"{total_weeks} weeks • {max_weekly_miles:.0f} mi/week peak • {goal_time} goal • {plan_start.strftime('%b %d')} – {plan_end.strftime('%b %d, %Y')}")
         except Exception as e:
             if _is_debug():
                 st.write(f"Debug: Error in plan details: {e}")
+                import traceback
+                st.write(traceback.format_exc())
             pass
     else:
         st.header("Your Training Schedule")
