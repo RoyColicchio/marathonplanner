@@ -3292,22 +3292,23 @@ def clear_all_overrides(user_hash: str, settings: dict):
 
 def main():
     """Main application logic."""
-    # Always check for persistent login data, even if session state has a user
-    # This ensures we restore from localStorage on fresh page loads
-    if not st.session_state.get('auth_checked', False):
-        if _is_debug():
-            st.write("Debug: First load, checking persistent login...")
-        check_persistent_login()
+    # Check if we have current_user in session state
+    if not st.session_state.get('current_user'):
+        # Only show login if we haven't checked persistent login yet
+        if not st.session_state.get('auth_checked', False):
+            if _is_debug():
+                st.write("Debug: Checking for persistent login...")
+            check_persistent_login()
+            # Set the flag so we don't check again on next rerun
+            st.session_state.auth_checked = True
         
-    if not st.session_state.current_user:
-        if _is_debug():
-            st.write("Debug: Still no current user after persistent login check, showing login page...")
-            # Show query params for debugging
-            if st.query_params:
-                st.write(f"Debug: Current query params: {dict(st.query_params)}")
-        google_login()
-        return
-
+        # After check, if still no user, show login
+        if not st.session_state.get('current_user'):
+            if _is_debug():
+                st.write("Debug: No persistent login found, showing login page...")
+            google_login()
+            return
+    
     if _is_debug():
         st.write(f"Debug: User logged in: {st.session_state.current_user.get('email', 'Unknown')}")
     
@@ -3611,16 +3612,16 @@ def show_dashboard():
                             base_plan_df_copy['Date'] = pd.to_datetime(base_plan_df_copy['Date'])
                             base_plan_df_copy['Plan_Miles'] = pd.to_numeric(base_plan_df_copy['Plan_Miles'], errors='coerce').fillna(0)
                             
+                            # Convert plan_start to pandas Timestamp for proper subtraction
+                            plan_start_ts = pd.Timestamp(plan_start)
+                            base_plan_df_copy['Week'] = ((base_plan_df_copy['Date'] - plan_start_ts).dt.days // 7) + 1
+                            weekly_miles = base_plan_df_copy.groupby('Week')['Plan_Miles'].sum()
+                            max_weekly_miles = float(weekly_miles.max()) if not weekly_miles.empty else 0
+                            
                             # Debug: show sample of Plan_Miles
                             if _is_debug():
                                 st.write(f"Debug Plan_Miles sample: {base_plan_df_copy['Plan_Miles'].head(10).tolist()}")
                                 st.write(f"Debug Plan_Miles sum: {base_plan_df_copy['Plan_Miles'].sum()}")
-                            
-                            base_plan_df_copy['Week'] = ((base_plan_df_copy['Date'] - plan_start).dt.days // 7) + 1
-                            weekly_miles = base_plan_df_copy.groupby('Week')['Plan_Miles'].sum()
-                            max_weekly_miles = float(weekly_miles.max()) if not weekly_miles.empty else 0
-                            
-                            if _is_debug():
                                 st.write(f"Debug Weekly miles: {weekly_miles.to_dict()}")
                                 st.write(f"Debug Max weekly miles: {max_weekly_miles}")
                         except Exception as e:
