@@ -2194,9 +2194,11 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
             # For strides and short repeats, handle specially
             if 'stride' in secondary_part or '100m' in secondary_part or segment_distance == 0.1:
                 # Normalize strides format: "10x100m" or "10 x 100m" -> "10 × 100m"
-                normalized_strides = re.sub(r'(\d+)\s*x\s*', r'\1 × ', secondary_part, flags=re.IGNORECASE)
-                # Ensure we have "100m" not just "100"
-                normalized_strides = re.sub(r'(\d+)(?![m\s])', r'\1m', normalized_strides)
+                # First convert "x" to "×"
+                normalized_strides = re.sub(r'(\d+)\s*x\s*(\d+)', r'\1 × \2', secondary_part, flags=re.IGNORECASE)
+                # Then ensure distance has 'm' suffix (e.g., "100" -> "100m")
+                # Match numbers that don't already have 'm' after them and are likely distances
+                normalized_strides = re.sub(r'(\d{2,})(?!m)(?=\s|strides|$)', r'\1m', normalized_strides, flags=re.IGNORECASE)
                 return f"Easy: {easy_pace_str} ({total_distance:.0f}mi) + {normalized_strides}"
             
             # Calculate easy/warmup distance
