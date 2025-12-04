@@ -2022,10 +2022,18 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
                 secs = 0
             return f"{minutes}:{secs:02d}"
         
-        def format_pace_range(base_seconds):
-            """Return pace range: ±2% for modest variation, with 5% slower overall adjustment."""
-            # Apply 5% slower adjustment to the base pace
-            adjusted_seconds = base_seconds * 1.05
+        def format_pace_range(base_seconds, is_marathon_pace=False):
+            """Return pace range: ±2% for modest variation.
+            
+            For non-marathon paces: Apply 5% slower overall adjustment as safety buffer.
+            For marathon pace: No adjustment (target exact pace).
+            """
+            if is_marathon_pace:
+                # Marathon pace: show ±2% around exact GMP with no slower adjustment
+                adjusted_seconds = base_seconds
+            else:
+                # Other paces: Apply 5% slower adjustment as safety buffer
+                adjusted_seconds = base_seconds * 1.05
             
             # Typical variation is about 2% (±~3 seconds for 8:20 pace)
             faster_seconds = adjusted_seconds * 0.98  # 2% faster
@@ -2102,8 +2110,8 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return "Hard uphill effort"
         
         elif 'marathon pace' in desc_lower or 'race' in desc_lower:
-            # Marathon/Race pace: 0 offset (exact GMP)
-            return format_pace_range(gmp_sec_per_mile)
+            # Marathon/Race pace: 0 offset (exact GMP), no adjustment
+            return format_pace_range(gmp_sec_per_mile, is_marathon_pace=True)
         
         elif 'half marathon' in desc_lower or 'hm' in desc_lower:
             # Half marathon pace: -20 to -30 s/mile, use -25 as middle ground
@@ -2207,9 +2215,12 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
         segment_pace = get_pace_for_type(segment_type)
         easy_pace = gmp_sec_per_mile + 45  # Easy/GA pace for warmup/cooldown
         
+        # Check if segment is marathon pace (no adjustment needed)
+        is_segment_mp = 'mp' in segment_type or 'marathon' in segment_type
+        
         # Format the display
         if total_distance is not None and segment_distance is not None:
-            segment_pace_str = format_pace_range_func(segment_pace)
+            segment_pace_str = format_pace_range_func(segment_pace, is_marathon_pace=is_segment_mp) if is_segment_mp else format_pace_range_func(segment_pace)
             easy_pace_str = format_pace_range_func(easy_pace)
             
             # For strides and short repeats, handle specially
@@ -2227,7 +2238,7 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
                 return f"{segment_pace_str} ({total_distance:.0f}mi)"
         else:
             # Fallback: just show segment pace
-            segment_pace_str = format_pace_range_func(segment_pace)
+            segment_pace_str = format_pace_range_func(segment_pace, is_marathon_pace=is_segment_mp) if is_segment_mp else format_pace_range_func(segment_pace)
             return f"{segment_pace_str}"
     
     except Exception as e:
