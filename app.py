@@ -4204,16 +4204,37 @@ def show_dashboard():
                 };
             }
             
-            // Check if pace and/or miles are in range
-            const actualPace = params.data['Actual Pace'];
-            const suggestedPace = params.data['Suggested Pace'];
+            // Check if row is in the past (for mileage highlighting)
+            const rowDate = new Date(params.data.DateISO);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const isPast = rowDate < today;
+            
+            // Check mileage within 30% of recommended (bold and italic if past)
             const actualMiles = params.data['Actual (mi)'];
             const plannedMiles = params.data['Plan (mi)'];
             
-            let paceInRange = false;
-            let milesInRange = false;
+            if (isPast && actualMiles && plannedMiles && actualMiles !== '—') {
+                const actual = parseFloat(actualMiles);
+                const planned = parseFloat(plannedMiles);
+                if (!isNaN(actual) && !isNaN(planned) && planned > 0) {
+                    // Check if within 30% (70% to 100% of planned)
+                    const percentage = (actual / planned) * 100;
+                    if (percentage >= 70 && percentage <= 100) {
+                        return {
+                            'font-weight': 'bold',
+                            'font-style': 'italic',
+                            'color': 'inherit'
+                        };
+                    }
+                }
+            }
             
             // Check pace range (±30 seconds)
+            const actualPace = params.data['Actual Pace'];
+            const suggestedPace = params.data['Suggested Pace'];
+            
+            let paceInRange = false;
             if (actualPace && suggestedPace && suggestedPace !== '—' && 
                 !suggestedPace.includes('uphill') && !suggestedPace.includes('800s') && 
                 !suggestedPace.includes('Mile pace') && !suggestedPace.includes('See plan')) {
@@ -4223,16 +4244,6 @@ def show_dashboard():
                 
                 if (actualSeconds && suggestedSeconds) {
                     paceInRange = Math.abs(actualSeconds - suggestedSeconds) <= 30;
-                }
-            }
-            
-            // Check miles range (within 10%) - now handled at cell level for Actual Miles
-            if (actualMiles && plannedMiles) {
-                const actual = parseFloat(actualMiles);
-                const planned = parseFloat(plannedMiles);
-                if (!isNaN(actual) && !isNaN(planned) && planned > 0) {
-                    // Miles highlighting is now handled at cell level, not row level
-                    milesInRange = false; // Don't highlight entire row for miles
                 }
             }
             
