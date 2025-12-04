@@ -3314,6 +3314,227 @@ def main():
     show_header()
     show_dashboard()
 
+
+def calculate_weekly_stats(plan_df, merged_df):
+    """Calculate weekly summary stats: total miles, avg pace, completion percentage."""
+    if plan_df.empty or merged_df.empty:
+        return pd.DataFrame()
+    
+    try:
+        # Merge plan and actual data
+        merged = plan_df[['Date', 'Week', 'Plan_Miles']].merge(
+            merged_df[['Date', 'Actual_Miles', 'Actual_Pace']],
+            on='Date',
+            how='left'
+        )
+        merged['Date'] = pd.to_datetime(merged['Date'])
+        merged['Week'] = merged['Week'].astype(int)
+        
+        # Group by week and aggregate
+        weekly = merged.groupby('Week').agg({
+            'Plan_Miles': 'sum',
+            'Actual_Miles': lambda x: x.dropna().sum(),
+            'Date': 'count'
+        }).rename(columns={'Date': 'Days_Planned'})
+        
+        # Calculate completion percentage
+        weekly['Completion_Pct'] = (weekly['Actual_Miles'] / weekly['Plan_Miles'] * 100).round(1)
+        weekly['Completion_Pct'] = weekly['Completion_Pct'].fillna(0)
+        
+        # Count rest days (planned days with no actual run)
+        rest_count = []
+        for week_num in weekly.index:
+            week_dates = merged[merged['Week'] == week_num]['Date'].unique()
+            actual_count = len(merged[(merged['Week'] == week_num) & (merged['Actual_Miles'] > 0)])
+            rest_count.append(len(week_dates) - actual_count)
+        weekly['Rest_Days'] = rest_count
+        
+        # Calculate average pace for the week
+        weekly['Avg_Pace'] = merged.groupby('Week')['Actual_Pace'].apply(
+            lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else '—'
+        )
+        
+        weekly = weekly.round(2)
+        return weekly.reset_index()
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def calculate_cumulative_mileage(plan_df, merged_df):
+    """Calculate cumulative mileage for plan vs actual."""
+    if plan_df.empty:
+        return pd.DataFrame()
+    
+    try:
+        plan_df_copy = plan_df[['Date', 'Plan_Miles']].copy()
+        plan_df_copy['Date'] = pd.to_datetime(plan_df_copy['Date'])
+        plan_df_copy = plan_df_copy.sort_values('Date')
+        plan_df_copy['Cumulative_Planned'] = plan_df_copy['Plan_Miles'].cumsum()
+        
+        if not merged_df.empty:
+            actual_df = merged_df[['Date', 'Actual_Miles']].copy()
+            actual_df['Date'] = pd.to_datetime(actual_df['Date'])
+            actual_df = actual_df[actual_df['Actual_Miles'] > 0]
+            cumulative_actual = []
+            cumulative_sum = 0
+            for date in plan_df_copy['Date']:
+                sum_up_to = actual_df[actual_df['Date'] <= date]['Actual_Miles'].sum()
+                cumulative_actual.append(sum_up_to)
+            plan_df_copy['Cumulative_Actual'] = cumulative_actual
+        else:
+            plan_df_copy['Cumulative_Actual'] = 0
+        
+        return plan_df_copy
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def analyze_pace_trends(merged_df):
+    """Analyze pace trends - getting faster/slower for each workout type."""
+    if merged_df.empty:
+        return pd.DataFrame()
+    
+    try:
+        # Filter only completed runs
+        completed = merged_df[merged_df['Actual_Pace'].notna() & (merged_df['Actual_Miles'] > 0)].copy()
+        if completed.empty:
+            return pd.DataFrame()
+        
+        completed['Actual_Pace_Sec'] = completed['Actual_Pace'].apply(pace_to_seconds)
+        completed['Date'] = pd.to_datetime(completed['Date'])
+        
+        trends = []
+        for activity in completed['Activity'].unique():
+            activity_runs = completed[completed['Activity'] == activity].sort_values('Date')
+            if len(activity_runs) < 2:
+                continue
+            
+            # Split into first half and second half
+            mid = len(activity_runs) // 2
+            first_half = activity_runs.iloc[:mid]['Actual_Pace_Sec'].mean()
+            second_half = activity_runs.iloc[mid:]['Actual_Pace_Sec'].mean()
+            
+            trend = "Getting Faster" if second_half < first_half else "Getting Slower" if second_half > first_half else "Stable"
+            diff = abs(second_half - first_half)
+            diff_min = int(diff // 60)
+            diff_sec = int(diff % 60)
+            
+            trends.append({
+                'Activity': activity,
+                'Trend': trend,
+                'Change': f"{diff_min}:{diff_sec:02d}/mi" if diff > 0 else "0:00/mi",
+                'Runs': len(activity_runs)
+            })
+        
+        return pd.DataFrame(trends)
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def get_personal_records(merged_df):
+    """Get fastest and slowest pace for each workout type."""
+    if merged_df.empty:
+        return pd.DataFrame()
+    
+    try:
+        completed = merged_df[merged_df['Actual_Pace'].notna() & (merged_df['Actual_Miles'] > 0)].copy()
+        if completed.empty:
+            return pd.DataFrame()
+        
+        completed['Actual_Pace_Sec'] = completed['Actual_Pace'].apply(pace_to_seconds)
+        
+        records = []
+        for activity in completed['Activity'].unique():
+            activity_runs = completed[completed['Activity'] == activity]
+            fastest_sec = activity_runs['Actual_Pace_Sec'].min()
+            slowest_sec = activity_runs['Actual_Pace_Sec'].max()
+            count = len(activity_runs)
+            
+            fastest_min = int(fastest_sec // 60)
+            fastest_sec_part = int(fastest_sec % 60)
+            slowest_min = int(slowest_sec // 60)
+            slowest_sec_part = int(slowest_sec % 60)
+            
+            records.append({
+                'Activity': activity,
+                'Fastest': f"{fastest_min}:{fastest_sec_part:02d}/mi",
+                'Slowest': f"{slowest_min}:{slowest_sec_part:02d}/mi",
+                'Runs': count
+            })
+        
+        return pd.DataFrame(records).sort_values('Activity')
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def estimate_marathon_finish_time(merged_df, goal_time_str):
+    """Estimate marathon finish time from recent MP runs."""
+    if merged_df.empty:
+        return None
+    
+    try:
+        # Get recent marathon pace runs
+        mp_runs = merged_df[(merged_df['Activity'].str.contains('Marathon', case=False, na=False)) & 
+                            (merged_df['Actual_Pace'].notna())]
+        if mp_runs.empty:
+            return None
+        
+        # Use last 3 MP runs if available
+        recent_mp = mp_runs.tail(3)
+        avg_pace_sec = recent_mp['Actual_Pace'].apply(pace_to_seconds).mean()
+        
+        # Calculate 26.2 mile finish time
+        finish_seconds = avg_pace_sec * 26.2
+        finish_hours = int(finish_seconds // 3600)
+        finish_minutes = int((finish_seconds % 3600) // 60)
+        finish_secs = int(finish_seconds % 60)
+        
+        return f"{finish_hours}:{finish_minutes:02d}:{finish_secs:02d}"
+    except Exception as e:
+        return None
+
+
+def analyze_rest_days(plan_df, merged_df):
+    """Analyze rest day patterns and back-to-back runs."""
+    if plan_df.empty:
+        return {}
+    
+    try:
+        plan_df_copy = plan_df[['Date', 'Plan_Miles', 'Week']].copy()
+        plan_df_copy['Date'] = pd.to_datetime(plan_df_copy['Date'])
+        plan_df_copy = plan_df_copy.sort_values('Date')
+        
+        if not merged_df.empty:
+            actual_runs = merged_df[merged_df['Actual_Miles'] > 0][['Date']].copy()
+            actual_runs['Date'] = pd.to_datetime(actual_runs['Date'])
+            plan_df_copy['Has_Run'] = plan_df_copy['Date'].isin(actual_runs['Date'])
+        else:
+            plan_df_copy['Has_Run'] = False
+        
+        # Rest days analysis
+        weekly_stats = []
+        for week in plan_df_copy['Week'].unique():
+            week_data = plan_df_copy[plan_df_copy['Week'] == week]
+            rest_days = len(week_data[~week_data['Has_Run']])
+            
+            # Check for back-to-back runs
+            run_dates = week_data[week_data['Has_Run']]['Date'].values
+            back_to_back = 0
+            for i in range(len(run_dates) - 1):
+                if (pd.to_datetime(run_dates[i+1]) - pd.to_datetime(run_dates[i])).days == 1:
+                    back_to_back += 1
+            
+            weekly_stats.append({
+                'Week': int(week),
+                'Rest_Days': rest_days,
+                'Back_to_Back': back_to_back
+            })
+        
+        return pd.DataFrame(weekly_stats)
+    except Exception as e:
+        return pd.DataFrame()
+
+
 def show_dashboard():
     """Display the main dashboard with training plan and Strava data."""
     try:
@@ -4079,6 +4300,67 @@ def show_dashboard():
                 _debug_info(f"Row {i+1} keys: {list(row.keys())}")
                 _debug_info(f"Row {i+1} DateISO: {row.get('DateISO', 'MISSING')}")
                 _debug_info(f"Row {i+1} Date: {row.get('Date', 'MISSING')}")
+    
+    # === ANALYTICS SECTION ===
+    st.markdown("---")
+    st.subheader("📊 Training Analytics")
+    
+    # Calculate analytics
+    weekly_stats = calculate_weekly_stats(plan_df, merged_df)
+    cumulative_data = calculate_cumulative_mileage(plan_df, merged_df)
+    pace_trends = analyze_pace_trends(merged_df)
+    personal_records = get_personal_records(merged_df)
+    rest_analysis = analyze_rest_days(plan_df, merged_df)
+    marathon_projection = estimate_marathon_finish_time(merged_df, settings.get('goal_time', ''))
+    
+    # Display key metrics in columns
+    if not weekly_stats.empty:
+        latest_week = weekly_stats.iloc[-1]
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Plan Miles (This Week)", f"{latest_week['Plan_Miles']:.1f}")
+        with col2:
+            st.metric("Actual Miles (This Week)", f"{latest_week['Actual_Miles']:.1f}")
+        with col3:
+            st.metric("Completion %", f"{latest_week['Completion_Pct']:.0f}%")
+        with col4:
+            st.metric("Rest Days", int(latest_week['Rest_Days']))
+    
+    # Cumulative Mileage Chart
+    if not cumulative_data.empty:
+        st.markdown("#### Cumulative Mileage Progress")
+        chart_data = cumulative_data[['Date', 'Cumulative_Planned', 'Cumulative_Actual']].copy()
+        chart_data['Date'] = pd.to_datetime(chart_data['Date']).dt.strftime('%m/%d')
+        st.line_chart(data=chart_data.set_index('Date'), use_container_width=True)
+    
+    # Weekly Stats Table
+    if not weekly_stats.empty:
+        st.markdown("#### Weekly Summary")
+        display_weekly = weekly_stats[['Week', 'Plan_Miles', 'Actual_Miles', 'Completion_Pct', 'Rest_Days']].copy()
+        display_weekly.columns = ['Week', 'Plan (mi)', 'Actual (mi)', 'Completion %', 'Rest Days']
+        st.dataframe(display_weekly, use_container_width=True, hide_index=True)
+    
+    # Pace Trends
+    if not pace_trends.empty:
+        st.markdown("#### Pace Trends by Workout Type")
+        st.dataframe(pace_trends, use_container_width=True, hide_index=True)
+    
+    # Personal Records
+    if not personal_records.empty:
+        st.markdown("#### Personal Records")
+        st.dataframe(personal_records, use_container_width=True, hide_index=True)
+    
+    # Marathon Projection
+    if marathon_projection:
+        st.markdown("#### Marathon Projection")
+        st.info(f"📍 Estimated Finish Time: **{marathon_projection}** (based on recent MP runs)")
+    
+    # Rest Day Analysis
+    if not rest_analysis.empty:
+        st.markdown("#### Rest Day Patterns")
+        st.dataframe(rest_analysis, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
     
     # --- Swap Days Button ---
     can_swap = False
