@@ -4341,9 +4341,7 @@ def show_dashboard():
     
     # Calculate analytics
     weekly_stats = calculate_weekly_stats(final_plan_df, merged_df)
-    cumulative_data = calculate_cumulative_mileage(final_plan_df, merged_df)
     pace_trends = analyze_pace_trends(merged_df)
-    personal_records = get_personal_records(merged_df)
     rest_analysis = analyze_rest_days(final_plan_df, merged_df)
     marathon_projection = estimate_marathon_finish_time(merged_df, settings.get('goal_time', ''))
     
@@ -4360,13 +4358,6 @@ def show_dashboard():
         with col4:
             st.metric("Rest Days", int(latest_week['Rest_Days']))
     
-    # Cumulative Mileage Chart
-    if not cumulative_data.empty:
-        st.markdown("#### Cumulative Mileage Progress")
-        chart_data = cumulative_data[['Date', 'Cumulative_Planned', 'Cumulative_Actual']].copy()
-        chart_data['Date'] = pd.to_datetime(chart_data['Date']).dt.strftime('%m/%d')
-        st.line_chart(data=chart_data.set_index('Date'), use_container_width=True)
-    
     # Weekly Stats Table
     if not weekly_stats.empty:
         st.markdown("#### Weekly Summary")
@@ -4378,11 +4369,6 @@ def show_dashboard():
     if not pace_trends.empty:
         st.markdown("#### Pace Trends by Workout Type")
         st.dataframe(pace_trends, use_container_width=True, hide_index=True)
-    
-    # Personal Records
-    if not personal_records.empty:
-        st.markdown("#### Personal Records")
-        st.dataframe(personal_records, use_container_width=True, hide_index=True)
     
     # Marathon Projection
     if marathon_projection:
