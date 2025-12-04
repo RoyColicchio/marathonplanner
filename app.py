@@ -4044,10 +4044,12 @@ def show_dashboard():
                     this.eGui.style.fontWeight = '500';
                     this.eGui.style.color = '#e2e8f0';
                     
-                    // Add helpful date tooltip
                     const date = new Date(params.value);
                     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                     this.eGui.title = date.toLocaleDateString('en-US', options);
+                } else {
+                    this.eGui.innerHTML = '—';
+                    this.eGui.style.color = '#64748b';
                 }
             }
             getGui() { return this.eGui; }
@@ -4059,11 +4061,10 @@ def show_dashboard():
         class DayRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
-                this.eGui.innerHTML = params.value;
+                this.eGui.innerHTML = params.value || '—';
                 this.eGui.style.fontWeight = '500';
                 this.eGui.style.color = '#cbd5e1';
                 
-                // Add contextual day tooltips
                 const day = params.value ? params.value.toLowerCase() : '';
                 if (day.includes('mon')) {
                     this.eGui.title = 'Monday - Start the week strong!';
@@ -4080,7 +4081,7 @@ def show_dashboard():
                 } else if (day.includes('sun')) {
                     this.eGui.title = 'Sunday - Recovery or long run day';
                 } else {
-                    this.eGui.title = params.value;
+                    this.eGui.title = params.value || 'Day';
                 }
             }
             getGui() { return this.eGui; }
