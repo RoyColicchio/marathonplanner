@@ -3591,12 +3591,14 @@ def show_dashboard():
         merged_df['Strava_URL'] = None
 
     # Add pace ranges using our custom pace calculation
-    merged_df['Pace'] = merged_df['Activity'].apply(lambda x: get_suggested_pace(x, goal_time))
+    # IMPORTANT: Use Activity_Abbr (original format) for pace calculation to detect compound workouts
+    # The Activity_Abbr preserves patterns like "MP 13 w/ 8 @ MP" needed for compound parsing
+    merged_df['Pace'] = merged_df['Activity_Abbr'].apply(lambda x: get_suggested_pace(x, goal_time))
     
     # Debug: Show some pace calculations if debug mode is on
     if _is_debug() and not merged_df.empty:
-        sample_activities = merged_df[['Activity', 'Pace']].head(5).values.tolist()
-        _debug_info(f"Goal time: {goal_time}, Sample paces", sample_activities)
+        sample_activities = merged_df[['Activity_Abbr', 'Pace']].head(5).values.tolist()
+        _debug_info(f"Goal time: {goal_time}, Sample paces (from Activity_Abbr)", sample_activities)
 
     # Add week number to the DataFrame
     merged_df['Week'] = _compute_week_index(merged_df, 'Date', start_date)
