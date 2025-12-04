@@ -3602,9 +3602,15 @@ def show_dashboard():
                     plan_start = pd.to_datetime(base_plan_df['Date'].min()).date()
                     plan_end = pd.to_datetime(base_plan_df['Date'].max()).date()
                     total_weeks = (plan_end - plan_start).days // 7 + 1
-                    total_miles = base_plan_df['Plan_Miles'].sum() if 'Plan_Miles' in base_plan_df.columns else 0
                     
-                    st.caption(f"{total_weeks} weeks • {total_miles:.0f} miles • {goal_time} goal • {plan_start.strftime('%b %d')} – {plan_end.strftime('%b %d, %Y')}")
+                    # Calculate max weekly miles
+                    if 'Plan_Miles' in base_plan_df.columns and 'Week' in base_plan_df.columns:
+                        weekly_miles = base_plan_df.groupby('Week')['Plan_Miles'].sum()
+                        max_weekly_miles = weekly_miles.max()
+                    else:
+                        max_weekly_miles = 0
+                    
+                    st.caption(f"{total_weeks} weeks • {max_weekly_miles:.0f} mi/week peak • {goal_time} goal • {plan_start.strftime('%b %d')} – {plan_end.strftime('%b %d, %Y')}")
         except Exception:
             pass
     else:
