@@ -2120,7 +2120,15 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
 
 
 def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pace_range_func):
-    """Parse and calculate paces for compound workouts like 'LT 8 w/ 4 @ 15K'."""
+    """Parse and calculate paces for compound workouts like 'MP 13 w/ 8 @ MP'.
+    
+    Pattern: "TYPE TOTAL w/ SEGMENT @ INTENSITY"
+    - TYPE TOTAL: main distance (e.g., "MP 13" or "LT 9")
+    - SEGMENT: fast segment distance (e.g., "8")
+    - INTENSITY: intensity type (e.g., "MP", "15K", "5K pace")
+    
+    This means: Run TOTAL miles with SEGMENT miles at INTENSITY and (TOTAL - SEGMENT) at easy pace.
+    """
     desc_lower = activity_description.lower()
     
     def get_pace_for_type(workout_type):
@@ -2162,67 +2170,65 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
         if len(parts) < 2:
             return None
         
-        main_part = parts[0].strip()  # e.g., "lt 8" or "mp 13"
-        secondary_part = parts[1].strip()  # e.g., "4 @ 15k" or "10x100m strides"
+        main_part = parts[0].strip()  # e.g., "mp 13" or "lt 9"
+        secondary_part = parts[1].strip()  # e.g., "8 @ mp" or "5 x 800 @ 5k pace"
         
-        # Extract distances and types
-        main_distance = None
+        # Extract total distance and main type from "MP 13" or "LT 9"
+        total_distance = None
         main_type = main_part
         
-        # Try to extract distance from main part (e.g., "lt 8" -> 8, "mp 13" -> 13)
         dist_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:mi|miles)?$', main_part)
         if dist_match:
-            main_distance = float(dist_match.group(1))
+            total_distance = float(dist_match.group(1))
             main_type = main_part[:dist_match.start()].strip()
         
-        # Extract secondary distance and type
-        secondary_distance = None
-        secondary_type = secondary_part
+        # Extract segment distance and intensity type
+        segment_distance = None
+        segment_type = secondary_part
         
-        # Pattern: "4 @ 15k" or "5 x 800 @ 5k pace"
+        # Pattern: "8 @ mp" or "5 x 800 @ 5k pace"
         dist_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:x|×)?\s*\d*\s*(?:@|x|×)', secondary_part)
         if dist_match:
-            secondary_distance = float(dist_match.group(1))
+            segment_distance = float(dist_match.group(1))
             
-            # Extract type after @ or x (e.g., "15k", "5k pace", "mp")
+            # Extract type after @ or x (e.g., "mp", "15k", "5k pace")
             type_match = re.search(r'(?:@|x|×)\s*(.+?)(?:\s*(?:pace|strides)?)?$', secondary_part)
             if type_match:
-                secondary_type = type_match.group(1).strip()
+                segment_type = type_match.group(1).strip()
         
-        # If we can't parse secondary distance, check for simple patterns like "10x100m strides"
-        if secondary_distance is None:
+        # If we can't parse segment distance, check for simple patterns like "10x100m strides"
+        if segment_distance is None:
             rep_match = re.search(r'(\d+)\s*x', secondary_part)
             if rep_match:
-                secondary_distance = 0.1  # Use 0.1 as a placeholder for reps
-                secondary_type = secondary_part
+                segment_distance = 0.1  # Use 0.1 as a placeholder for reps
+                segment_type = secondary_part
         
         # Calculate paces
-        main_pace = get_pace_for_type(main_type)
-        secondary_pace = get_pace_for_type(secondary_type)
+        segment_pace = get_pace_for_type(segment_type)
+        easy_pace = gmp_sec_per_mile + 45  # Easy/GA pace for warmup/cooldown
         
         # Format the display
-        if main_distance is not None:
-            main_pace_str = format_pace_range_func(main_pace)
-            secondary_pace_str = format_pace_range_func(secondary_pace)
+        if total_distance is not None and segment_distance is not None:
+            segment_pace_str = format_pace_range_func(segment_pace)
+            easy_pace_str = format_pace_range_func(easy_pace)
             
-            # For strides and short repeats, don't calculate remaining distance
-            if 'stride' in secondary_part or '100m' in secondary_part or secondary_distance == 0.1:
-                return f"{main_pace_str} ({main_distance:.0f}mi) w/ {secondary_part}"
+            # For strides and short repeats, handle specially
+            if 'stride' in secondary_part or '100m' in secondary_part or segment_distance == 0.1:
+                return f"{easy_pace_str} ({total_distance:.0f}mi) w/ {secondary_part}"
             
-            # Otherwise calculate splits
-            if secondary_distance and secondary_distance > 0:
-                remaining_distance = main_distance - secondary_distance if main_distance > secondary_distance else 0
-                if remaining_distance > 0:
-                    return f"{main_pace_str} ({remaining_distance:.0f}mi) + {secondary_pace_str} ({secondary_distance:.0f}mi)"
-                else:
-                    return f"{main_pace_str} ({main_distance:.0f}mi) w/ {secondary_pace_str} segment"
+            # Calculate easy/warmup distance
+            easy_distance = total_distance - segment_distance if total_distance > segment_distance else 0
+            
+            if easy_distance > 0:
+                # Display: Easy warmup/cooldown + Fast segment
+                return f"{easy_pace_str} ({easy_distance:.0f}mi) + {segment_pace_str} ({segment_distance:.0f}mi)"
             else:
-                return f"{main_pace_str} ({main_distance:.0f}mi) + {secondary_pace_str}"
+                # If segment is >= total, just show segment pace
+                return f"{segment_pace_str} ({total_distance:.0f}mi)"
         else:
-            # Fallback: just show primary and secondary paces
-            main_pace_str = format_pace_range_func(main_pace)
-            secondary_pace_str = format_pace_range_func(secondary_pace)
-            return f"{main_pace_str} + {secondary_pace_str}"
+            # Fallback: just show segment pace
+            segment_pace_str = format_pace_range_func(segment_pace)
+            return f"{segment_pace_str}"
     
     except Exception as e:
         if _is_debug():
