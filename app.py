@@ -1081,8 +1081,8 @@ def settings_for_plan(settings, plan):
 
 
 def check_persistent_login():
-    """Check for persistent login data using URL parameters or session storage."""
-    if st.session_state.auth_checked:
+    """Check for persistent login data from saved JSON file."""
+    if st.session_state.get('auth_checked'):
         return
     
     st.session_state.auth_checked = True
@@ -1090,124 +1090,45 @@ def check_persistent_login():
     if _is_debug():
         st.write("Debug: Checking for persistent login...")
     
-    # First, check if we have restoration data in query parameters
-    if st.query_params.get("restored") == "true":
+    # Try to load user data from tokens.json
+    try:
+        import os
+        if os.path.exists('tokens.json'):
+            with open('tokens.json', 'r') as f:
+                saved_data = json.load(f)
+                if saved_data and 'email' in saved_data:
+                    st.session_state.current_user = saved_data
+                    if _is_debug():
+                        st.write(f"Debug: User restored from tokens.json: {saved_data.get('email')}")
+                    return
+    except Exception as e:
         if _is_debug():
-            st.write("Debug: Found 'restored=true' in query params")
-        
-        user_email = st.query_params.get("user_email")
-        user_name = st.query_params.get("user_name") 
-        user_picture = st.query_params.get("user_picture", "")
-        user_token = st.query_params.get("user_token", "")
-        
-        if _is_debug():
-            st.write(f"Debug: Extracted email: {user_email}, name: {user_name}")
-        
-        if user_email and user_name:
-            # URL decode the values
-            try:
-                from urllib.parse import unquote
-                user_email = unquote(user_email)
-                user_name = unquote(user_name)
-                user_picture = unquote(user_picture) if user_picture else ""
-                user_token = unquote(user_token) if user_token else None
-            except:
-                pass
-                
-            st.session_state.current_user = {
-                "email": user_email,
-                "name": user_name,
-                "picture": user_picture,
-                "access_token": user_token,
-            }
-            if _is_debug():
-                st.write("Debug: User restored from localStorage, clearing query params and rerunning")
-            # Clean up the URL
-            st.query_params.clear()
-            st.rerun()
-            return
-    
-    # Try to check localStorage and set up restoration parameters
-    # Use a simpler approach: create a hidden iframe that does the localStorage check
-    import streamlit.components.v1 as components
-    
-    if _is_debug():
-        st.write("Debug: Setting up localStorage check")
-    
-    # Create a more reliable localStorage checker using an iframe
-    iframe_html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <script>
-        window.onload = function() {
-            try {
-                const userData = localStorage.getItem('strava_dashboard_user');
-                console.log('iframe: Checking localStorage:', userData ? 'found' : 'not found');
-                
-                if (userData && !window.parent.location.search.includes('restored=true')) {
-                    console.log('iframe: Found user data, redirecting parent');
-                    const user = JSON.parse(userData);
-                    
-                    // Build new URL with parameters
-                    const params = new URLSearchParams();
-                    params.set('restored', 'true');
-                    params.set('user_email', encodeURIComponent(user.email));
-                    params.set('user_name', encodeURIComponent(user.name));
-                    params.set('user_picture', encodeURIComponent(user.picture || ''));
-                    params.set('user_token', encodeURIComponent(user.access_token || ''));
-                    
-                    // Redirect parent window
-                    window.parent.location.href = window.parent.location.pathname + '?' + params.toString();
-                } else if (!userData) {
-                    console.log('iframe: No stored user data found');
-                }
-            } catch (e) {
-                console.error('iframe: Error:', e);
-                localStorage.removeItem('strava_dashboard_user');
-            }
-        };
-        </script>
-    </head>
-    <body></body>
-    </html>
-    """
-    
-    components.html(iframe_html, height=0)
+            st.write(f"Debug: Error reading tokens.json: {e}")
 
 
 def save_user_to_storage(user_data):
-    """Save user data to browser localStorage."""
-    import streamlit.components.v1 as components
-    
-    js_code = f"""
-    <script>
-    try {{
-        localStorage.setItem('strava_dashboard_user', JSON.stringify({json.dumps(user_data)}));
-        console.log('User data saved to localStorage');
-    }} catch (e) {{
-        console.error('Failed to save user data:', e);
-    }}
-    </script>
-    """
-    components.html(js_code, height=0)
+    """Save user data to tokens.json for persistent login."""
+    try:
+        with open('tokens.json', 'w') as f:
+            json.dump(user_data, f, indent=2)
+        if _is_debug():
+            st.write(f"Debug: User data saved to tokens.json")
+    except Exception as e:
+        if _is_debug():
+            st.write(f"Debug: Failed to save user data: {e}")
 
 
 def clear_user_from_storage():
-    """Clear user data from browser localStorage."""
-    import streamlit.components.v1 as components
-    
-    js_code = """
-    <script>
-    try {
-        localStorage.removeItem('strava_dashboard_user');
-        console.log('User data cleared from localStorage');
-    } catch (e) {
-        console.error('Failed to clear user data:', e);
-    }
-    </script>
-    """
-    components.html(js_code, height=0)
+    """Clear user data from tokens.json."""
+    try:
+        import os
+        if os.path.exists('tokens.json'):
+            os.remove('tokens.json')
+        if _is_debug():
+            st.write("Debug: User data cleared from tokens.json")
+    except Exception as e:
+        if _is_debug():
+            st.write(f"Debug: Failed to clear user data: {e}")
 
 
 def google_login():
@@ -4204,7 +4125,38 @@ def show_dashboard():
             init(params) {
                 this.eGui = document.createElement('span');
                 if (params.value) {
-                    this.eGui.innerHTML = params.value;
+                    let displayHtml = params.value;
+                    
+                    // Apply color coding for multi-segment paces
+                    if (displayHtml.includes('|')) {
+                        // Split by pipe and color each segment
+                        const segments = displayHtml.split('|').map(s => s.trim());
+                        displayHtml = segments.map((seg, idx) => {
+                            if (seg.includes('Easy:')) {
+                                return `<span style="color: #666;">Easy: ${seg.replace('Easy: ', '')}</span>`;
+                            } else if (seg.includes('Tempo:')) {
+                                return `<span style="color: #c33;">Tempo: ${seg.replace('Tempo: ', '')}</span>`;
+                            } else if (seg.includes('Marathon Pace:')) {
+                                return `<span style="color: #27ae60;">Marathon Pace: ${seg.replace('Marathon Pace: ', '')}</span>`;
+                            } else if (seg.includes('5K Pace:')) {
+                                return `<span style="color: #e74c3c;">5K Pace: ${seg.replace('5K Pace: ', '')}</span>`;
+                            } else if (seg.includes('Tempo')) {
+                                return `<span style="color: #c33;">${seg}</span>`;
+                            } else if (seg.includes('Marathon')) {
+                                return `<span style="color: #27ae60;">${seg}</span>`;
+                            } else if (seg.includes('5K')) {
+                                return `<span style="color: #e74c3c;">${seg}</span>`;
+                            } else if (seg.includes('Mile')) {
+                                return `<span style="color: #d9534f;">${seg}</span>`;
+                            } else if (seg.includes('Hill')) {
+                                return `<span style="color: #8b6914;">${seg}</span>`;
+                            } else {
+                                return `<span style="color: #666;">${seg}</span>`;
+                            }
+                        }).join(' <span style="color: #999;">|</span> ');
+                    }
+                    
+                    this.eGui.innerHTML = displayHtml;
                     
                     // Add specific tooltips based on column and workout type
                     if (params.colDef.field === 'Suggested Pace') {
