@@ -1977,8 +1977,8 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
             return "—"
         
         elif 'recovery' in desc_lower or 'rec' in desc_lower:
-            # Recovery: +90s slow end, +120s fast end (average +105s)
-            recovery_slow = gmp_sec_per_mile + 90
+            # Recovery: +100s slow end, +120s fast end (average +110s)
+            recovery_slow = gmp_sec_per_mile + 100
             recovery_fast = gmp_sec_per_mile + 120
             recovery_pace_slow = seconds_to_pace(recovery_slow)
             recovery_pace_fast = seconds_to_pace(recovery_fast)
@@ -2150,7 +2150,7 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
         elif 'ga' in workout_type_lower or 'aerobic' in workout_type_lower:
             return gmp_sec_per_mile + 75  # General aerobic (midpoint of +60 to +90)
         elif 'rec' in workout_type_lower or 'recovery' in workout_type_lower:
-            return gmp_sec_per_mile + 105  # Recovery (midpoint of +90 to +120)
+            return gmp_sec_per_mile + 110  # Recovery (midpoint of +100 to +120)
         elif 'easy' in workout_type_lower:
             return gmp_sec_per_mile + 75  # Easy pace (midpoint of +60 to +90)
         elif 'mlr' in workout_type_lower or 'medium' in workout_type_lower:
