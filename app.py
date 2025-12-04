@@ -2193,7 +2193,11 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
             
             # For strides and short repeats, handle specially
             if 'stride' in secondary_part or '100m' in secondary_part or segment_distance == 0.1:
-                return f"Easy: {easy_pace_str} ({total_distance:.0f}mi) + {secondary_part}"
+                # Normalize strides format: "10x100m" or "10 x 100m" -> "10 × 100m"
+                normalized_strides = re.sub(r'(\d+)\s*x\s*', r'\1 × ', secondary_part, flags=re.IGNORECASE)
+                # Ensure we have "100m" not just "100"
+                normalized_strides = re.sub(r'(\d+)(?![m\s])', r'\1m', normalized_strides)
+                return f"Easy: {easy_pace_str} ({total_distance:.0f}mi) + {normalized_strides}"
             
             # Calculate easy/warmup distance
             easy_distance = total_distance - segment_distance if total_distance > segment_distance else 0
@@ -4154,6 +4158,19 @@ def show_dashboard():
                                 return `<span style="color: #666;">${seg}</span>`;
                             }
                         }).join(' <span style="color: #999;">|</span> ');
+                    } else if (displayHtml.includes('+')) {
+                        // Handle "Easy: pace (dist) + strides" format
+                        const parts = displayHtml.split('+').map(s => s.trim());
+                        displayHtml = parts.map((part, idx) => {
+                            if (part.includes('Easy:')) {
+                                return `<span style="color: #666;">${part}</span>`;
+                            } else if (part.includes('×') || part.includes('x')) {
+                                // This is the strides/repeats part
+                                return `<span style="color: #999;">${part}</span>`;
+                            } else {
+                                return `<span style="color: #999;">${part}</span>`;
+                            }
+                        }).join(' <span style="color: #999;">+</span> ');
                     }
                     
                     this.eGui.innerHTML = displayHtml;
