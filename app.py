@@ -4180,30 +4180,21 @@ def show_dashboard():
                         const diff = Math.abs(actualMiles - plannedMiles);
                         if (diff <= 1.0) {
                             this.eGui.style.color = '#4ade80';
+                            this.eGui.title = `Actual: ${params.value} mi - within 1 mi of planned ${plannedMiles} mi!`;
                         } else {
                             this.eGui.style.color = '#fbbf24';
+                            this.eGui.title = `Actual distance: ${params.value} miles (off plan by ${diff.toFixed(1)} mi)`;
                         }
                     } else if (actualMiles > 0) {
                         this.eGui.style.color = '#4ade80';
-                    } else {
-                        this.eGui.style.color = '#64748b';
-                    }
-                            this.eGui.style.backgroundColor = 'rgba(34, 197, 94, 0.2)';
-                            this.eGui.style.color = '#22c55e';
-                            this.eGui.style.fontWeight = 'bold';
-                            this.eGui.style.padding = '2px 4px';
-                            this.eGui.style.borderRadius = '3px';
-                            this.eGui.title = `Actual distance: ${params.value} miles - within 1 mile of planned ${plannedMiles} miles!`;
-                        } else {
-                            this.eGui.title = `Actual distance completed: ${params.value} miles (from Strava)`;
-                        }
-                    } else if (params.value && params.value > 0) {
                         this.eGui.title = `Actual distance completed: ${params.value} miles (from Strava)`;
                     } else {
+                        this.eGui.style.color = '#64748b';
                         this.eGui.title = 'Distance will appear here after completing the workout';
                     }
                 } else {
                     this.eGui.innerHTML = '—';
+                    this.eGui.style.color = '#64748b';
                     this.eGui.title = 'Complete the workout to see distance';
                 }
             }
