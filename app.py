@@ -3317,28 +3317,41 @@ def main():
 
 def calculate_weekly_stats(plan_df, merged_df):
     """Calculate weekly summary stats: total miles, avg pace, completion percentage."""
-    if plan_df.empty or merged_df.empty:
+    if plan_df.empty:
         return pd.DataFrame()
     
     try:
+        # Ensure required columns exist
+        if 'Date' not in plan_df.columns or 'Week' not in plan_df.columns or 'Plan_Miles' not in plan_df.columns:
+            return pd.DataFrame()
+        
         # Merge plan and actual data
+        if 'Actual_Miles' in merged_df.columns and 'Actual_Pace' in merged_df.columns:
+            merge_cols = ['Date', 'Actual_Miles', 'Actual_Pace']
+        else:
+            merge_cols = ['Date']
+        
         merged = plan_df[['Date', 'Week', 'Plan_Miles']].merge(
-            merged_df[['Date', 'Actual_Miles', 'Actual_Pace']],
+            merged_df[merge_cols],
             on='Date',
             how='left'
         )
         merged['Date'] = pd.to_datetime(merged['Date'])
         merged['Week'] = merged['Week'].astype(int)
         
+        # Ensure Actual_Miles column exists (filled with NaN if not)
+        if 'Actual_Miles' not in merged.columns:
+            merged['Actual_Miles'] = 0.0
+        
         # Group by week and aggregate
         weekly = merged.groupby('Week').agg({
             'Plan_Miles': 'sum',
-            'Actual_Miles': lambda x: x.dropna().sum(),
+            'Actual_Miles': lambda x: x.fillna(0).sum(),
             'Date': 'count'
         }).rename(columns={'Date': 'Days_Planned'})
         
         # Calculate completion percentage
-        weekly['Completion_Pct'] = (weekly['Actual_Miles'] / weekly['Plan_Miles'] * 100).round(1)
+        weekly['Completion_Pct'] = (weekly['Actual_Miles'] / weekly['Plan_Miles'].replace(0, 1) * 100).round(1)
         weekly['Completion_Pct'] = weekly['Completion_Pct'].fillna(0)
         
         # Count rest days (planned days with no actual run)
@@ -3350,9 +3363,12 @@ def calculate_weekly_stats(plan_df, merged_df):
         weekly['Rest_Days'] = rest_count
         
         # Calculate average pace for the week
-        weekly['Avg_Pace'] = merged.groupby('Week')['Actual_Pace'].apply(
-            lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else '—'
-        )
+        if 'Actual_Pace' in merged.columns:
+            weekly['Avg_Pace'] = merged.groupby('Week')['Actual_Pace'].apply(
+                lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else '—'
+            )
+        else:
+            weekly['Avg_Pace'] = '—'
         
         weekly = weekly.round(2)
         return weekly.reset_index()
@@ -3366,12 +3382,15 @@ def calculate_cumulative_mileage(plan_df, merged_df):
         return pd.DataFrame()
     
     try:
+        if 'Date' not in plan_df.columns or 'Plan_Miles' not in plan_df.columns:
+            return pd.DataFrame()
+        
         plan_df_copy = plan_df[['Date', 'Plan_Miles']].copy()
         plan_df_copy['Date'] = pd.to_datetime(plan_df_copy['Date'])
         plan_df_copy = plan_df_copy.sort_values('Date')
         plan_df_copy['Cumulative_Planned'] = plan_df_copy['Plan_Miles'].cumsum()
         
-        if not merged_df.empty:
+        if not merged_df.empty and 'Date' in merged_df.columns and 'Actual_Miles' in merged_df.columns:
             actual_df = merged_df[['Date', 'Actual_Miles']].copy()
             actual_df['Date'] = pd.to_datetime(actual_df['Date'])
             actual_df = actual_df[actual_df['Actual_Miles'] > 0]
@@ -3382,7 +3401,7 @@ def calculate_cumulative_mileage(plan_df, merged_df):
                 cumulative_actual.append(sum_up_to)
             plan_df_copy['Cumulative_Actual'] = cumulative_actual
         else:
-            plan_df_copy['Cumulative_Actual'] = 0
+            plan_df_copy['Cumulative_Actual'] = 0.0
         
         return plan_df_copy
     except Exception as e:
@@ -3395,7 +3414,10 @@ def analyze_pace_trends(merged_df):
         return pd.DataFrame()
     
     try:
-        # Filter only completed runs
+        # Filter only completed runs - check all required columns exist
+        if 'Actual_Pace' not in merged_df.columns or 'Actual_Miles' not in merged_df.columns or 'Activity' not in merged_df.columns:
+            return pd.DataFrame()
+        
         completed = merged_df[merged_df['Actual_Pace'].notna() & (merged_df['Actual_Miles'] > 0)].copy()
         if completed.empty:
             return pd.DataFrame()
@@ -3437,6 +3459,10 @@ def get_personal_records(merged_df):
         return pd.DataFrame()
     
     try:
+        # Check required columns
+        if 'Actual_Pace' not in merged_df.columns or 'Actual_Miles' not in merged_df.columns or 'Activity' not in merged_df.columns:
+            return pd.DataFrame()
+        
         completed = merged_df[merged_df['Actual_Pace'].notna() & (merged_df['Actual_Miles'] > 0)].copy()
         if completed.empty:
             return pd.DataFrame()
@@ -3473,6 +3499,10 @@ def estimate_marathon_finish_time(merged_df, goal_time_str):
         return None
     
     try:
+        # Check required columns
+        if 'Actual_Pace' not in merged_df.columns or 'Activity' not in merged_df.columns:
+            return None
+        
         # Get recent marathon pace runs
         mp_runs = merged_df[(merged_df['Activity'].str.contains('Marathon', case=False, na=False)) & 
                             (merged_df['Actual_Pace'].notna())]
@@ -3497,14 +3527,18 @@ def estimate_marathon_finish_time(merged_df, goal_time_str):
 def analyze_rest_days(plan_df, merged_df):
     """Analyze rest day patterns and back-to-back runs."""
     if plan_df.empty:
-        return {}
+        return pd.DataFrame()
     
     try:
+        # Check required columns
+        if 'Date' not in plan_df.columns or 'Week' not in plan_df.columns:
+            return pd.DataFrame()
+        
         plan_df_copy = plan_df[['Date', 'Plan_Miles', 'Week']].copy()
         plan_df_copy['Date'] = pd.to_datetime(plan_df_copy['Date'])
         plan_df_copy = plan_df_copy.sort_values('Date')
         
-        if not merged_df.empty:
+        if not merged_df.empty and 'Date' in merged_df.columns and 'Actual_Miles' in merged_df.columns:
             actual_runs = merged_df[merged_df['Actual_Miles'] > 0][['Date']].copy()
             actual_runs['Date'] = pd.to_datetime(actual_runs['Date'])
             plan_df_copy['Has_Run'] = plan_df_copy['Date'].isin(actual_runs['Date'])
@@ -4306,11 +4340,11 @@ def show_dashboard():
     st.subheader("📊 Training Analytics")
     
     # Calculate analytics
-    weekly_stats = calculate_weekly_stats(plan_df, merged_df)
-    cumulative_data = calculate_cumulative_mileage(plan_df, merged_df)
+    weekly_stats = calculate_weekly_stats(final_plan_df, merged_df)
+    cumulative_data = calculate_cumulative_mileage(final_plan_df, merged_df)
     pace_trends = analyze_pace_trends(merged_df)
     personal_records = get_personal_records(merged_df)
-    rest_analysis = analyze_rest_days(plan_df, merged_df)
+    rest_analysis = analyze_rest_days(final_plan_df, merged_df)
     marathon_projection = estimate_marathon_finish_time(merged_df, settings.get('goal_time', ''))
     
     # Display key metrics in columns
