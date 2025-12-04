@@ -2082,8 +2082,23 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
         
         elif 'tempo' in desc_lower or 'lactate' in desc_lower or 'threshold' in desc_lower:
             # Tempo/Lactate Threshold: -20 s/mile (half-marathon effort)
-            tempo_seconds = gmp_sec_per_mile - 20
-            return format_pace_range(tempo_seconds)
+            # Extract tempo duration if available
+            tempo_match = re.search(r'(\d+)\s*(?:min|minute)?s?\s*tempo', desc_lower)
+            
+            if tempo_match:
+                # Show multi-segment format: Easy: pace | Tempo: pace (duration)
+                minutes = tempo_match.group(1)
+                tempo_seconds = gmp_sec_per_mile - 20
+                easy_seconds = gmp_sec_per_mile + 60
+                
+                tempo_pace = format_pace_range(tempo_seconds)
+                easy_pace = format_pace_range(easy_seconds)
+                
+                return f"Easy: {easy_pace} | Tempo: {tempo_pace} ({minutes} min)"
+            else:
+                # No duration specified, show simple pace
+                tempo_seconds = gmp_sec_per_mile - 20
+                return format_pace_range(tempo_seconds)
         
         elif 'vo2' in desc_lower or 'vo₂' in desc_lower or '5k' in desc_lower or '5-k' in desc_lower:
             # VO₂ max / 5K pace: -40 s/mile
@@ -2136,6 +2151,8 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
     - INTENSITY: intensity type (e.g., "MP", "15K", "5K pace")
     
     This means: Run TOTAL miles with SEGMENT miles at INTENSITY and (TOTAL - SEGMENT) at easy pace.
+    
+    Returns color-coded format: "Easy: pace | Intensity: pace (distance/time)"
     """
     desc_lower = activity_description.lower()
     
@@ -2170,6 +2187,33 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
         else:
             return gmp_sec_per_mile + 45  # Default to GA
     
+    def get_intensity_label(intensity_type):
+        """Get human-readable label for intensity type."""
+        intensity_lower = str(intensity_type).lower()
+        
+        if 'lt' in intensity_lower or 'lactate' in intensity_lower or 'threshold' in intensity_lower:
+            return "Tempo"
+        elif 'mp' in intensity_lower or 'marathon' in intensity_lower:
+            return "Marathon Pace"
+        elif '5k' in intensity_lower or 'vo2' in intensity_lower or 'vo₂' in intensity_lower:
+            return "5K Pace"
+        elif '15k' in intensity_lower or '15-k' in intensity_lower or 'hmp' in intensity_lower:
+            return "15K Pace"
+        elif 'half' in intensity_lower:
+            return "Half Marathon Pace"
+        elif 'mile' in intensity_lower:
+            return "Mile Pace"
+        elif '800' in intensity_lower:
+            return "800m Pace"
+        elif '600' in intensity_lower:
+            return "600m Pace"
+        elif '400' in intensity_lower:
+            return "400m Pace"
+        elif '100' in intensity_lower or 'stride' in intensity_lower:
+            return "Strides"
+        else:
+            return intensity_type.title()
+    
     try:
         import re
         
@@ -2193,11 +2237,13 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
         # Extract segment distance and intensity type
         segment_distance = None
         segment_type = secondary_part
+        segment_detail = ""  # For describing the segment (e.g., "8 miles" or "20 min")
         
         # Pattern: "8 @ mp" or "5 x 800 @ 5k pace"
         dist_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:x|×)?\s*\d*\s*(?:@|x|×)', secondary_part)
         if dist_match:
             segment_distance = float(dist_match.group(1))
+            segment_detail = f"{segment_distance:.0f} mi"
             
             # Extract type after @ or x (e.g., "mp", "15k", "5k pace")
             type_match = re.search(r'(?:@|x|×)\s*(.+?)(?:\s*(?:pace|strides)?)?$', secondary_part)
@@ -2209,6 +2255,7 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
             rep_match = re.search(r'(\d+)\s*x', secondary_part)
             if rep_match:
                 segment_distance = 0.1  # Use 0.1 as a placeholder for reps
+                segment_detail = secondary_part
                 segment_type = secondary_part
         
         # Calculate paces
@@ -2225,17 +2272,22 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
             
             # For strides and short repeats, handle specially
             if 'stride' in secondary_part or '100m' in secondary_part or segment_distance == 0.1:
-                return f"{easy_pace_str} ({total_distance:.0f}mi) w/ {secondary_part}"
+                return f"Easy: {easy_pace_str} ({total_distance:.0f}mi) + {secondary_part}"
             
             # Calculate easy/warmup distance
             easy_distance = total_distance - segment_distance if total_distance > segment_distance else 0
             
             if easy_distance > 0:
-                # Display: Easy warmup/cooldown + Fast segment
-                return f"{easy_pace_str} ({easy_distance:.0f}mi) + {segment_pace_str} ({segment_distance:.0f}mi)"
+                # Color-coded format: Easy pace | Intensity pace with segment detail
+                intensity_label = get_intensity_label(segment_type)
+                if segment_detail:
+                    return f"Easy: {easy_pace_str} | {intensity_label}: {segment_pace_str} ({segment_detail})"
+                else:
+                    return f"Easy: {easy_pace_str} | {intensity_label}: {segment_pace_str}"
             else:
                 # If segment is >= total, just show segment pace
-                return f"{segment_pace_str} ({total_distance:.0f}mi)"
+                intensity_label = get_intensity_label(segment_type)
+                return f"{intensity_label}: {segment_pace_str}"
         else:
             # Fallback: just show segment pace
             segment_pace_str = format_pace_range_func(segment_pace, is_marathon_pace=is_segment_mp) if is_segment_mp else format_pace_range_func(segment_pace)
