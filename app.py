@@ -2044,12 +2044,13 @@ def get_suggested_pace(activity_description, goal_marathon_time_str="4:00:00"):
                 return f"{lt_pace_fast} - {lt_pace_slow}"
         
         elif 'vo2' in desc_lower or 'vo₂' in desc_lower or '5k' in desc_lower or '5-k' in desc_lower:
-            # VO₂ max / 5K pace: ~10-15 seconds faster than lactate threshold
-            # Pfitzinger typically recommends 5K race pace for VO2 intervals
-            # Approximated as 2-3 min/mile faster than marathon pace
-            vo2_seconds = gmp_sec_per_mile - 50
-            vo2_pace = seconds_to_pace(vo2_seconds)
-            return f"{vo2_pace}"
+            # VO₂ max / 5K pace: 60-90 seconds per mile faster than marathon pace
+            # Represents 3K-5K race pace, approximately 20-30% faster than MP
+            vo2_fast = gmp_sec_per_mile - 90  # Fastest end (3K pace)
+            vo2_slow = gmp_sec_per_mile - 60  # Slowest end (5K pace)
+            vo2_pace_fast = seconds_to_pace(vo2_fast)
+            vo2_pace_slow = seconds_to_pace(vo2_slow)
+            return f"{vo2_pace_fast} - {vo2_pace_slow}"
         
         elif 'mile repeat' in desc_lower or 'mile pace' in desc_lower:
             # Mile repeats/speed work: approximately mile race pace
@@ -2131,7 +2132,7 @@ def _get_compound_workout_pace(activity_description, gmp_sec_per_mile, format_pa
         elif 'mp' in workout_type_lower or 'marathon' in workout_type_lower:
             return gmp_sec_per_mile  # Marathon pace
         elif '5k' in workout_type_lower or 'vo2' in workout_type_lower or 'vo₂' in workout_type_lower:
-            return gmp_sec_per_mile - 50  # 5K pace
+            return gmp_sec_per_mile - 75  # 5K/VO₂max pace (midpoint of 60-90s faster)
         elif '15k' in workout_type_lower or '15-k' in workout_type_lower or 'hmp' in workout_type_lower:
             return gmp_sec_per_mile - 30  # 15K/HMP pace
         elif 'half' in workout_type_lower:
