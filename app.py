@@ -3604,17 +3604,24 @@ def show_dashboard():
                     total_weeks = (plan_end - plan_start).days // 7 + 1
                     
                     # Calculate max weekly miles by grouping dates into weeks from the start date
+                    max_weekly_miles = 0
                     if 'Plan_Miles' in base_plan_df.columns:
-                        base_plan_df_copy = base_plan_df.copy()
-                        base_plan_df_copy['Date'] = pd.to_datetime(base_plan_df_copy['Date'])
-                        base_plan_df_copy['Week'] = ((base_plan_df_copy['Date'] - plan_start).dt.days // 7) + 1
-                        weekly_miles = base_plan_df_copy.groupby('Week')['Plan_Miles'].sum()
-                        max_weekly_miles = weekly_miles.max() if not weekly_miles.empty else 0
-                    else:
-                        max_weekly_miles = 0
+                        try:
+                            base_plan_df_copy = base_plan_df.copy()
+                            base_plan_df_copy['Date'] = pd.to_datetime(base_plan_df_copy['Date'])
+                            base_plan_df_copy['Plan_Miles'] = pd.to_numeric(base_plan_df_copy['Plan_Miles'], errors='coerce').fillna(0)
+                            base_plan_df_copy['Week'] = ((base_plan_df_copy['Date'] - plan_start).dt.days // 7) + 1
+                            weekly_miles = base_plan_df_copy.groupby('Week')['Plan_Miles'].sum()
+                            max_weekly_miles = float(weekly_miles.max()) if not weekly_miles.empty else 0
+                        except Exception as e:
+                            if _is_debug():
+                                st.write(f"Debug: Error calculating max weekly miles: {e}")
+                            max_weekly_miles = 0
                     
                     st.caption(f"{total_weeks} weeks • {max_weekly_miles:.0f} mi/week peak • {goal_time} goal • {plan_start.strftime('%b %d')} – {plan_end.strftime('%b %d, %Y')}")
-        except Exception:
+        except Exception as e:
+            if _is_debug():
+                st.write(f"Debug: Error in plan details: {e}")
             pass
     else:
         st.header("Your Training Schedule")
