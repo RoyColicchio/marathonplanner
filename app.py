@@ -4022,7 +4022,14 @@ def show_dashboard():
         filterable=False, 
         sortable=False, 
         resizable=True,
-        suppressMenu=True
+        suppressMenu=True,
+        cellStyle={
+            'display': 'flex',
+            'align-items': 'center',
+            'padding': '10px 8px',
+            'border-right': '1px solid rgba(255, 255, 255, 0.05)',
+            'font-size': '14px'
+        }
     )
 
     date_renderer = JsCode("""
@@ -4031,7 +4038,11 @@ def show_dashboard():
                 this.eGui = document.createElement('span');
                 if (params.value) {
                     const parts = params.value.split('-');
-                    this.eGui.innerHTML = parseInt(parts[1], 10) + '/' + parseInt(parts[2], 10);
+                    const month = parseInt(parts[1], 10);
+                    const day = parseInt(parts[2], 10);
+                    this.eGui.innerHTML = month + '/' + day;
+                    this.eGui.style.fontWeight = '500';
+                    this.eGui.style.color = '#e2e8f0';
                     
                     // Add helpful date tooltip
                     const date = new Date(params.value);
@@ -4042,13 +4053,15 @@ def show_dashboard():
             getGui() { return this.eGui; }
         }
     """)
-    gb.configure_column("Date", cellRenderer=date_renderer, width=80, pinned='left')
+    gb.configure_column("Date", cellRenderer=date_renderer, width=80, pinned='left', cellStyle={'background': 'rgba(15, 23, 42, 0.8)', 'border-right': '2px solid rgba(100, 116, 139, 0.3)'})
     
     day_renderer = JsCode("""
         class DayRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
                 this.eGui.innerHTML = params.value;
+                this.eGui.style.fontWeight = '500';
+                this.eGui.style.color = '#cbd5e1';
                 
                 // Add contextual day tooltips
                 const day = params.value ? params.value.toLowerCase() : '';
@@ -4073,16 +4086,19 @@ def show_dashboard():
             getGui() { return this.eGui; }
         }
     """)
-    gb.configure_column("Day", cellRenderer=day_renderer, width=100, pinned='left')
+    gb.configure_column("Day", cellRenderer=day_renderer, width=100, pinned='left', cellStyle={'background': 'rgba(15, 23, 42, 0.8)', 'border-right': '2px solid rgba(100, 116, 139, 0.3)'})
 
     workout_renderer = JsCode("""
         class WorkoutRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
                 this.eGui.style.cursor = 'default';
+                this.eGui.style.lineHeight = '1.5';
                 
                 if (params.value && params.value.includes('Summary')) {
-                    this.eGui.innerHTML = params.value;
+                    this.eGui.innerHTML = '<strong>' + params.value + '</strong>';
+                    this.eGui.style.color = '#94a3b8';
+                    this.eGui.style.fontSize = '13px';
                     this.eGui.title = params.data.Activity_Tooltip || params.data.Activity_Short_Description || '';
                 } else {
                     // Check if this activity has a Strava URL (completed activity)
@@ -4092,8 +4108,9 @@ def show_dashboard():
                         // Make it clickable for completed activities
                         this.eGui.innerHTML = params.value;
                         this.eGui.style.cursor = 'pointer';
-                        this.eGui.style.color = '#22c55e';
+                        this.eGui.style.color = '#4ade80';
                         this.eGui.style.textDecoration = 'underline';
+                        this.eGui.style.fontWeight = '500';
                         this.eGui.title = (params.data.Activity_Tooltip || params.data.Activity_Short_Description || '') + '\\n\\n(Click to view on Strava)';
                         
                         this.eGui.onclick = () => {
@@ -4102,6 +4119,7 @@ def show_dashboard():
                     } else {
                         // Regular activity, show detailed tooltip explanation
                         this.eGui.innerHTML = params.value;
+                        this.eGui.style.color = '#cbd5e1';
                         this.eGui.title = params.data.Activity_Tooltip || params.data.Activity_Short_Description || '';
                     }
                 }
@@ -4116,8 +4134,11 @@ def show_dashboard():
         class MileageRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
+                this.eGui.style.fontWeight = '600';
+                this.eGui.style.textAlign = 'center';
                 if (params.value !== null && params.value !== undefined) {
                     this.eGui.innerHTML = params.value;
+                    this.eGui.style.color = '#60a5fa';
                     
                     if (params.colDef.field === 'Plan (mi)') {
                         const workoutType = params.data.Workout || '';
@@ -4131,6 +4152,7 @@ def show_dashboard():
                     }
                 } else {
                     this.eGui.innerHTML = '—';
+                    this.eGui.style.color = '#64748b';
                     this.eGui.title = params.colDef.field === 'Plan (mi)' ? 
                         'No specific distance planned' : 
                         'Complete the workout to see distance';
@@ -4145,6 +4167,8 @@ def show_dashboard():
         class ActualMileageRenderer {
             init(params) {
                 this.eGui = document.createElement('span');
+                this.eGui.style.fontWeight = '600';
+                this.eGui.style.textAlign = 'center';
                 if (params.value !== null && params.value !== undefined) {
                     this.eGui.innerHTML = params.value;
                     
@@ -4155,6 +4179,15 @@ def show_dashboard():
                     if (!isNaN(actualMiles) && !isNaN(plannedMiles) && actualMiles > 0 && plannedMiles > 0) {
                         const diff = Math.abs(actualMiles - plannedMiles);
                         if (diff <= 1.0) {
+                            this.eGui.style.color = '#4ade80';
+                        } else {
+                            this.eGui.style.color = '#fbbf24';
+                        }
+                    } else if (actualMiles > 0) {
+                        this.eGui.style.color = '#4ade80';
+                    } else {
+                        this.eGui.style.color = '#64748b';
+                    }
                             this.eGui.style.backgroundColor = 'rgba(34, 197, 94, 0.2)';
                             this.eGui.style.color = '#22c55e';
                             this.eGui.style.fontWeight = 'bold';
@@ -4178,10 +4211,10 @@ def show_dashboard():
         }
     """)
     
-    gb.configure_column("Plan (mi)", cellRenderer=mileage_renderer, width=90, type=["numericColumn"], precision=1)
-    gb.configure_column("Actual (mi)", cellRenderer=actual_mileage_renderer, width=90, type=["numericColumn"], precision=2)
-    gb.configure_column("Suggested Pace", width=130)
-    gb.configure_column("Actual Pace", width=110)
+    gb.configure_column("Plan (mi)", cellRenderer=mileage_renderer, width=95, type=["numericColumn"], precision=1, cellStyle={'text-align': 'center', 'font-weight': '600'})
+    gb.configure_column("Actual (mi)", cellRenderer=actual_mileage_renderer, width=95, type=["numericColumn"], precision=2, cellStyle={'text-align': 'center', 'font-weight': '600'})
+    gb.configure_column("Suggested Pace", width=160, cellStyle={'padding': '10px'})
+    gb.configure_column("Actual Pace", width=130)
 
     pace_range_renderer = JsCode("""
         class PaceRangeRenderer {
@@ -4376,11 +4409,25 @@ def show_dashboard():
 
     gb.configure_grid_options(
         domLayout='autoHeight',
-        rowStyle={'background': 'transparent'},
+        rowStyle={
+            'background': 'linear-gradient(90deg, rgba(15, 23, 42, 0.5) 0%, rgba(15, 23, 42, 0.3) 100%)',
+            'border-bottom': '1px solid rgba(100, 116, 139, 0.15)',
+            'padding': '2px 0'
+        },
+        headerStyle={
+            'background': 'linear-gradient(90deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%)',
+            'border-bottom': '2px solid rgba(100, 116, 139, 0.4)',
+            'padding': '12px 8px',
+            'font-weight': '600',
+            'color': '#cbd5e1',
+            'font-size': '13px'
+        },
         getRowStyle=get_row_style,
         suppressHorizontalScroll=False,
         alwaysShowHorizontalScroll=False,
-        suppressColumnVirtualisation=True
+        suppressColumnVirtualisation=True,
+        rowHeight=40,
+        headerHeight=45
     )
     grid_options = gb.build()
 
