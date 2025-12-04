@@ -4163,7 +4163,7 @@ def show_dashboard():
         }
     """)
     
-    # Actual mileage renderer with green highlighting when within 1 mile of planned
+    # Actual mileage renderer with green highlighting when within 25% OR 1.4 miles of planned
     actual_mileage_renderer = JsCode("""
         class ActualMileageRenderer {
             init(params) {
@@ -4173,18 +4173,20 @@ def show_dashboard():
                 if (params.value !== null && params.value !== undefined) {
                     this.eGui.innerHTML = params.value;
                     
-                    // Check if within 1 mile of planned distance
+                    // Check if within 25% OR 1.4 miles of planned distance
                     const actualMiles = parseFloat(params.value);
                     const plannedMiles = parseFloat(params.data['Plan (mi)']);
                     
                     if (!isNaN(actualMiles) && !isNaN(plannedMiles) && actualMiles > 0 && plannedMiles > 0) {
                         const diff = Math.abs(actualMiles - plannedMiles);
-                        if (diff <= 1.0) {
+                        const percentage = (diff / plannedMiles) * 100;
+                        // Green if within 25% OR within 1.4 miles
+                        if (percentage <= 25 || diff <= 1.4) {
                             this.eGui.style.color = '#4ade80';
-                            this.eGui.title = `Actual: ${params.value} mi - within 1 mi of planned ${plannedMiles} mi!`;
+                            this.eGui.title = `Actual: ${params.value} mi - within 25% or 1.4 mi of planned ${plannedMiles} mi!`;
                         } else {
                             this.eGui.style.color = '#fbbf24';
-                            this.eGui.title = `Actual distance: ${params.value} miles (off plan by ${diff.toFixed(1)} mi)`;
+                            this.eGui.title = `Actual distance: ${params.value} miles (${percentage.toFixed(1)}% off plan, ${diff.toFixed(1)} mi difference)`;
                         }
                     } else if (actualMiles > 0) {
                         this.eGui.style.color = '#4ade80';
@@ -4350,7 +4352,7 @@ def show_dashboard():
             today.setHours(0, 0, 0, 0);
             const isPast = rowDate < today;
             
-            // Check mileage within 30% of recommended (bold and italic if past)
+            // Check mileage within 25% OR 1.4 miles of recommended (bold and italic if past)
             const actualMiles = params.data['Actual (mi)'];
             const plannedMiles = params.data['Plan (mi)'];
             
@@ -4358,9 +4360,10 @@ def show_dashboard():
                 const actual = parseFloat(actualMiles);
                 const planned = parseFloat(plannedMiles);
                 if (!isNaN(actual) && !isNaN(planned) && planned > 0) {
-                    // Check if within 30% (70% to 100% of planned)
-                    const percentage = (actual / planned) * 100;
-                    if (percentage >= 70 && percentage <= 100) {
+                    // Check if within 25% OR 1.4 miles
+                    const diff = Math.abs(actual - planned);
+                    const percentage = (diff / planned) * 100;
+                    if (percentage <= 25 || diff <= 1.4) {
                         return {
                             'font-weight': 'bold',
                             'font-style': 'italic',
