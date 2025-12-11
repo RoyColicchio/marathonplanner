@@ -3952,11 +3952,40 @@ def show_dashboard():
     # Reset week view if plan changes
     plan_sig = _plan_signature(settings)
     if st.session_state.get("last_plan_sig") != plan_sig:
-        st.session_state.current_week = 1
         st.session_state.last_plan_sig = plan_sig
+        # Default current week to the week that contains today (or nearest week)
+        try:
+            today = pd.Timestamp.today().normalize().date()
+            # If a row exactly matches today's date, use its week
+            weeks_today = merged_df.loc[pd.to_datetime(merged_df['Date']).dt.date == today, 'Week']
+            if not weeks_today.empty:
+                st.session_state.current_week = int(weeks_today.iloc[0])
+            else:
+                dates = pd.to_datetime(merged_df['Date']).dt.date
+                if dates.empty:
+                    st.session_state.current_week = 1
+                else:
+                    # If today is before the plan starts, show week 1
+                    if today < dates.min():
+                        st.session_state.current_week = 1
+                    # If today is after the plan ends, show last week
+                    elif today > dates.max():
+                        st.session_state.current_week = int(total_weeks) if total_weeks >= 1 else 1
+                    else:
+                        # Show the latest week up to today
+                        week_up_to_today = merged_df.loc[pd.to_datetime(merged_df['Date']).dt.date <= today, 'Week']
+                        st.session_state.current_week = int(week_up_to_today.max()) if not week_up_to_today.empty else 1
+        except Exception:
+            st.session_state.current_week = 1
 
     if 'current_week' not in st.session_state:
         st.session_state.current_week = 1
+
+    # Ensure current_week is within valid bounds
+    if st.session_state.current_week < 1:
+        st.session_state.current_week = 1
+    if total_weeks and st.session_state.current_week > total_weeks:
+        st.session_state.current_week = int(total_weeks)
 
     if st.session_state.current_week < total_weeks:
         if st.button("Show Next Week"):
