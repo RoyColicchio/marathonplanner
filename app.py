@@ -272,27 +272,34 @@ def pill_html(label, bg, tooltip_html, fg=None):
 WTYPE_SHORT = dict(easy="Easy", long="Long", tempo="Tempo", vo2="VO2", race="Race")
 
 def completion_color(dist_pct):
-    """Color based on how close actual was to planned distance."""
-    if dist_pct >= 90:   return "#5DCAA5"   # green — nailed it
-    elif dist_pct >= 75: return "#e8a825"   # amber — a bit short
-    else:                return "#e05757"   # red — well short
+    """Smooth green→red gradient. Generous — 80%+ is solidly green."""
+    # Clamp to 0–100, map 80–100% → green, 0–50% → red, interpolate between
+    pct = max(0, min(dist_pct, 100))
+    # Normalize: 100% = 1.0, 50% = 0.0 (below 50 is all red)
+    t = max(0.0, (pct - 50) / 50)
+    # Ease the curve so 80%+ looks green
+    t = t ** 0.6
+    # green: #5DCAA5  red: #e05757
+    r = round(0x5D + (0xe0 - 0x5D) * (1 - t))
+    g = round(0xCA + (0x57 - 0xCA) * (1 - t))
+    b = round(0xA5 + (0x57 - 0xA5) * (1 - t))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 def week_grade(plan_mi, act_mi, planned_days, completed_days, missed_days):
-    """Return a letter grade and color for how well a past week was executed."""
+    """Letter grade + gradient color matching completion_color logic."""
     if plan_mi == 0:
         return None, None
     pct = act_mi / plan_mi * 100 if plan_mi else 0
     miss_rate = missed_days / planned_days if planned_days else 0
-    if pct >= 90 and miss_rate == 0:
-        return "A", "#5DCAA5"
-    elif pct >= 80 and miss_rate <= 0.2:
-        return "B", "#97C459"
-    elif pct >= 65 and miss_rate <= 0.4:
-        return "C", "#e8a825"
-    elif pct >= 45:
-        return "D", "#FC4C02"
-    else:
-        return "F", "#e05757"
+    # Penalize missed days slightly
+    effective_pct = pct * (1 - miss_rate * 0.3)
+    color = completion_color(effective_pct)
+    if effective_pct >= 90:   grade = "A"
+    elif effective_pct >= 78: grade = "B"
+    elif effective_pct >= 63: grade = "C"
+    elif effective_pct >= 48: grade = "D"
+    else:                     grade = "F"
+    return grade, color
 
 def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
     is_today = ds == today_str
@@ -572,18 +579,19 @@ def main():
             st.rerun()
 
     # Legend
-    legend_items = [
-        ("Upcoming run",        "#e5e7eb", "#374151"),
-        ("Completed — on track","#5DCAA5", "#fff"),
-        ("Completed — a bit short","#e8a825","#fff"),
-        ("Completed — well short","#e05757","#fff"),
-        ("Missed",              "#e05757", "#fff"),
-        ("Unplanned run",       "#dbeafe", "#1e40af"),
-    ]
-    leg = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 16px">'
-    for lbl,bg,fg in legend_items:
-        leg += f'<span style="background:{bg};color:{fg};font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600">{lbl}</span>'
-    leg += "</div>"
+    leg = """
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:12px 0 16px;font-size:11px;color:#6b7280">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:120px;height:14px;border-radius:4px;background:linear-gradient(to left,#e05757,#e8a825,#5DCAA5)"></div>
+        <span>Missed &rarr; On target</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:4px;font-weight:600">Upcoming</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-weight:600">Unplanned run</span>
+      </div>
+    </div>"""
     st.html(leg)
 
     cal_html = tooltip_css()
