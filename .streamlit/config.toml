@@ -1,0 +1,9 @@
+[server]
+headless = true
+enableCORS = true
+enableXsrfProtection = true
+runOnSave = false
+fileWatcherType = "poll"  # use polling watcher to avoid inotify ENOSPC on Streamlit Cloud
+
+[browser]
+gatherUsageStats = false
