@@ -582,8 +582,8 @@ def main():
     leg = """
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:12px 0 16px;font-size:11px;color:#6b7280">
       <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:120px;height:14px;border-radius:4px;background:linear-gradient(to left,#e05757,#e8a825,#5DCAA5)"></div>
-        <span>Missed &rarr; On target</span>
+        <div style="width:120px;height:14px;border-radius:4px;background:linear-gradient(to right,#e05757,#e8a825,#5DCAA5)"></div>
+        <span>On target &rarr; Missed</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:4px;font-weight:600">Upcoming</span>
