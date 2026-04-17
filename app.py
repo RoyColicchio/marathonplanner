@@ -74,13 +74,17 @@ def build_planned_map(plan_key, race_date_str):
     return planned, plan_start.isoformat()
 
 # ── structured segments ───────────────────────────────────────
+def fmt_range(lo, hi):
+    """Format a pace range e.g. 7:40–8:15/mi"""
+    return f"{fmt_pace(lo)}–{fmt_pace(hi)}"
+
 def workout_segments(wtype, total_miles, gps):
-    easy_p  = fmt_pace(gps + 75)
-    long_p  = fmt_pace(gps + 60)
-    tempo_p = fmt_pace(gps + 15)
-    vo2_p   = fmt_pace(gps - 60)
+    easy_p  = fmt_range(gps + 60, gps + 90)   # 60–90 sec/mi slower than MP
+    long_p  = fmt_range(gps + 45, gps + 75)   # 45–75 sec/mi slower than MP
+    tempo_p = fmt_range(gps + 10, gps + 20)   # ~15 sec/mi slower than MP (LT)
+    vo2_p   = fmt_range(gps - 70, gps - 50)   # ~60 sec/mi faster than MP
     mp_p    = fmt_pace(gps)
-    rec_p   = fmt_pace(gps + 90)
+    rec_p   = fmt_range(gps + 80, gps + 105)  # very easy recovery jog
 
     if wtype == "easy":
         return [("Full run", f"{total_miles} mi", easy_p, "Conversational effort throughout — you should be able to speak full sentences")]
