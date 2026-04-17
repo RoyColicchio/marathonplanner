@@ -188,15 +188,43 @@ def make_tooltip(mode, wtype, planned_miles, gps, actual=None):
         {seg_table(segs)}"""
 
     if mode == "both" and actual:
+        # Distance delta
+        dist_diff = actual["miles"] - planned_miles
+        dist_pct  = dist_diff / planned_miles * 100 if planned_miles else 0
+        if abs(dist_pct) < 5:
+            dist_verdict = ("✓ On target", "#5DCAA5")
+        elif dist_diff > 0:
+            dist_verdict = (f"+{dist_diff:.1f} mi over", "#5ba3e8")
+        else:
+            dist_verdict = (f"{dist_diff:.1f} mi short", "#e8a825")
+
+        # Pace delta vs target pace for this workout type
+        target_spm = gps + {"easy":75,"long":60,"tempo":15,"vo2":-60,"race":0}.get(wtype, 75)
+        pace_diff  = actual["pace"] - target_spm  # positive = slower than target
+        if abs(pace_diff) < 15:
+            pace_verdict = ("✓ On pace", "#5DCAA5")
+        elif pace_diff > 0:
+            pace_verdict = (f"{abs(round(pace_diff))}s/mi too slow", "#e8a825")
+        else:
+            pace_verdict = (f"{abs(round(pace_diff))}s/mi too fast", "#e05757")
+
         body += f"""
         <div style="border-top:1px solid #2a2a2a;margin-top:10px;padding-top:10px">
-        <div style="font-size:10px;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Your actual run</div>
+        <div style="font-size:10px;color:#555;margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Your actual run</div>
         <table style="width:100%;border-collapse:collapse">
-          <tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Distance</td><td style="color:#fff;font-family:monospace;font-size:11px">{actual['miles']:.2f} mi</td></tr>
-          <tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Avg pace</td><td style="color:#FC4C02;font-family:monospace;font-size:11px">{fmt_pace(actual['pace'])}</td></tr>
-          {"" if not actual.get("hr") else f'<tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Avg HR</td><td style="color:#fff;font-family:monospace;font-size:11px">{round(actual["hr"])} bpm</td></tr>'}
-          {"" if not actual.get("elev") else f'<tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Elevation</td><td style="color:#fff;font-family:monospace;font-size:11px">{actual["elev"]} ft</td></tr>'}
-          <tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Time</td><td style="color:#fff;font-family:monospace;font-size:11px">{fmt_time(actual['moving_time'])}</td></tr>
+          <tr>
+            <td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Distance</td>
+            <td style="color:#fff;font-family:monospace;font-size:11px">{actual["miles"]:.2f} mi</td>
+            <td style="color:{dist_verdict[1]};font-size:10px;text-align:right;padding-left:6px">{dist_verdict[0]}</td>
+          </tr>
+          <tr>
+            <td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Avg pace</td>
+            <td style="color:#FC4C02;font-family:monospace;font-size:11px">{fmt_pace(actual["pace"])}</td>
+            <td style="color:{pace_verdict[1]};font-size:10px;text-align:right;padding-left:6px">{pace_verdict[0]}</td>
+          </tr>
+          {"" if not actual.get("hr") else f'<tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Avg HR</td><td style="color:#fff;font-family:monospace;font-size:11px" colspan="2">{round(actual["hr"])} bpm</td></tr>'}
+          {"" if not actual.get("elev") else f'<tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Elevation</td><td style="color:#fff;font-family:monospace;font-size:11px" colspan="2">{actual["elev"]} ft</td></tr>'}
+          <tr><td style="color:#ccc;font-size:11px;padding:3px 10px 3px 0">Time</td><td style="color:#fff;font-family:monospace;font-size:11px" colspan="2">{fmt_time(actual["moving_time"])}</td></tr>
         </table></div>"""
 
     if mode == "actual" and actual:
