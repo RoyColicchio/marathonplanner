@@ -73,6 +73,16 @@ def build_planned_map(plan_key, race_date_str):
     planned[race_date_str] = dict(t="race", m=26)
     return planned, plan_start.isoformat()
 
+def apply_swaps(planned_map, swaps):
+    """Apply user day-swaps on top of the base planned map."""
+    result = dict(planned_map)
+    for ds, run in swaps.items():
+        if run is None:
+            result.pop(ds, None)
+        else:
+            result[ds] = run
+    return result
+
 # ── structured segments ───────────────────────────────────────
 def fmt_range(lo, hi):
     """Format a pace range e.g. 7:40–8:15/mi"""
@@ -594,13 +604,88 @@ def main():
     </div>"""
     st.html(leg)
 
+    # Apply any user swaps
+    if "swaps" not in ss: ss["swaps"] = {}
+    effective_map = apply_swaps(planned_map, ss["swaps"])
+
     cal_html = tooltip_css()
     for i in range(WINDOW):
         idx = start_idx + i
         if idx >= total: break
         ws = all_weeks[idx]
         we = ws + timedelta(days=6)
-        cal_html += render_week(ws, planned_map, act_runs, plan_start_str, gps, ws <= today <= we)
+        cal_html += render_week(ws, effective_map, act_runs, plan_start_str, gps, ws <= today <= we)
     st.html(cal_html)
+
+    # ── swap UI ───────────────────────────────────────────────
+    # Show swap controls for weeks that have at least 2 future planned days
+    DOWS_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+    for i in range(WINDOW):
+        idx = start_idx + i
+        if idx >= total: break
+        ws = all_weeks[idx]
+        week_dates = [(ws+timedelta(days=j)).isoformat() for j in range(7)]
+        future_planned = [ds for ds in week_dates if ds >= today_str and effective_map.get(ds) and effective_map[ds]["t"] != "race"]
+        if len(future_planned) < 2: continue
+
+        we = ws + timedelta(days=6)
+        week_label = f"Week of {ws.strftime('%b %-d')}"
+        with st.expander(f"↕ Swap days — {week_label}"):
+            # Show current schedule for this week
+            sched_lines = []
+            for ds in week_dates:
+                run = effective_map.get(ds)
+                if run:
+                    d_obj = date.fromisoformat(ds)
+                    dow = DOWS_FULL[d_obj.weekday() + 1 if d_obj.weekday() < 6 else 0]  # Mon=0 → Sun=6
+                    # correct: date.weekday() Mon=0, Sun=6. We want Sun=0
+                    dow_idx = (d_obj.weekday() + 1) % 7
+                    dow = DOWS_FULL[dow_idx]
+                    short = WTYPE_SHORT.get(run["t"], "Run")
+                    is_future = ds >= today_str
+                    marker = "" if is_future else " ✓" if ds in act_runs else " (past)"
+                    sched_lines.append(f"{dow} {d_obj.strftime('%-m/%-d')}: {short} {run['m']}mi{marker}")
+            st.caption("  ·  ".join(sched_lines))
+
+            # Only allow swapping future days
+            swap_options = {}
+            for ds in future_planned:
+                d_obj = date.fromisoformat(ds)
+                dow_idx = (d_obj.weekday() + 1) % 7
+                dow = DOWS_FULL[dow_idx]
+                run = effective_map[ds]
+                short = WTYPE_SHORT.get(run["t"], "Run")
+                swap_options[f"{dow} ({d_obj.strftime('%-m/%-d')}) — {short} {run['m']}mi"] = ds
+
+            col_a, col_b, col_c = st.columns([2, 2, 1])
+            with col_a:
+                day_a_label = st.selectbox("Move this day", options=list(swap_options.keys()),
+                                           key=f"swap_a_{ws.isoformat()}")
+            with col_b:
+                day_b_label = st.selectbox("to this day", options=list(swap_options.keys()),
+                                           key=f"swap_b_{ws.isoformat()}",
+                                           index=min(1, len(swap_options)-1))
+            with col_c:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if st.button("Swap", key=f"do_swap_{ws.isoformat()}", type="primary"):
+                    ds_a = swap_options[day_a_label]
+                    ds_b = swap_options[day_b_label]
+                    if ds_a != ds_b:
+                        run_a = effective_map[ds_a]
+                        run_b = effective_map[ds_b]
+                        ss["swaps"][ds_a] = run_b
+                        ss["swaps"][ds_b] = run_a
+                        st.rerun()
+                    else:
+                        st.warning("Pick two different days to swap.")
+
+    # Show reset button if any swaps exist
+    if ss.get("swaps"):
+        st.divider()
+        rc1, _ = st.columns([1, 3])
+        with rc1:
+            if st.button("Reset all swaps", type="secondary"):
+                ss["swaps"] = {}
+                st.rerun()
 
 main()
