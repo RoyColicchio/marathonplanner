@@ -258,13 +258,41 @@ def tooltip_css():
 .tip-wrap:hover .tip-box{display:block}
 </style>"""
 
-def pill_html(label, ptype, tooltip_html):
-    bg, fg, _ = PILL_STYLE.get(ptype, PILL_STYLE["easy"])
+def pill_html(label, bg, tooltip_html, fg=None):
+    # fg auto-selects based on bg lightness if not provided
+    light_bgs = {"#e5e7eb", "#dbeafe", "#f3f4f6"}
+    if fg is None:
+        fg = "#374151" if bg in light_bgs else "#fff"
     return f'''
 <div class="tip-wrap">
   <div class="tip-pill" style="background:{bg};color:{fg}">{label}</div>
   <div class="tip-box">{tooltip_html}</div>
 </div>'''  
+
+WTYPE_SHORT = dict(easy="Easy", long="Long", tempo="Tempo", vo2="VO2", race="Race")
+
+def completion_color(dist_pct):
+    """Color based on how close actual was to planned distance."""
+    if dist_pct >= 90:   return "#5DCAA5"   # green — nailed it
+    elif dist_pct >= 75: return "#e8a825"   # amber — a bit short
+    else:                return "#e05757"   # red — well short
+
+def week_grade(plan_mi, act_mi, planned_days, completed_days, missed_days):
+    """Return a letter grade and color for how well a past week was executed."""
+    if plan_mi == 0:
+        return None, None
+    pct = act_mi / plan_mi * 100 if plan_mi else 0
+    miss_rate = missed_days / planned_days if planned_days else 0
+    if pct >= 90 and miss_rate == 0:
+        return "A", "#5DCAA5"
+    elif pct >= 80 and miss_rate <= 0.2:
+        return "B", "#97C459"
+    elif pct >= 65 and miss_rate <= 0.4:
+        return "C", "#e8a825"
+    elif pct >= 45:
+        return "D", "#FC4C02"
+    else:
+        return "F", "#e05757"
 
 def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
     is_today = ds == today_str
@@ -280,37 +308,59 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
 
     if planned and actuals:
         act = actuals[0]
+        dist_pct = (act["miles"] / planned["m"] * 100) if planned["m"] else 100
+        color = completion_color(dist_pct)
         tip = make_tooltip("both", planned["t"], planned["m"], gps, actual=act)
-        inner += pill_html(f"{planned['m']}mi / {act['miles']:.1f}mi", "both", tip)
+        short = WTYPE_SHORT.get(planned["t"], "Run")
+        inner += pill_html(f"{short} · {act['miles']:.1f}mi", color, tip)
     elif planned and is_past and in_win:
         tip = make_tooltip("missed", planned["t"], planned["m"], gps)
-        inner += pill_html(f"Missed {planned['m']}mi", "missed", tip)
+        short = WTYPE_SHORT.get(planned["t"], "Run")
+        inner += pill_html(f"{short} · missed", "#e05757", tip)
     elif planned and not is_past:
         tip = make_tooltip("planned", planned["t"], planned["m"], gps)
-        lbl = "Race day" if planned["t"] == "race" else f"{planned['m']}mi"
-        inner += pill_html(lbl, planned["t"], tip)
+        short = WTYPE_SHORT.get(planned["t"], "Run")
+        lbl = "Race day" if planned["t"] == "race" else f"{short} · {planned['m']}mi"
+        inner += pill_html(lbl, "#e5e7eb", tip, fg="#374151")
     elif actuals and not planned:
         act = actuals[0]
         tip = make_tooltip("actual", None, act["miles"], gps, actual=act)
-        inner += pill_html(f"{act['miles']:.1f}mi", "actual", tip)
+        inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af")
 
     return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg}">{inner}</div>'
 
 def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
     today_str = date.today().isoformat()
+    today     = date.today()
     DOWS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
     hbg  = "#fff8f5" if is_current else "#fff"
     hbdr = "2px solid #FC4C02" if is_current else "1px solid #e5e7eb"
-    lbl  = f"Week of {ws.strftime('%b %-d')}" + (" · current week" if is_current else "")
+    lbl  = f"Week of {ws.strftime('%b %-d')}" + (" · this week" if is_current else "")
 
-    plan_mi = sum(planned_map[(ws+timedelta(days=i)).isoformat()]["m"]
-                  for i in range(7) if (ws+timedelta(days=i)).isoformat() in planned_map)
-    act_mi  = sum(sum(r["miles"] for r in act_runs.get((ws+timedelta(days=i)).isoformat(),[]))
-                  for i in range(7))
+    week_dates = [(ws+timedelta(days=i)).isoformat() for i in range(7)]
+    plan_mi = sum(planned_map[ds]["m"] for ds in week_dates if ds in planned_map)
+    act_mi  = sum(sum(r["miles"] for r in act_runs.get(ds,[])) for ds in week_dates)
 
-    plan_badge = f'Planned <b>{plan_mi} mi</b>' if plan_mi else ""
-    act_badge  = f'Actual <b style="color:#FC4C02">{act_mi:.1f} mi</b>' if act_mi else ""
-    badges = " &nbsp;·&nbsp; ".join(x for x in [plan_badge, act_badge] if x)
+    # Only grade fully past weeks (last day < today)
+    week_end = ws + timedelta(days=6)
+    is_past_week = week_end < today
+
+    grade_html = ""
+    if is_past_week and plan_mi > 0:
+        planned_days   = sum(1 for ds in week_dates if ds in planned_map and date.fromisoformat(ds) >= date.fromisoformat(plan_start_str))
+        completed_days = sum(1 for ds in week_dates if ds in act_runs and ds in planned_map)
+        missed_days    = sum(1 for ds in week_dates if ds in planned_map and ds not in act_runs and date.fromisoformat(ds) < today and date.fromisoformat(ds) >= date.fromisoformat(plan_start_str))
+        grade, gc = week_grade(plan_mi, act_mi, planned_days, completed_days, missed_days)
+        if grade:
+            pct = round(act_mi / plan_mi * 100) if plan_mi else 0
+            grade_html = (f'<div style="display:flex;align-items:center;gap:8px">' +
+                f'<div style="font-size:18px;font-weight:700;color:{gc}">{grade}</div>' +
+                f'<div style="font-size:11px;color:#9ca3af">{act_mi:.1f}/{plan_mi} mi ({pct}%)</div>' +
+                f'</div>')
+    elif plan_mi > 0:
+        plan_badge = f'<span style="color:#6b7280;font-size:12px">Planned <b style="color:#374151">{plan_mi} mi</b></span>'
+        act_part   = f' &nbsp;·&nbsp; <span style="color:#6b7280;font-size:12px">So far <b style="color:#FC4C02">{act_mi:.1f} mi</b></span>' if act_mi > 0 else ""
+        grade_html = plan_badge + act_part
 
     dow_headers = "".join(f'<div style="font-size:10px;color:#9ca3af;text-align:center;padding:2px 0">{d}</div>' for d in DOWS)
     cells = "".join(day_cell((ws+timedelta(days=i)).isoformat(), planned_map.get((ws+timedelta(days=i)).isoformat()),
@@ -321,7 +371,7 @@ def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
     <div style="background:{hbg};border:{hbdr};border-radius:10px;padding:12px 14px;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:13px;font-weight:600;color:#374151">{lbl}</div>
-        <div style="font-size:12px;color:#6b7280">{badges}</div>
+        <div>{grade_html}</div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">
         {dow_headers}{cells}
@@ -522,11 +572,16 @@ def main():
             st.rerun()
 
     # Legend
-    legend_items = [("Easy","easy"),("Long run","long"),("Tempo","tempo"),("VO2","vo2"),("Race","race"),
-                    ("Actual (unplanned)","actual"),("Planned + done","both"),("Missed","missed")]
+    legend_items = [
+        ("Upcoming run",        "#e5e7eb", "#374151"),
+        ("Completed — on track","#5DCAA5", "#fff"),
+        ("Completed — a bit short","#e8a825","#fff"),
+        ("Completed — well short","#e05757","#fff"),
+        ("Missed",              "#e05757", "#fff"),
+        ("Unplanned run",       "#dbeafe", "#1e40af"),
+    ]
     leg = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 16px">'
-    for lbl,pt in legend_items:
-        bg,fg,_ = PILL_STYLE[pt]
+    for lbl,bg,fg in legend_items:
         leg += f'<span style="background:{bg};color:{fg};font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600">{lbl}</span>'
     leg += "</div>"
     st.html(leg)
