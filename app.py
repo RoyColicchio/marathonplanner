@@ -216,12 +216,23 @@ def make_tooltip(mode, wtype, planned_miles, gps, actual=None):
     </div>"""
     return html
 
-def pill_html(label, ptype, tooltip):
+def tooltip_css():
+    return """
+<style>
+.tip-wrap{position:relative;display:block}
+.tip-pill{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;line-height:1.6;display:block}
+.tip-box{display:none;position:absolute;z-index:9999;left:0;top:110%;min-width:290px;max-width:320px;pointer-events:none}
+.tip-wrap:hover .tip-box{display:block}
+</style>"""
+
+def pill_html(label, ptype, tooltip_html):
     bg, fg, _ = PILL_STYLE.get(ptype, PILL_STYLE["easy"])
-    escaped = tooltip.replace('"','&quot;').replace("'","&#39;").replace("\n"," ")
-    return (f'<div title="{escaped}" style="background:{bg};color:{fg};font-size:10px;'
-            f'padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap;'
-            f'overflow:hidden;text-overflow:ellipsis;cursor:default;line-height:1.6">{label}</div>')
+    return f'''
+<div class="tip-wrap">
+  <div class="tip-pill" style="background:{bg};color:{fg}">{label}</div>
+  <div class="tip-box">{tooltip_html}</div>
+</div>'''  
 
 def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
     is_today = ds == today_str
@@ -488,7 +499,7 @@ def main():
     leg += "</div>"
     st.html(leg)
 
-    cal_html = ""
+    cal_html = tooltip_css()
     for i in range(WINDOW):
         idx = start_idx + i
         if idx >= total: break
