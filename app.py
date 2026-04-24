@@ -293,6 +293,192 @@ def fmt_range(lo, hi):
     """Format a pace range e.g. 7:40–8:15/mi"""
     return f"{fmt_pace(lo)}–{fmt_pace(hi)}"
 
+# ── Marathon Excellence pace math ─────────────────────────────
+# 5K pace from marathon goal via Riegel (T2 = T1 * (D2/D1)^1.06)
+# Given marathon pace per mile, returns 5K pace per mile.
+def fivek_pace_secs(marathon_gps):
+    marathon_time_secs = marathon_gps * 26.2
+    fivek_time_secs = marathon_time_secs * (3.10686 / 26.2) ** 1.06
+    return fivek_time_secs / 3.10686
+
+def fmt_elapsed(secs):
+    """Short elapsed time format — 1:23 or 5:02 or 1:02:30"""
+    if secs < 60:
+        return f"{int(round(secs))}s"
+    if secs < 3600:
+        m, s = divmod(int(round(secs)), 60)
+        return f"{m}:{s:02d}"
+    h, rem = divmod(int(round(secs)), 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}"
+
+def pace_for_pct(pct_lo, pct_hi, base_pace_secs):
+    """Given % of reference pace (5k or MP) and base pace sec/mi, return formatted range.
+       Higher % effort = faster pace = fewer seconds per mile.
+       % is effort relative to reference race pace, so 100% = base_pace, 108% MP = faster."""
+    # 108% of MP effort means running at a pace that's faster than MP.
+    # Convert: target pace secs = base_pace / (pct/100)
+    lo_pace = base_pace_secs / (pct_hi / 100)   # faster pace comes from higher %
+    hi_pace = base_pace_secs / (pct_lo / 100)
+    if abs(lo_pace - hi_pace) < 2:
+        return fmt_pace(lo_pace)
+    return f"{fmt_pace(lo_pace)}–{fmt_pace(hi_pace)}"
+
+def parse_me_segments(note, gps):
+    """Parse a Marathon Excellence workout description into structured segments.
+    Returns list of (label, distance_str, pace_str, detail).
+    Also includes a warmup and cooldown line.
+    """
+    import re
+    if not note:
+        return []
+
+    text = note
+    fivek_p = fivek_pace_secs(gps)  # 5K pace sec/mi
+    mp_p    = gps
+    segs    = []
+
+    # Always prefix with a warmup
+    segs.append(("Warmup", "~2 mi", fmt_range(gps + 60, gps + 90), "Easy jog to get loose"))
+
+    # Helper to extract % ranges: "90–92% 5k" or "108% MP"
+    def find_pct_pace(s):
+        """Return (pct_lo, pct_hi, ref) or None. ref = '5k' or 'MP'."""
+        m = re.search(r"(\d+)(?:[-–](\d+))?\s*%\s*(5k|MP)", s, re.IGNORECASE)
+        if not m: return None
+        lo = int(m.group(1))
+        hi = int(m.group(2)) if m.group(2) else lo
+        return lo, hi, m.group(3).upper()
+
+    def pace_str_for(pct_info):
+        lo, hi, ref = pct_info
+        base = fivek_p if ref == "5K" else mp_p
+        return pace_for_pct(lo, hi, base)
+
+    # Handle each class of workout
+
+    # 1) Time-based rep: e.g. "8 × 3 min at 90–92% 5k w/ 1 min jog"
+    m = re.search(r"(\d+)(?:[-–](\d+))?\s*×\s*(\d+(?:\.\d+)?)\s*min\s*at\s*([^,w]+?)(?:\s*w/\s*(.+))?$", text, re.IGNORECASE)
+    if m:
+        reps_lo = int(m.group(1))
+        reps_hi = int(m.group(2)) if m.group(2) else reps_lo
+        rep_min = float(m.group(3))
+        pct = find_pct_pace(m.group(4))
+        jog = m.group(5) or "jog"
+        if pct:
+            reps_str = f"{reps_lo}" if reps_lo == reps_hi else f"{reps_lo}–{reps_hi}"
+            lo, hi, ref = pct
+            base = fivek_p if ref == "5K" else mp_p
+            rep_pace_lo = base / (hi / 100)
+            rep_pace_hi = base / (lo / 100)
+            # Distance covered per rep
+            dist_lo = rep_min * 60 / rep_pace_hi  # miles
+            dist_hi = rep_min * 60 / rep_pace_lo
+            avg_dist = (dist_lo + dist_hi) / 2
+            total_hard_mi = reps_lo * avg_dist
+            segs.append((
+                f"{reps_str} × {rep_min:g} min @ {lo}–{hi}% {ref}" if lo != hi else f"{reps_str} × {rep_min:g} min @ {lo}% {ref}",
+                f"~{total_hard_mi:.1f} mi ({avg_dist:.2f} mi/rep)",
+                pace_str_for(pct),
+                f"Each rep {fmt_elapsed(rep_min*60)} long. Recovery: {jog}"
+            ))
+            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
+            return segs
+
+    # 2) Distance-based rep: "5 × 1 mi at 95% 5k w/ 3 min jog" or "8 × 1 km at 95% 5k"
+    m = re.search(r"(\d+)(?:[-–](\d+))?\s*×\s*(\d+(?:\.\d+)?)\s*(mi|km|m)\b\s*at\s*([^,w]+?)(?:\s*w/\s*(.+))?$", text, re.IGNORECASE)
+    if m:
+        reps_lo = int(m.group(1))
+        reps_hi = int(m.group(2)) if m.group(2) else reps_lo
+        rep_dist = float(m.group(3))
+        unit = m.group(4).lower()
+        pct = find_pct_pace(m.group(5))
+        jog = m.group(6) or "jog"
+        # Convert rep distance to miles
+        if unit == "km":
+            rep_mi = rep_dist * 0.621371
+            dist_label = f"{rep_dist:g} km"
+        elif unit == "m":
+            rep_mi = rep_dist / 1609.34
+            dist_label = f"{rep_dist:g}m"
+        else:
+            rep_mi = rep_dist
+            dist_label = f"{rep_dist:g} mi"
+        if pct:
+            reps_str = f"{reps_lo}" if reps_lo == reps_hi else f"{reps_lo}–{reps_hi}"
+            lo, hi, ref = pct
+            base = fivek_p if ref == "5K" else mp_p
+            rep_pace_lo = base / (hi / 100)
+            rep_pace_hi = base / (lo / 100)
+            rep_time_lo = rep_mi * rep_pace_lo
+            rep_time_hi = rep_mi * rep_pace_hi
+            total_hard_mi = reps_lo * rep_mi
+            time_str = (f"{fmt_elapsed(rep_time_lo)}" if abs(rep_time_hi - rep_time_lo) < 2
+                        else f"{fmt_elapsed(rep_time_lo)}–{fmt_elapsed(rep_time_hi)}")
+            pct_str = f"{lo}–{hi}% {ref}" if lo != hi else f"{lo}% {ref}"
+            segs.append((
+                f"{reps_str} × {dist_label} @ {pct_str}",
+                f"~{total_hard_mi:.1f} mi total",
+                pace_str_for(pct),
+                f"Each rep: {time_str}. Recovery: {jog}"
+            ))
+            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
+            return segs
+
+    # 3) Continuous effort: e.g. "7 mi at 85% 5k" or "9–10 mi at 100% MP"
+    m = re.search(r"(\d+(?:\.\d+)?)(?:[-–](\d+(?:\.\d+)?))?\s*mi\s*at\s*([^,]+)$", text, re.IGNORECASE)
+    if m:
+        d_lo = float(m.group(1))
+        d_hi = float(m.group(2)) if m.group(2) else d_lo
+        pct = find_pct_pace(m.group(3))
+        if pct:
+            lo, hi, ref = pct
+            base = fivek_p if ref == "5K" else mp_p
+            pace_lo = base / (hi / 100)
+            pace_hi = base / (lo / 100)
+            total_time_lo = d_lo * pace_hi
+            total_time_hi = d_hi * pace_lo
+            d_str = f"{d_lo:g} mi" if d_lo == d_hi else f"{d_lo:g}–{d_hi:g} mi"
+            pct_str = f"{lo}–{hi}% {ref}" if lo != hi else f"{lo}% {ref}"
+            time_str = f"{fmt_elapsed(total_time_lo)}–{fmt_elapsed(total_time_hi)}"
+            segs = segs[:-1] if segs and segs[-1][0] == "Warmup" else segs  # keep warmup
+            segs.append((
+                f"Continuous @ {pct_str}",
+                d_str,
+                pace_str_for(pct),
+                f"Total elapsed: {time_str}"
+            ))
+            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
+            return segs
+
+    # 4) Kenyan-style progression — describe the concept
+    if "Kenyan-style" in text or "kenyan-style" in text.lower():
+        d = re.search(r"(\d+(?:\.\d+)?)\s*mi", text)
+        dist = f"{d.group(1)} mi" if d else f"~{6} mi"
+        segs = []
+        segs.append((
+            "Kenyan-style progression",
+            dist,
+            fmt_range(gps + 30, gps + 75),
+            "Start at easy/long pace, progressively pick up to finish near or at MP"
+        ))
+        segs.append(("Finish effort (last ~1 mi)", "", fmt_pace(gps), "Should feel strong but controlled"))
+        return segs
+
+    # 5) Fallback — just show the note verbatim with reference paces
+    segs.append((
+        "Full session",
+        f"~{total_miles_placeholder_unused()} mi" if False else "—",
+        "See prescription",
+        note
+    ))
+    # Include reference paces so user has something to anchor against
+    segs.append(("Your 5K pace (est.)",  "—", fmt_pace(fivek_p), "From Riegel formula vs marathon goal"))
+    segs.append(("Your MP (goal)",       "—", fmt_pace(mp_p),    "Marathon goal pace"))
+    return segs
+
+def total_miles_placeholder_unused(): return 0  # avoid NameError in fallback branch
+
 def workout_segments(wtype, total_miles, gps, note=None):
     easy_p  = fmt_range(gps + 60, gps + 90)   # 60–90 sec/mi slower than MP
     long_p  = fmt_range(gps + 45, gps + 75)   # 45–75 sec/mi slower than MP
@@ -301,13 +487,14 @@ def workout_segments(wtype, total_miles, gps, note=None):
     mp_p    = fmt_pace(gps)
     rec_p   = fmt_range(gps + 80, gps + 105)  # very easy recovery jog
 
-    # Marathon Excellence workouts: return the prescription as a single "segment"
-    # since the workouts are complex and the % MP / % 5k paces require the user
-    # to have calibrated their current fitness estimate from the book.
+    # Marathon Excellence workouts: parse the verbatim note into structured segments
     if wtype in ("me_primary", "me_secondary", "me_weekend"):
-        if note is None:
-            return [("Full session", f"~{total_miles} mi", "See book", "")]
-        return [("Session", f"~{total_miles} mi", "—", note)]
+        parsed = parse_me_segments(note, gps) if note else []
+        if parsed:
+            # Prepend verbatim prescription at the top for reference
+            header = [("Prescription", "—", "—", note)] if note else []
+            return header + parsed
+        return [("Session", f"~{total_miles} mi", "—", note or "See book")]
 
     if wtype == "easy":
         return [("Full run", f"{total_miles} mi", easy_p, "Conversational effort throughout — you should be able to speak full sentences")]
