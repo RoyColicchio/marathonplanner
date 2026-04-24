@@ -378,9 +378,9 @@ def parse_me_segments(note, gps):
             total_hard_mi = reps_lo * avg_dist
             segs.append((
                 f"{reps_str} × {rep_min:g} min @ {lo}–{hi}% {ref}" if lo != hi else f"{reps_str} × {rep_min:g} min @ {lo}% {ref}",
-                f"~{total_hard_mi:.1f} mi ({avg_dist:.2f} mi/rep)",
+                f"~{total_hard_mi:.1f} mi",
                 pace_str_for(pct),
-                f"Each rep {fmt_elapsed(rep_min*60)} long. Recovery: {jog}"
+                f"Each rep {fmt_elapsed(rep_min*60)} (~{avg_dist:.2f} mi). Recovery: {jog}"
             ))
             segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
             return segs
@@ -584,13 +584,20 @@ def seg_table(segments):
             continue
         rows += f"""
           <tr>
-            <td style="padding:5px 10px 5px 0;color:#ccc;font-size:11px;vertical-align:top;word-wrap:break-word;white-space:normal;max-width:140px">{name}</td>
-            <td style="padding:5px 6px;color:#fff;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top">{dist}</td>
-            <td style="padding:5px 0 5px 6px;color:#FC4C02;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top;text-align:right">{pace}</td>
+            <td style="padding:5px 8px 5px 0;color:#ccc;font-size:11px;vertical-align:top;word-wrap:break-word;white-space:normal">{name}</td>
+            <td style="padding:5px 4px;color:#fff;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top">{dist}</td>
+            <td style="padding:5px 0 5px 4px;color:#FC4C02;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top;text-align:right">{pace}</td>
           </tr>
           {f'<tr><td colspan="3" style="padding:0 0 6px 0;color:#555;font-size:10px;font-style:italic;line-height:1.4;word-wrap:break-word;white-space:normal">{note}</td></tr>' if note else ''}
         """
-    return f'<table style="width:100%;border-collapse:collapse;table-layout:fixed">{rows}</table>'
+    return f'''<table style="width:100%;border-collapse:collapse;table-layout:fixed">
+      <colgroup>
+        <col style="width:38%">
+        <col style="width:27%">
+        <col style="width:35%">
+      </colgroup>
+      {rows}
+    </table>'''
 
 def make_tooltip(mode, wtype, planned_miles, gps, actual=None, note=None):
     label   = WTYPE_LABEL.get(wtype, "Run") if wtype else (actual or {}).get("name","Run")
