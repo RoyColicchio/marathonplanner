@@ -576,15 +576,21 @@ WTYPE_PURPOSE = dict(
 def seg_table(segments):
     rows = ""
     for name, dist, pace, note in segments:
+        # Prescription row has "—" for dist and pace - render it as a single full-width row
+        if name == "Prescription":
+            rows += f"""
+          <tr><td colspan="3" style="padding:6px 0;color:#fff;font-size:11px;font-weight:600;line-height:1.5;word-wrap:break-word;white-space:normal">{note}</td></tr>
+            """
+            continue
         rows += f"""
           <tr>
-            <td style="padding:5px 10px 5px 0;color:#ccc;font-size:11px;white-space:nowrap;vertical-align:top">{name}</td>
+            <td style="padding:5px 10px 5px 0;color:#ccc;font-size:11px;vertical-align:top;word-wrap:break-word;white-space:normal;max-width:140px">{name}</td>
             <td style="padding:5px 6px;color:#fff;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top">{dist}</td>
-            <td style="padding:5px 0 5px 6px;color:#FC4C02;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top">{pace}</td>
+            <td style="padding:5px 0 5px 6px;color:#FC4C02;font-family:monospace;font-size:11px;white-space:nowrap;vertical-align:top;text-align:right">{pace}</td>
           </tr>
-          <tr><td colspan="3" style="padding:0 0 6px 0;color:#555;font-size:10px;font-style:italic;line-height:1.4">{note}</td></tr>
+          {f'<tr><td colspan="3" style="padding:0 0 6px 0;color:#555;font-size:10px;font-style:italic;line-height:1.4;word-wrap:break-word;white-space:normal">{note}</td></tr>' if note else ''}
         """
-    return f'<table style="width:100%;border-collapse:collapse">{rows}</table>'
+    return f'<table style="width:100%;border-collapse:collapse;table-layout:fixed">{rows}</table>'
 
 def make_tooltip(mode, wtype, planned_miles, gps, actual=None, note=None):
     label   = WTYPE_LABEL.get(wtype, "Run") if wtype else (actual or {}).get("name","Run")
@@ -672,8 +678,19 @@ def tooltip_css():
 .tip-wrap{position:relative;display:block}
 .tip-pill{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;line-height:1.6;display:block}
-.tip-box{display:none;position:absolute;z-index:9999;left:0;top:110%;min-width:290px;max-width:320px;pointer-events:none}
+.tip-box{
+  display:none;
+  position:absolute;
+  z-index:9999;
+  left:0;
+  top:calc(100% + 4px);
+  width:320px;
+  max-width:90vw;
+  pointer-events:none;
+}
 .tip-wrap:hover .tip-box{display:block}
+/* Prevent grid / week containers from clipping or resizing around the tooltip */
+.tip-wrap,.tip-pill{contain:layout}
 </style>"""
 
 def pill_html(label, bg, tooltip_html, fg=None):
@@ -755,7 +772,7 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
         tip = make_tooltip("actual", None, act["miles"], gps, actual=act)
         inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af")
 
-    return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg}">{inner}</div>'
+    return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg};overflow:visible">{inner}</div>'
 
 def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
     today_str = date.today().isoformat()
