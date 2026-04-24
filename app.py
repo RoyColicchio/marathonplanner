@@ -596,19 +596,12 @@ def make_tooltip(mode, wtype, planned_miles, gps, actual=None, note=None):
 
     body = ""
 
-    is_me = wtype in ("me_primary", "me_secondary", "me_weekend")
-
-    if is_me and note and mode in ("planned", "both", "missed"):
-        # For ME plans, show the prescription text prominently + a pace reference
-        body += f"""
-        <div style="font-size:13px;color:#aaa;margin-bottom:10px">~{planned_miles} mi planned</div>
-        <div style="font-size:10px;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Prescribed workout</div>
-        <div style="background:#0a0a0a;border:1px solid #2a2a2a;border-radius:6px;padding:10px 12px;color:#fff;font-size:12px;line-height:1.5">{note}</div>
-        <div style="font-size:10px;color:#555;margin-top:10px;line-height:1.5">Paces in % MP and % 5k reference your current fitness estimate from the book. Calibrate your pace targets using the Marathon Excellence fitness tables.</div>"""
-    elif mode in ("planned", "both", "missed") and wtype:
+    if mode in ("planned", "both", "missed") and wtype:
         segs = workout_segments(wtype, planned_miles, gps, note=note)
+        is_me = wtype in ("me_primary", "me_secondary", "me_weekend")
+        mi_prefix = "~" if is_me else ""
         body += f"""
-        <div style="font-size:13px;color:#aaa;margin-bottom:10px">{planned_miles} mi planned</div>
+        <div style="font-size:13px;color:#aaa;margin-bottom:10px">{mi_prefix}{planned_miles} mi planned</div>
         <div style="font-size:10px;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Workout structure</div>
         {seg_table(segs)}"""
 
