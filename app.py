@@ -10,11 +10,62 @@ CLIENT_SECRET = st.secrets["STRAVA_CLIENT_SECRET"]
 REDIRECT_URI  = st.secrets["REDIRECT_URI"]
 
 PLANS = {
-    "pfitz-18-55": dict(name="Pfitz 18/55", weeks=18, peak_mpw=55, desc="18-week, peaks at 55 mpw"),
-    "pfitz-18-70": dict(name="Pfitz 18/70", weeks=18, peak_mpw=70, desc="18-week, peaks at 70 mpw"),
-    "pfitz-12-55": dict(name="Pfitz 12/55", weeks=12, peak_mpw=55, desc="12-week, peaks at 55 mpw"),
-    "pfitz-12-70": dict(name="Pfitz 12/70", weeks=12, peak_mpw=70, desc="12-week, peaks at 70 mpw"),
+    "pfitz-18-55":  dict(kind="pfitz", name="Pfitz 18/55", weeks=18, peak_mpw=55, desc="18-week, peaks at 55 mpw"),
+    "pfitz-18-70":  dict(kind="pfitz", name="Pfitz 18/70", weeks=18, peak_mpw=70, desc="18-week, peaks at 70 mpw"),
+    "pfitz-12-55":  dict(kind="pfitz", name="Pfitz 12/55", weeks=12, peak_mpw=55, desc="12-week, peaks at 55 mpw"),
+    "pfitz-12-70":  dict(kind="pfitz", name="Pfitz 12/70", weeks=12, peak_mpw=70, desc="12-week, peaks at 70 mpw"),
+    "me-gale-70":   dict(kind="me", me_plan="gale",    weeks=18, peak_mpw=70, name="ME Gale 70",    desc="Marathon Excellence — 18-week Gale, peaks at 70 mpw"),
+    "me-gale-80":   dict(kind="me", me_plan="gale",    weeks=18, peak_mpw=80, name="ME Gale 80",    desc="Marathon Excellence — 18-week Gale, peaks at 80 mpw"),
+    "me-tornado-85":dict(kind="me", me_plan="tornado", weeks=18, peak_mpw=85, name="ME Tornado 85", desc="Marathon Excellence — 18-week Tornado, peaks at 85 mpw"),
+    "me-tornado-95":dict(kind="me", me_plan="tornado", weeks=18, peak_mpw=95, name="ME Tornado 95", desc="Marathon Excellence — 18-week Tornado, peaks at 95 mpw"),
 }
+
+# ── Marathon Excellence plans (John Davis) ──────────────────
+# Each week: (primary_workout, secondary_workout_or_None, weekend_workout, gale_70_mi, gale_80_mi)
+# For Gale and Tornado, indexes 3 and 4 are the two mileage variants
+ME_GALE = [
+    ("6 mi Kenyan-style progression run",                            "8 × 3 min at 90–92% 5k w/ 1 min jog",             "9–10 × 2 min at 100% 5k w/ 1.5 min jog",                                  50, 55),
+    ("7 mi Kenyan-style progression run",                            "6 mi at 85% 5k",                                  "5 mi easy + 3 sets of: 1.5 mi at 88–90% 5k, 0.5 mi moderate",            55, 60),
+    ("4 × (3-2-1 min at 98-100-102% 5k w/ 1-1-2 min jog)",           "7 × 4 min at 90–92% 5k w/ 1 min jog",             "12–13 mi at 80% 5k through hills",                                        60, 65),
+    ("7 mi at 85% 5k",                                               None,                                              "14–15 mi easy through hills",                                             50, 55),
+    ("6 × 5 min at 90–92% 5k w/ 1 min jog",                          "8 × 1 km at 95% 5k w/ 2 min jog",                 "8 mi Kenyan-style progression w/ fast finish",                            60, 67),
+    ("8 mi at 85% 5k",                                               "8 × 800m at 100% 5k w/ 2–3 min walk/jog",         "14–15 mi at 80% 5k",                                                      64, 72),
+    ("5 × 1 mi at 95% 5k w/ 3 min jog",                              "6–7 × (1200m at 90–92% 5k, 400m at 80% 5k)",     "16–18 mi easy through hills",                                             68, 76),
+    ("9–10 mi at 100% MP",                                           None,                                              "4 × 2 km at 108–110% MP w/ 3–4 min jog",                                  55, 63),
+    ("5 × (1600m at 105–107% MP, 400m at 95–98% MP)",                None,                                              "16–18 mi at 90–92% MP",                                                   70, 80),
+    ("3 × (2 km at 108% MP, 2 min jog, 1 km at 110% MP, 5 min walk/jog)", None,                                         "10–11 mi at 100% MP",                                                     70, 80),
+    ("9–10 × (1 km at 105% MP, 1 km at 90% MP)",                     None,                                              "18–20 mi at 90–92% MP",                                                   70, 80),
+    ("3 × 3 km at 108–110% MP w/ 4–5 min walk/jog",                  None,                                              "8 × (2 km at 100% MP, 1 km at 90% MP)",                                   58, 68),
+    ("6–7 × (2 km at 105% MP, 1 km at 90% MP)",                      None,                                              "5 mi at 90%; 5 mi at 92%; 5 mi at 94%; 3–5 mi at 96% MP",                 70, 80),
+    ("12–15 × 500m at 108–110% MP w/ 30–45 sec walk",                None,                                              "6 × (3 km at 100% MP, 1 km at 90% MP)",                                   68, 73),
+    ("3.5–5.5 mi at 105% MP",                                        None,                                              "20–21 mi at 95% MP",                                                      63, 68),
+    ("8 mi Kenyan-style progression run",                            None,                                              "5 × (4 km at 100% MP, 1 km at 90% MP)",                                   63, 68),
+    ("7–8 × (1 km at 103–105% MP, 1 km at 92–94% MP)",               None,                                              "5–6 × 1200m at 107–110% MP w/ 2–3 min jog",                               55, 60),
+    ("5–6 × 4 min at 103–106% MP w/ 1 min jog",                      None,                                              "Marathon",                                                                26, 26),
+]
+
+ME_TORNADO = [
+    ("7 mi Kenyan-style progression run",                            "8–9 × 3 min at 90–92% 5k w/ 45 sec jog",          "7 mi easy + 5 mi progressing moderate to 90% 5k + 1 mi easy",            60, 65),
+    ("7 mi at 85% 5k",                                               "10 × 2 min at 100–102% 5k w/ 1.5 min jog",        "8 mi Kenyan-style progression run",                                      65, 70),
+    ("8 × 1 km at 95% 5k w/ 2 min jog",                              "8 mi at 85% 5k",                                  "13–14 mi at 80% 5k through rolling hills",                               70, 76),
+    ("2 sets of 4-3-2-1 min at 96-98-100-102% 5k w/ 1 min mod / 2–3 min jog", None,                                      "7–8 × 4 min at 90–92% 5k w/ 1 min jog",                                  60, 65),
+    ("5 × 1 mi at 95% 5k w/ 3 min jog",                              "9–10 mi at 85% 5k",                               "16–18 mi easy through rolling hills",                                    72, 78),
+    ("3-2-1-3-2-1 km at 86–88% 5k w/ 2 min walk",                    "7 × (1200m at 90–92% 5k, 400m at 80% 5k)",        "15–16 mi at 80% 5k through rolling hills",                               78, 84),
+    ("3 × (2 km at 108% MP, 2 min jog, 1 km at 110–112% MP, 4–5 min jog)", None,                                         "10–11 mi at 100% MP",                                                    83, 90),
+    ("6 × (1600m at 105–107% MP, 400m at 95–98% MP)",                None,                                              "4-1, 3-1, 2-1, 1-1 km at 101–103% / 105% MP w/ 2 min walk between all",  75, 82),
+    ("5 × 2 km at 108–110% MP w/ 4 min jog",                         None,                                              "17–19 mi at 90–92% MP through rolling hills",                            85, 95),
+    ("AM: 7 × 1 km at 103–106% MP w/ 1 min jog / PM: 12 × 500m at 108–110% MP w/ 30 sec walk", None,                     "12–13 mi at 100% MP",                                                    85, 95),
+    ("10 × (1 km at 105% MP, 1 km at 90–92% MP)",                    None,                                              "5-5-5-(3 to 5) mi at 90-92-94-96% MP",                                   85, 95),
+    ("AM: 5–6 × 2 km at 103% MP w/ 2 min walk / PM: 4 × 500m at 108–110% MP w/ 30 sec walk; 4 min rest; 3–5 km at 108–110% MP", None, "6 × (3 km at 100% MP, 1 km at 90% MP)",                                  80, 90),
+    ("4–5 × 3 km at 103–105% MP w/ 2–3 min walk",                    None,                                              "20–22 mi at 95% MP",                                                     74, 82),
+    ("AM: 3-2-1-1 km at 102–106% MP w/ 2 min walk / PM: 12–15 × 400m at 108–110% MP w/ 25 sec walk", None,               "6 × (4 km at 100% MP, 1 km at 90% MP)",                                  78, 83),
+    ("8–10 × 3 min at 104–107% MP w/ 30 sec jog",                    None,                                              "7-6-5-(2 to 4) mi at 92-94-96-98% MP",                                   73, 83),
+    ("12 × 500m at 108–110% MP w/ 30 sec walk",                      None,                                              "6-5-4-3-2-1 km at 98–102% w/ 1 km at 90% MP",                            70, 81),
+    ("8 × (1 km at 103–105% MP, 1 km at 92–94% MP)",                 None,                                              "2 × 2 km at 107% MP; 2–4 × 1 km at 108–110% MP w/ 3 min jog",            63, 70),
+    ("6–8 × 3 min at 105–107% MP w/ 45 sec jog",                     None,                                              "Marathon",                                                               26, 26),
+]
+
+ME_SCHEDULES = dict(gale=ME_GALE, tornado=ME_TORNADO)
 
 BASE_18_55 = [
     dict(w=1,  runs=[dict(d=1,t="easy",m=7), dict(d=3,t="easy",m=8), dict(d=4,t="tempo",m=9), dict(d=6,t="easy",m=5), dict(d=0,t="long",m=13)]),
@@ -39,9 +90,163 @@ BASE_18_55 = [
 
 def build_schedule(plan_key):
     p = PLANS[plan_key]
+    if p.get("kind") == "me":
+        return build_me_schedule(p)
     scale = p["peak_mpw"] / 55
     src = BASE_18_55[6:] if p["weeks"] == 12 else BASE_18_55
     return [dict(w=i+1, runs=[dict(d=r["d"],t=r["t"],m=round(r["m"]*scale)) for r in wk["runs"]]) for i,wk in enumerate(src)]
+
+def build_me_schedule(plan_meta):
+    """Build Marathon Excellence week structure.
+    Day convention: 0=Sun, 1=Mon, ..., 6=Sat. We use:
+      Mon (d=1): rest (no run)
+      Tue (d=2): primary workout
+      Wed (d=3): easy
+      Thu (d=4): secondary workout if present, else easy
+      Fri (d=5): easy
+      Sat (d=6): easy
+      Sun (d=0): weekend workout (long)
+    Easy miles are distributed to hit the weekly target.
+    """
+    sched_key = plan_meta["me_plan"]
+    variant = 0 if plan_meta["peak_mpw"] in (70, 85) else 1
+    raw = ME_SCHEDULES[sched_key]
+
+    # Estimate workout mileage from the prescription text.
+    # Approach: pull explicit mile ranges if present; otherwise use category defaults.
+    # Since ME plans specify mileage via the weekly total column, the workout-level
+    # estimates just need to be in the right ballpark so easy days get a sensible
+    # remainder.
+    def workout_miles(text, slot="primary"):
+        import re
+        if text is None: return 0
+        if "Marathon" == text.strip(): return 26.2
+
+        # Explicit mi pattern, e.g. "7 mi at 85%"  or  "16–18 mi easy"
+        mi = re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]\s*(\d+(?:\.\d+)?))?\s*mi(?!n)", text)
+        if mi:
+            total = 0
+            for m in mi:
+                lo = float(m[0]); hi = float(m[1]) if m[1] else lo
+                total += (lo + hi) / 2
+            # Weekend workouts with explicit miles = full workout miles (incl WU/CD embedded)
+            return total
+
+        # km-based: estimate total from the listed intervals + add WU/CD
+        total_km = 0
+        rep = re.search(r"(\d+)\s*×\s*\(([^)]+)\)", text)
+        if rep:
+            n = int(rep.group(1))
+            inner_km = re.findall(r"(\d+(?:\.\d+)?)\s*km", rep.group(2))
+            inner_m_match = re.search(r"(\d+)\s*m(?!i)", rep.group(2))
+            total_km = n * sum(float(x) for x in inner_km)
+            if inner_m_match: total_km += n * int(inner_m_match.group(1)) / 1000
+        else:
+            km_matches = re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]\s*(\d+(?:\.\d+)?))?\s*km", text)
+            for m in km_matches:
+                lo = float(m[0]); hi = float(m[1]) if m[1] else lo
+                total_km += (lo + hi) / 2
+            # treat "N × 500m" style too
+            m_rep = re.findall(r"(\d+)\s*×\s*(\d+)\s*m(?!i)", text)
+            for n, mm in m_rep:
+                total_km += int(n) * int(mm) / 1000
+        if total_km > 0:
+            total_km += 4   # WU + CD
+            return total_km * 0.621
+
+        # Pure time-based intervals, fallback by slot
+        defaults = dict(primary=7, secondary=7, weekend=9)
+        return defaults.get(slot, 7)
+
+    weeks = []
+    for wi, row in enumerate(raw):
+        primary, secondary, weekend, mi_a, mi_b = row
+        week_total = mi_a if variant == 0 else mi_b
+
+        is_race_week = (wi == len(raw) - 1)
+
+        # Assign workout miles
+        primary_mi   = round(workout_miles(primary,   slot="primary"), 1)
+        secondary_mi = round(workout_miles(secondary, slot="secondary"), 1) if secondary else 0
+        weekend_mi   = round(workout_miles(weekend,   slot="weekend"), 1)
+        # Floors so estimates stay sensible even when text parsing falls short
+        primary_mi   = max(primary_mi, 6)
+        if secondary: secondary_mi = max(secondary_mi, 6)
+        weekend_mi   = max(weekend_mi, 8 if not is_race_week else weekend_mi)
+
+        if is_race_week:
+            # Only schedule the marathon itself, plus light shake-outs in the week
+            runs = [
+                dict(d=2, t="easy_me",    m=5,   note=primary),
+                dict(d=4, t="easy",       m=4),
+                dict(d=6, t="easy",       m=3),
+                dict(d=0, t="race",       m=26, note="Marathon"),
+            ]
+            weeks.append(dict(w=wi+1, runs=runs))
+            continue
+
+        # Cap workout mileage at the week total to prevent overshoot
+        fixed_total = primary_mi + secondary_mi + weekend_mi
+        if fixed_total > week_total:
+            # scale down proportionally (rare — only if estimator overshoots)
+            scale = week_total / fixed_total
+            primary_mi   = round(primary_mi * scale, 1)
+            secondary_mi = round(secondary_mi * scale, 1)
+            weekend_mi   = round(weekend_mi * scale, 1)
+            fixed_total  = primary_mi + secondary_mi + weekend_mi
+
+        easy_budget = max(0, week_total - fixed_total)
+
+        # Distribute easy miles with realistic cadence:
+        #   Wed = recovery (after Tue primary) — shortest
+        #   Fri = medium-long if primary was AM+PM or big; else medium
+        #   Sat = recovery (before Sun long run) — shorter
+        #   Thu = easy if no secondary
+        # Absorb extra volume into Fri (medium-long day)
+        if secondary is None:
+            easy_days_idx = [3, 4, 5, 6]  # Wed, Thu, Fri, Sat
+            weights = [0.18, 0.22, 0.38, 0.22]
+        else:
+            easy_days_idx = [3, 5, 6]  # Wed, Fri, Sat
+            weights = [0.25, 0.50, 0.25]
+
+        easy_miles_list = [round(easy_budget * w * 2) / 2 for w in weights]
+        diff = round((easy_budget - sum(easy_miles_list)) * 2) / 2
+        max_idx = weights.index(max(weights))
+        easy_miles_list[max_idx] = max(0, easy_miles_list[max_idx] + diff)
+
+        # Iteratively cap any single easy day based on weekly volume.
+        # Higher-mileage weeks allow longer easy days (runners doing 90+ mpw
+        # often have one medium-long day around 14–16 mi).
+        if   week_total >= 90: EASY_CAP = 16
+        elif week_total >= 75: EASY_CAP = 14
+        elif week_total >= 60: EASY_CAP = 13
+        else:                  EASY_CAP = 11
+        for _ in range(5):
+            over_indices = [i for i,m in enumerate(easy_miles_list) if m > EASY_CAP]
+            if not over_indices: break
+            for i in over_indices:
+                overflow = easy_miles_list[i] - EASY_CAP
+                easy_miles_list[i] = EASY_CAP
+                # distribute only to days not already over cap
+                others = [j for j in range(len(easy_miles_list)) if j not in over_indices and easy_miles_list[j] < EASY_CAP]
+                if not others: break
+                per = overflow / len(others)
+                for j in others:
+                    easy_miles_list[j] = round((easy_miles_list[j] + per) * 2) / 2
+
+        runs = []
+        runs.append(dict(d=2, t="me_primary", m=primary_mi, note=primary))
+        if secondary:
+            runs.append(dict(d=4, t="me_secondary", m=secondary_mi, note=secondary))
+        for idx, em in zip(easy_days_idx, easy_miles_list):
+            if em > 0:
+                runs.append(dict(d=idx, t="easy", m=em))
+        runs.append(dict(d=0, t="me_weekend", m=weekend_mi, note=weekend))
+
+        weeks.append(dict(w=wi+1, runs=runs))
+
+    return weeks
 
 def goal_pace_secs(time_str):
     parts = [int(x) for x in (time_str or "3:30:00").strip().split(":")]
@@ -88,13 +293,21 @@ def fmt_range(lo, hi):
     """Format a pace range e.g. 7:40–8:15/mi"""
     return f"{fmt_pace(lo)}–{fmt_pace(hi)}"
 
-def workout_segments(wtype, total_miles, gps):
+def workout_segments(wtype, total_miles, gps, note=None):
     easy_p  = fmt_range(gps + 60, gps + 90)   # 60–90 sec/mi slower than MP
     long_p  = fmt_range(gps + 45, gps + 75)   # 45–75 sec/mi slower than MP
     tempo_p = fmt_range(gps + 10, gps + 20)   # ~15 sec/mi slower than MP (LT)
     vo2_p   = fmt_range(gps - 70, gps - 50)   # ~60 sec/mi faster than MP
     mp_p    = fmt_pace(gps)
     rec_p   = fmt_range(gps + 80, gps + 105)  # very easy recovery jog
+
+    # Marathon Excellence workouts: return the prescription as a single "segment"
+    # since the workouts are complex and the % MP / % 5k paces require the user
+    # to have calibrated their current fitness estimate from the book.
+    if wtype in ("me_primary", "me_secondary", "me_weekend"):
+        if note is None:
+            return [("Full session", f"~{total_miles} mi", "See book", "")]
+        return [("Session", f"~{total_miles} mi", "—", note)]
 
     if wtype == "easy":
         return [("Full run", f"{total_miles} mi", easy_p, "Conversational effort throughout — you should be able to speak full sentences")]
@@ -158,13 +371,19 @@ PILL_STYLE = {
     "both":   ("rgba(93,202,165,0.2)",   "#065f46", "#5DCAA5"),
     "missed": ("rgba(224,87,87,0.12)",   "#991b1b", "#e05757"),
 }
-WTYPE_LABEL = dict(easy="Easy run", long="Long run", tempo="Lactate threshold", vo2="VO2 max", race="Race day")
+WTYPE_LABEL = dict(
+    easy="Easy run", long="Long run", tempo="Lactate threshold", vo2="VO2 max", race="Race day",
+    me_primary="Primary workout", me_secondary="Secondary workout", me_weekend="Weekend workout",
+)
 WTYPE_PURPOSE = dict(
     easy="Aerobic base building and active recovery.",
     long="Builds endurance, fat oxidation, and mental toughness. The most important run of the week.",
     tempo="Raises lactate threshold — the pace you can sustain for extended periods.",
     vo2="Increases maximal aerobic capacity. High stress, high reward.",
     race="Your goal marathon. Patient first half — the race truly begins at mile 18.",
+    me_primary="Main quality session for the week. The most important workout.",
+    me_secondary="Second quality session of the week, usually lower intensity than the primary.",
+    me_weekend="Long run or marathon-specific session. Often the highest volume of the week.",
 )
 
 def seg_table(segments):
@@ -180,7 +399,7 @@ def seg_table(segments):
         """
     return f'<table style="width:100%;border-collapse:collapse">{rows}</table>'
 
-def make_tooltip(mode, wtype, planned_miles, gps, actual=None):
+def make_tooltip(mode, wtype, planned_miles, gps, actual=None, note=None):
     label   = WTYPE_LABEL.get(wtype, "Run") if wtype else (actual or {}).get("name","Run")
     purpose = WTYPE_PURPOSE.get(wtype, "")
     status_map = dict(planned="#5ba3e8", both="#5DCAA5", missed="#e05757", actual="#5ba3e8")
@@ -190,8 +409,17 @@ def make_tooltip(mode, wtype, planned_miles, gps, actual=None):
 
     body = ""
 
-    if mode in ("planned", "both", "missed") and wtype:
-        segs = workout_segments(wtype, planned_miles, gps)
+    is_me = wtype in ("me_primary", "me_secondary", "me_weekend")
+
+    if is_me and note and mode in ("planned", "both", "missed"):
+        # For ME plans, show the prescription text prominently + a pace reference
+        body += f"""
+        <div style="font-size:13px;color:#aaa;margin-bottom:10px">~{planned_miles} mi planned</div>
+        <div style="font-size:10px;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Prescribed workout</div>
+        <div style="background:#0a0a0a;border:1px solid #2a2a2a;border-radius:6px;padding:10px 12px;color:#fff;font-size:12px;line-height:1.5">{note}</div>
+        <div style="font-size:10px;color:#555;margin-top:10px;line-height:1.5">Paces in % MP and % 5k reference your current fitness estimate from the book. Calibrate your pace targets using the Marathon Excellence fitness tables.</div>"""
+    elif mode in ("planned", "both", "missed") and wtype:
+        segs = workout_segments(wtype, planned_miles, gps, note=note)
         body += f"""
         <div style="font-size:13px;color:#aaa;margin-bottom:10px">{planned_miles} mi planned</div>
         <div style="font-size:10px;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Workout structure</div>
@@ -279,7 +507,10 @@ def pill_html(label, bg, tooltip_html, fg=None):
   <div class="tip-box">{tooltip_html}</div>
 </div>'''  
 
-WTYPE_SHORT = dict(easy="Easy", long="Long", tempo="Tempo", vo2="VO2", race="Race")
+WTYPE_SHORT = dict(
+    easy="Easy", long="Long", tempo="Tempo", vo2="VO2", race="Race",
+    me_primary="Primary", me_secondary="Secondary", me_weekend="Weekend",
+)
 
 def completion_color(dist_pct):
     """Smooth green→red gradient. Generous — 80%+ is solidly green."""
@@ -327,15 +558,15 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
         act = actuals[0]
         dist_pct = (act["miles"] / planned["m"] * 100) if planned["m"] else 100
         color = completion_color(dist_pct)
-        tip = make_tooltip("both", planned["t"], planned["m"], gps, actual=act)
+        tip = make_tooltip("both", planned["t"], planned["m"], gps, actual=act, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
         inner += pill_html(f"{short} · {act['miles']:.1f}mi", color, tip)
     elif planned and is_past and in_win:
-        tip = make_tooltip("missed", planned["t"], planned["m"], gps)
+        tip = make_tooltip("missed", planned["t"], planned["m"], gps, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
         inner += pill_html(f"{short} · missed", "#e05757", tip)
     elif planned and not is_past:
-        tip = make_tooltip("planned", planned["t"], planned["m"], gps)
+        tip = make_tooltip("planned", planned["t"], planned["m"], gps, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
         lbl = "Race day" if planned["t"] == "race" else f"{short} · {planned['m']}mi"
         inner += pill_html(lbl, "#e5e7eb", tip, fg="#374151")
