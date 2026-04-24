@@ -682,24 +682,36 @@ def tooltip_css():
   display:none;
   position:absolute;
   z-index:9999;
-  left:0;
   top:calc(100% + 4px);
+  left:0;
   width:320px;
-  max-width:90vw;
-  pointer-events:none;
+  max-width:320px;
+  max-height:420px;
+  overflow-y:auto;
+  pointer-events:auto;
 }
+/* On the left-side columns of the week grid, flip tooltip to align to pill's LEFT edge going right.
+   On the right-side columns, anchor to RIGHT edge going left.
+   This is handled per-day using data-col attribute below. */
+.tip-wrap[data-col="0"] .tip-box,
+.tip-wrap[data-col="1"] .tip-box,
+.tip-wrap[data-col="2"] .tip-box,
+.tip-wrap[data-col="3"] .tip-box{left:0;right:auto}
+.tip-wrap[data-col="4"] .tip-box,
+.tip-wrap[data-col="5"] .tip-box,
+.tip-wrap[data-col="6"] .tip-box{left:auto;right:0}
 .tip-wrap:hover .tip-box{display:block}
-/* Prevent grid / week containers from clipping or resizing around the tooltip */
-.tip-wrap,.tip-pill{contain:layout}
+/* Keep hover alive while moving mouse across the small gap */
+.tip-wrap::after{content:"";position:absolute;top:100%;left:-8px;right:-8px;height:8px}
 </style>"""
 
-def pill_html(label, bg, tooltip_html, fg=None):
+def pill_html(label, bg, tooltip_html, fg=None, col=0):
     # fg auto-selects based on bg lightness if not provided
     light_bgs = {"#e5e7eb", "#dbeafe", "#f3f4f6"}
     if fg is None:
         fg = "#374151" if bg in light_bgs else "#fff"
     return f'''
-<div class="tip-wrap">
+<div class="tip-wrap" data-col="{col}">
   <div class="tip-pill" style="background:{bg};color:{fg}">{label}</div>
   <div class="tip-box">{tooltip_html}</div>
 </div>'''  
@@ -739,7 +751,7 @@ def week_grade(plan_mi, act_mi, planned_days, completed_days, missed_days):
     else:                     grade = "F"
     return grade, color
 
-def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
+def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
     is_today = ds == today_str
     is_past  = ds < today_str
     in_win   = ds >= plan_start_str
@@ -757,20 +769,20 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps):
         color = completion_color(dist_pct)
         tip = make_tooltip("both", planned["t"], planned["m"], gps, actual=act, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
-        inner += pill_html(f"{short} · {act['miles']:.1f}mi", color, tip)
+        inner += pill_html(f"{short} · {act['miles']:.1f}mi", color, tip, col=col)
     elif planned and is_past and in_win:
         tip = make_tooltip("missed", planned["t"], planned["m"], gps, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
-        inner += pill_html(f"{short} · missed", "#e05757", tip)
+        inner += pill_html(f"{short} · missed", "#e05757", tip, col=col)
     elif planned and not is_past:
         tip = make_tooltip("planned", planned["t"], planned["m"], gps, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
         lbl = "Race day" if planned["t"] == "race" else f"{short} · {planned['m']}mi"
-        inner += pill_html(lbl, "#e5e7eb", tip, fg="#374151")
+        inner += pill_html(lbl, "#e5e7eb", tip, fg="#374151", col=col)
     elif actuals and not planned:
         act = actuals[0]
         tip = make_tooltip("actual", None, act["miles"], gps, actual=act)
-        inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af")
+        inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af", col=col)
 
     return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg};overflow:visible">{inner}</div>'
 
@@ -809,7 +821,7 @@ def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
 
     dow_headers = "".join(f'<div style="font-size:10px;color:#9ca3af;text-align:center;padding:2px 0">{d}</div>' for d in DOWS)
     cells = "".join(day_cell((ws+timedelta(days=i)).isoformat(), planned_map.get((ws+timedelta(days=i)).isoformat()),
-                             act_runs.get((ws+timedelta(days=i)).isoformat()), today_str, plan_start_str, gps)
+                             act_runs.get((ws+timedelta(days=i)).isoformat()), today_str, plan_start_str, gps, col=i)
                     for i in range(7))
 
     return f"""
