@@ -9,6 +9,93 @@ CLIENT_ID     = st.secrets["STRAVA_CLIENT_ID"]
 CLIENT_SECRET = st.secrets["STRAVA_CLIENT_SECRET"]
 REDIRECT_URI  = st.secrets["REDIRECT_URI"]
 
+# ── persistence layer ─────────────────────────────────────────
+# Abstract user storage so we can swap localStorage for Google OAuth/DB later
+# without touching the rest of the app. The interface is just load() / save() / clear().
+
+import json as _json
+from streamlit_local_storage import LocalStorage
+
+# Keys we persist. Activities are intentionally NOT persisted — they're fetched fresh.
+PERSIST_KEYS = [
+    "access_token", "refresh_token", "token_expires_at",
+    "athlete",
+    "goal_time", "race_date", "selected_plan",
+    "swaps",
+]
+
+class UserStore:
+    """Interface for persisting user state across sessions.
+    Swap implementations (LocalStorage → DB-backed) by replacing the singleton."""
+    def load(self) -> dict: raise NotImplementedError
+    def save(self, data: dict) -> None: raise NotImplementedError
+    def clear(self) -> None: raise NotImplementedError
+
+
+class LocalStorageStore(UserStore):
+    """Browser localStorage implementation. Tied to one device/browser."""
+    KEY = "marathon_planner_state_v1"
+
+    def __init__(self):
+        self._ls = LocalStorage()
+
+    def load(self) -> dict:
+        try:
+            raw = self._ls.getItem(self.KEY)
+            if not raw: return {}
+            data = _json.loads(raw) if isinstance(raw, str) else raw
+            # date is stored as ISO string — convert back
+            if data.get("race_date"):
+                data["race_date"] = date.fromisoformat(data["race_date"])
+            return data
+        except Exception:
+            return {}
+
+    def save(self, data: dict) -> None:
+        try:
+            payload = {}
+            for k in PERSIST_KEYS:
+                v = data.get(k)
+                if v is None: continue
+                # date isn't JSON-serializable
+                if k == "race_date" and hasattr(v, "isoformat"):
+                    v = v.isoformat()
+                payload[k] = v
+            self._ls.setItem(self.KEY, _json.dumps(payload))
+        except Exception as e:
+            print(f"[store] save failed: {e}")
+
+    def clear(self) -> None:
+        try:
+            self._ls.deleteItem(self.KEY)
+        except Exception:
+            pass
+
+
+# Singleton — swap this line later to use a different backend (e.g. GoogleAuthStore)
+@st.cache_resource
+def get_store() -> UserStore:
+    return LocalStorageStore()
+
+
+def hydrate_session_from_store():
+    """Called once per session. Loads persisted state into session_state if missing."""
+    if st.session_state.get("_hydrated"): return
+    store = get_store()
+    persisted = store.load()
+    for k, v in persisted.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+    st.session_state["_hydrated"] = True
+
+
+def persist_session():
+    """Save current session state to store. Call after any state change."""
+    store = get_store()
+    snapshot = {k: st.session_state.get(k) for k in PERSIST_KEYS if k in st.session_state}
+    store.save(snapshot)
+
+
 PLANS = {
     "pfitz-18-55":  dict(kind="pfitz", name="Pfitz 18/55", weeks=18, peak_mpw=55, desc="18-week, peaks at 55 mpw"),
     "pfitz-18-70":  dict(kind="pfitz", name="Pfitz 18/70", weeks=18, peak_mpw=70, desc="18-week, peaks at 70 mpw"),
@@ -868,6 +955,7 @@ def get_valid_token():
         ss["access_token"] = data["access_token"]
         ss["refresh_token"] = data.get("refresh_token", ss["refresh_token"])
         ss["token_expires_at"] = data["expires_at"]
+        persist_session()
         return data["access_token"]
     return None
 
@@ -888,6 +976,9 @@ def main():
     ss = st.session_state
     params = st.query_params
 
+    # Load persisted state from browser localStorage
+    hydrate_session_from_store()
+
     if "code" in params and "access_token" not in ss:
         with st.spinner("Connecting to Strava..."):
             data = exchange_code(params["code"])
@@ -896,6 +987,7 @@ def main():
             ss["refresh_token"] = data["refresh_token"]
             ss["token_expires_at"] = data["expires_at"]
             ss["athlete"] = data.get("athlete", {})
+            persist_session()
             st.query_params.clear()
             st.rerun()
         else:
@@ -965,13 +1057,23 @@ def main():
                             format_func=lambda k: f"{PLANS[k]['name']} — {PLANS[k]['desc']}",
                             index=list(PLANS.keys()).index(ss["selected_plan"]),
                             label_visibility="collapsed")
+        # Track previous values to detect changes worth persisting
+        prev_plan      = ss.get("selected_plan")
+        prev_goal_time = ss.get("goal_time")
+        prev_race_date = ss.get("race_date")
+
         ss["selected_plan"] = plan_key
         ss["goal_time"] = goal_time
         ss["race_date"] = race_date
+
+        if (prev_plan != plan_key) or (prev_goal_time != goal_time) or (prev_race_date != race_date):
+            persist_session()
+
         st.divider()
         if st.button("Disconnect Strava"):
-            for k in ["access_token","refresh_token","token_expires_at","athlete","activities","weekly_mpw"]:
+            for k in ["access_token","refresh_token","token_expires_at","athlete","activities","weekly_mpw","swaps"]:
                 ss.pop(k,None)
+            get_store().clear()
             st.rerun()
 
     plan = PLANS[plan_key]
@@ -1122,6 +1224,7 @@ def main():
                         run_b = effective_map[ds_b]
                         ss["swaps"][ds_a] = run_b
                         ss["swaps"][ds_b] = run_a
+                        persist_session()
                         st.rerun()
                     else:
                         st.warning("Pick two different days to swap.")
@@ -1133,6 +1236,7 @@ def main():
         with rc1:
             if st.button("Reset all swaps", type="secondary"):
                 ss["swaps"] = {}
+                persist_session()
                 st.rerun()
 
 main()

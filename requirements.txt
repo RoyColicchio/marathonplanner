@@ -1,6 +1,3 @@
-streamlit
-requests
-pandas
-numpy
-streamlit-aggrid
-streamlit-oauth
+streamlit>=1.32.0
+requests>=2.31.0
+streamlit-local-storage>=0.0.20
