@@ -181,7 +181,22 @@ def build_schedule(plan_key):
         return build_me_schedule(p)
     scale = p["peak_mpw"] / 55
     src = BASE_18_55[6:] if p["weeks"] == 12 else BASE_18_55
-    return [dict(w=i+1, runs=[dict(d=r["d"],t=r["t"],m=round(r["m"]*scale)) for r in wk["runs"]]) for i,wk in enumerate(src)]
+    weeks = []
+    is_high_volume = p["peak_mpw"] >= 70  # 70+ mpw plans run 6 days/week
+    for i, wk in enumerate(src):
+        runs = [dict(d=r["d"], t=r["t"], m=round(r["m"]*scale)) for r in wk["runs"]]
+        if is_high_volume:
+            # Add Saturday (d=6) recovery run if not already present.
+            # Recovery run mileage scales with the week's total: roughly 4-5mi at peak.
+            has_saturday = any(r["d"] == 6 for r in runs)
+            if not has_saturday:
+                week_total = sum(r["m"] for r in runs)
+                # Recovery run is ~10% of weekly volume, capped 3-6mi
+                rec_mi = max(3, min(6, round(week_total * 0.10)))
+                runs.append(dict(d=6, t="easy", m=rec_mi))
+                runs.sort(key=lambda r: r["d"])
+        weeks.append(dict(w=i+1, runs=runs))
+    return weeks
 
 def build_me_schedule(plan_meta):
     """Build Marathon Excellence week structure.
@@ -883,7 +898,7 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
 def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
     today_str = date.today().isoformat()
     today     = date.today()
-    DOWS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
+    DOWS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
     hbg  = "#fff8f5" if is_current else "#fff"
     hbdr = "2px solid #FC4C02" if is_current else "1px solid #e5e7eb"
     lbl  = f"Week of {ws.strftime('%b %-d')}" + (" · this week" if is_current else "")
@@ -1099,9 +1114,9 @@ def main():
     c4.metric("Missed", missed)
     st.divider()
 
-    # Build week list: 60 days back (aligned to Sunday) through race date
+    # Build week list: 60 days back (aligned to Monday) through race date
     cal_start = today - timedelta(days=60)
-    cal_start -= timedelta(days=(cal_start.weekday()+1)%7)
+    cal_start -= timedelta(days=cal_start.weekday())  # Mon=0 in weekday()
     all_weeks = []
     w = cal_start
     race_date_obj = date.fromisoformat(race_date_str)
@@ -1168,7 +1183,7 @@ def main():
 
     # ── swap UI ───────────────────────────────────────────────
     # Show swap controls for weeks that have at least 2 future planned days
-    DOWS_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+    DOWS_FULL = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     for i in range(WINDOW):
         idx = start_idx + i
         if idx >= total: break
@@ -1186,10 +1201,7 @@ def main():
                 run = effective_map.get(ds)
                 if run:
                     d_obj = date.fromisoformat(ds)
-                    dow = DOWS_FULL[d_obj.weekday() + 1 if d_obj.weekday() < 6 else 0]  # Mon=0 → Sun=6
-                    # correct: date.weekday() Mon=0, Sun=6. We want Sun=0
-                    dow_idx = (d_obj.weekday() + 1) % 7
-                    dow = DOWS_FULL[dow_idx]
+                    dow = DOWS_FULL[d_obj.weekday()]
                     short = WTYPE_SHORT.get(run["t"], "Run")
                     is_future = ds >= today_str
                     marker = "" if is_future else " ✓" if ds in act_runs else " (past)"
@@ -1200,8 +1212,7 @@ def main():
             swap_options = {}
             for ds in future_planned:
                 d_obj = date.fromisoformat(ds)
-                dow_idx = (d_obj.weekday() + 1) % 7
-                dow = DOWS_FULL[dow_idx]
+                dow = DOWS_FULL[d_obj.weekday()]
                 run = effective_map[ds]
                 short = WTYPE_SHORT.get(run["t"], "Run")
                 swap_options[f"{dow} ({d_obj.strftime('%-m/%-d')}) — {short} {run['m']}mi"] = ds
