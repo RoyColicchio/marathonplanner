@@ -224,14 +224,29 @@ def build_me_schedule(plan_meta):
         if text is None: return 0
         if "Marathon" == text.strip(): return 26.2
 
-        # Explicit mi pattern, e.g. "7 mi at 85%"  or  "16–18 mi easy"
+        # WU + CD allowance for any interval-based workout (matches the parser's WU/CD)
+        WU_CD_MI = 3.5  # ~2 mi warmup + ~1.5 mi cooldown
+
+        # Detect if interval-based (has reps) vs continuous
+        is_intervals = bool(re.search(r"\d+\s*×", text))
+
+        # Explicit mi pattern, e.g. "7 mi at 85%" or "16–18 mi easy" or "5 × 1 mi at 95% 5k"
         mi = re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]\s*(\d+(?:\.\d+)?))?\s*mi(?!n)", text)
         if mi:
             total = 0
             for m in mi:
                 lo = float(m[0]); hi = float(m[1]) if m[1] else lo
                 total += (lo + hi) / 2
-            # Weekend workouts with explicit miles = full workout miles (incl WU/CD embedded)
+            # Interval workout in mi (e.g. "5 × 1 mi"): hard miles only — add WU/CD
+            if is_intervals:
+                rep_m = re.search(r"(\d+)\s*×\s*(\d+(?:\.\d+)?)\s*mi(?!n)", text)
+                if rep_m:
+                    total = int(rep_m.group(1)) * float(rep_m.group(2))
+                rep_count_match = re.search(r"(\d+)\s*×", text)
+                rep_count = int(rep_count_match.group(1)) if rep_count_match else 0
+                recovery_mi = max(0, (rep_count - 1)) * 0.25
+                return total + recovery_mi + WU_CD_MI
+            # Continuous: already represents the full workout
             return total
 
         # km-based: estimate total from the listed intervals + add WU/CD
@@ -244,19 +259,33 @@ def build_me_schedule(plan_meta):
             total_km = n * sum(float(x) for x in inner_km)
             if inner_m_match: total_km += n * int(inner_m_match.group(1)) / 1000
         else:
-            km_matches = re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]\s*(\d+(?:\.\d+)?))?\s*km", text)
-            for m in km_matches:
-                lo = float(m[0]); hi = float(m[1]) if m[1] else lo
-                total_km += (lo + hi) / 2
-            # treat "N × 500m" style too
+            # "N × X km" non-parenthesized — multiply
+            km_rep = re.search(r"(\d+)\s*×\s*(\d+(?:\.\d+)?)\s*km", text)
+            if km_rep:
+                total_km = int(km_rep.group(1)) * float(km_rep.group(2))
+            else:
+                km_matches = re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]\s*(\d+(?:\.\d+)?))?\s*km", text)
+                for m in km_matches:
+                    lo = float(m[0]); hi = float(m[1]) if m[1] else lo
+                    total_km += (lo + hi) / 2
+            # "N × Xm" (meters, e.g. 500m) — multiply
             m_rep = re.findall(r"(\d+)\s*×\s*(\d+)\s*m(?!i)", text)
             for n, mm in m_rep:
                 total_km += int(n) * int(mm) / 1000
         if total_km > 0:
-            total_km += 4   # WU + CD
-            return total_km * 0.621
+            return (total_km * 0.621) + WU_CD_MI
 
-        # Pure time-based intervals, fallback by slot
+        # Time-based intervals, e.g. "8 × 3 min at 90–92% 5k w/ 1 min jog"
+        rep_time = re.search(r"(\d+)\s*×\s*(\d+(?:\.\d+)?)\s*min", text)
+        if rep_time:
+            n = int(rep_time.group(1))
+            mins_each = float(rep_time.group(2))
+            hard_mi = n * mins_each * 0.14   # rough hard-pace estimate
+            jog_match = re.search(r"w/\s*(\d+(?:\.\d+)?)\s*min", text)
+            jog_min = float(jog_match.group(1)) if jog_match else 1.0
+            recovery_mi = (n - 1) * jog_min * 0.10
+            return hard_mi + recovery_mi + WU_CD_MI
+
         defaults = dict(primary=7, secondary=7, weekend=9)
         return defaults.get(slot, 7)
 
