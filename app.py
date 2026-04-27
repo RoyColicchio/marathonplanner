@@ -206,8 +206,8 @@ def build_me_schedule(plan_meta):
       Wed (d=3): easy
       Thu (d=4): secondary workout if present, else easy
       Fri (d=5): easy
-      Sat (d=6): easy
-      Sun (d=0): weekend workout (long)
+      Sat (d=6): weekend workout (long)  ← MOVED from Sun to ensure 3+ day gap from primary
+      Sun (d=0): easy recovery
     Easy miles are distributed to hit the weekly target.
     """
     sched_key = plan_meta["me_plan"]
@@ -301,16 +301,15 @@ def build_me_schedule(plan_meta):
 
         # Distribute easy miles with realistic cadence:
         #   Wed = recovery (after Tue primary) — shortest
-        #   Fri = medium-long if primary was AM+PM or big; else medium
-        #   Sat = recovery (before Sun long run) — shorter
-        #   Thu = easy if no secondary
-        # Absorb extra volume into Fri (medium-long day)
+        #   Fri = before-long-run easy
+        #   Sun = recovery after Sat long run
+        #   Thu = secondary if present, else easy
         if secondary is None:
-            easy_days_idx = [3, 4, 5, 6]  # Wed, Thu, Fri, Sat
-            weights = [0.18, 0.22, 0.38, 0.22]
+            easy_days_idx = [3, 4, 5, 0]  # Wed, Thu, Fri, Sun
+            weights = [0.20, 0.25, 0.30, 0.25]
         else:
-            easy_days_idx = [3, 5, 6]  # Wed, Fri, Sat
-            weights = [0.25, 0.50, 0.25]
+            easy_days_idx = [3, 5, 0]  # Wed, Fri, Sun
+            weights = [0.30, 0.40, 0.30]
 
         easy_miles_list = [round(easy_budget * w * 2) / 2 for w in weights]
         diff = round((easy_budget - sum(easy_miles_list)) * 2) / 2
@@ -344,7 +343,7 @@ def build_me_schedule(plan_meta):
         for idx, em in zip(easy_days_idx, easy_miles_list):
             if em > 0:
                 runs.append(dict(d=idx, t="easy", m=em))
-        runs.append(dict(d=0, t="me_weekend", m=weekend_mi, note=weekend))
+        runs.append(dict(d=6, t="me_weekend", m=weekend_mi, note=weekend))
 
         weeks.append(dict(w=wi+1, runs=runs))
 
@@ -426,6 +425,24 @@ def pace_for_pct(pct_lo, pct_hi, base_pace_secs):
         return fmt_pace(lo_pace)
     return f"{fmt_pace(lo_pace)}–{fmt_pace(hi_pace)}"
 
+def effort_for_pct(pct_lo, pct_hi, ref):
+    """Plain-English effort description based on intensity."""
+    avg = (pct_lo + pct_hi) / 2
+    if ref == "5K":
+        if avg >= 102: return "All-out — 1500m to 3K race effort. Hard, controlled breathing. Should not be sustainable past the rep duration."
+        if avg >= 98:  return "5K race effort. Hard but controlled. Heavy breathing, can only get out 1–2 words at a time."
+        if avg >= 92:  return "10K race effort. Comfortably hard — labored breathing, legs working but not redlining. You should finish each rep wanting one more."
+        if avg >= 86:  return "Half-marathon race effort. Steady, focused — breathing is elevated but rhythmic. Just below threshold."
+        if avg >= 80:  return "Steady aerobic effort. Conversational becomes hard but possible. Builds aerobic strength."
+        return         "Easy-to-moderate effort. Should still feel relaxed."
+    else:  # MP
+        if avg >= 108: return "Faster than marathon pace by ~30 sec/mi. Sharpens your top-end aerobic gear."
+        if avg >= 104: return "Slightly faster than goal MP. Should feel controlled but pointed — practice for late-race gear shifts."
+        if avg >= 100: return "Goal marathon pace. Feels comfortably hard — sustainable, but not relaxing. This is your race rhythm."
+        if avg >= 95:  return "Just below MP. Strong aerobic effort that builds confidence at race-adjacent paces."
+        if avg >= 88:  return "Marathon-specific endurance pace. Builds the engine without the recovery cost of true MP work."
+        return         "Steady aerobic — recovery between hard efforts."
+
 def parse_me_segments(note, gps):
     """Parse a Marathon Excellence workout description into structured segments.
     Returns list of (label, distance_str, pace_str, detail).
@@ -441,7 +458,7 @@ def parse_me_segments(note, gps):
     segs    = []
 
     # Always prefix with a warmup
-    segs.append(("Warmup", "~2 mi", fmt_range(gps + 60, gps + 90), "Easy jog to get loose"))
+    segs.append(("Warmup", "~2 mi", fmt_range(gps + 60, gps + 90), "Easy jog. Add 4–6 strides at the end if doing fast intervals."))
 
     # Helper to extract % ranges: "90–92% 5k" or "108% MP"
     def find_pct_pace(s):
@@ -478,13 +495,14 @@ def parse_me_segments(note, gps):
             dist_hi = rep_min * 60 / rep_pace_lo
             avg_dist = (dist_lo + dist_hi) / 2
             total_hard_mi = reps_lo * avg_dist
+            effort = effort_for_pct(lo, hi, ref)
             segs.append((
                 f"{reps_str} × {rep_min:g} min @ {lo}–{hi}% {ref}" if lo != hi else f"{reps_str} × {rep_min:g} min @ {lo}% {ref}",
                 f"~{total_hard_mi:.1f} mi",
                 pace_str_for(pct),
-                f"Each rep {fmt_elapsed(rep_min*60)} (~{avg_dist:.2f} mi). Recovery: {jog}"
+                f"Each rep {fmt_elapsed(rep_min*60)} long, ~{avg_dist:.2f} mi each. Recovery between: {jog}. {effort}"
             ))
-            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
+            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog to flush the legs and bring HR down."))
             return segs
 
     # 2) Distance-based rep: "5 × 1 mi at 95% 5k w/ 3 min jog" or "8 × 1 km at 95% 5k"
@@ -518,13 +536,14 @@ def parse_me_segments(note, gps):
             time_str = (f"{fmt_elapsed(rep_time_lo)}" if abs(rep_time_hi - rep_time_lo) < 2
                         else f"{fmt_elapsed(rep_time_lo)}–{fmt_elapsed(rep_time_hi)}")
             pct_str = f"{lo}–{hi}% {ref}" if lo != hi else f"{lo}% {ref}"
+            effort = effort_for_pct(lo, hi, ref)
             segs.append((
                 f"{reps_str} × {dist_label} @ {pct_str}",
                 f"~{total_hard_mi:.1f} mi total",
                 pace_str_for(pct),
-                f"Each rep: {time_str}. Recovery: {jog}"
+                f"Each rep takes {time_str}. Recovery between: {jog}. {effort}"
             ))
-            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
+            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog to flush the legs and bring HR down."))
             return segs
 
     # 3) Continuous effort: e.g. "7 mi at 85% 5k" or "9–10 mi at 100% MP"
@@ -543,14 +562,15 @@ def parse_me_segments(note, gps):
             d_str = f"{d_lo:g} mi" if d_lo == d_hi else f"{d_lo:g}–{d_hi:g} mi"
             pct_str = f"{lo}–{hi}% {ref}" if lo != hi else f"{lo}% {ref}"
             time_str = f"{fmt_elapsed(total_time_lo)}–{fmt_elapsed(total_time_hi)}"
+            effort = effort_for_pct(lo, hi, ref)
             segs = segs[:-1] if segs and segs[-1][0] == "Warmup" else segs  # keep warmup
             segs.append((
                 f"Continuous @ {pct_str}",
                 d_str,
                 pace_str_for(pct),
-                f"Total elapsed: {time_str}"
+                f"Total elapsed: {time_str}. {effort}"
             ))
-            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog"))
+            segs.append(("Cooldown", "~1–2 mi", fmt_range(gps + 60, gps + 90), "Easy jog to flush the legs and bring HR down."))
             return segs
 
     # 4) Kenyan-style progression — describe the concept
@@ -562,9 +582,9 @@ def parse_me_segments(note, gps):
             "Kenyan-style progression",
             dist,
             fmt_range(gps + 30, gps + 75),
-            "Start at easy/long pace, progressively pick up to finish near or at MP"
+            "Negative-split run: start at easy/long pace, progressively quicken so the last 1–2 miles are near or at MP. The progression should feel natural, not forced."
         ))
-        segs.append(("Finish effort (last ~1 mi)", "", fmt_pace(gps), "Should feel strong but controlled"))
+        segs.append(("Finish effort (last ~1 mi)", "", fmt_pace(gps), "Strong but controlled. You should finish wanting maybe one more mile, not collapsing."))
         return segs
 
     # 5) Fallback — just show the note verbatim with reference paces
@@ -1182,15 +1202,17 @@ def main():
     st.html(cal_html)
 
     # ── swap UI ───────────────────────────────────────────────
-    # Show swap controls for weeks that have at least 2 future planned days
+    # Show swap controls for any week with at least 1 future planned day
     DOWS_FULL = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     for i in range(WINDOW):
         idx = start_idx + i
         if idx >= total: break
         ws = all_weeks[idx]
         week_dates = [(ws+timedelta(days=j)).isoformat() for j in range(7)]
-        future_planned = [ds for ds in week_dates if ds >= today_str and effective_map.get(ds) and effective_map[ds]["t"] != "race"]
-        if len(future_planned) < 2: continue
+        future_dates = [ds for ds in week_dates if ds >= today_str]
+        future_planned = [ds for ds in future_dates if effective_map.get(ds) and effective_map[ds]["t"] != "race"]
+        # Need at least 1 planned future run AND at least 1 other future day to swap with
+        if len(future_planned) < 1 or len(future_dates) < 2: continue
 
         we = ws + timedelta(days=6)
         week_label = f"Week of {ws.strftime('%b %-d')}"
@@ -1198,24 +1220,31 @@ def main():
             # Show current schedule for this week
             sched_lines = []
             for ds in week_dates:
+                d_obj = date.fromisoformat(ds)
+                dow = DOWS_FULL[d_obj.weekday()][:3]
                 run = effective_map.get(ds)
+                is_future = ds >= today_str
                 if run:
-                    d_obj = date.fromisoformat(ds)
-                    dow = DOWS_FULL[d_obj.weekday()]
                     short = WTYPE_SHORT.get(run["t"], "Run")
-                    is_future = ds >= today_str
                     marker = "" if is_future else " ✓" if ds in act_runs else " (past)"
-                    sched_lines.append(f"{dow} {d_obj.strftime('%-m/%-d')}: {short} {run['m']}mi{marker}")
-            st.caption("  ·  ".join(sched_lines))
+                    sched_lines.append(f"**{dow}** {short} {run['m']}mi{marker}")
+                else:
+                    label = "rest" if is_future else "—"
+                    sched_lines.append(f"**{dow}** {label}")
+            st.caption(" · ".join(sched_lines))
 
-            # Only allow swapping future days
+            # Build swap options: future days, planned OR rest, that aren't race day
             swap_options = {}
-            for ds in future_planned:
+            for ds in future_dates:
                 d_obj = date.fromisoformat(ds)
                 dow = DOWS_FULL[d_obj.weekday()]
-                run = effective_map[ds]
-                short = WTYPE_SHORT.get(run["t"], "Run")
-                swap_options[f"{dow} ({d_obj.strftime('%-m/%-d')}) — {short} {run['m']}mi"] = ds
+                run = effective_map.get(ds)
+                if run and run["t"] == "race": continue
+                if run:
+                    short = WTYPE_SHORT.get(run["t"], "Run")
+                    swap_options[f"{dow} ({d_obj.strftime('%-m/%-d')}) — {short} {run['m']}mi"] = ds
+                else:
+                    swap_options[f"{dow} ({d_obj.strftime('%-m/%-d')}) — rest day"] = ds
 
             col_a, col_b, col_c = st.columns([2, 2, 1])
             with col_a:
@@ -1230,15 +1259,18 @@ def main():
                 if st.button("Swap", key=f"do_swap_{ws.isoformat()}", type="primary"):
                     ds_a = swap_options[day_a_label]
                     ds_b = swap_options[day_b_label]
-                    if ds_a != ds_b:
-                        run_a = effective_map[ds_a]
-                        run_b = effective_map[ds_b]
+                    if ds_a == ds_b:
+                        st.warning("Pick two different days to swap.")
+                    elif effective_map.get(ds_a) is None and effective_map.get(ds_b) is None:
+                        st.warning("Both days are rest days — nothing to swap.")
+                    else:
+                        run_a = effective_map.get(ds_a)  # may be None (rest)
+                        run_b = effective_map.get(ds_b)  # may be None (rest)
+                        # Use None to represent "this day is now rest"
                         ss["swaps"][ds_a] = run_b
                         ss["swaps"][ds_b] = run_a
                         persist_session()
                         st.rerun()
-                    else:
-                        st.warning("Pick two different days to swap.")
 
     # Show reset button if any swaps exist
     if ss.get("swaps"):
