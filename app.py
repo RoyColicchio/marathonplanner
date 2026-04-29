@@ -1250,6 +1250,12 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
     nw       = "600" if is_today else "400"
     day_num  = int(ds.split("-")[2])
 
+    has_content = bool(planned or actuals)
+    cursor = "pointer" if has_content else "default"
+    # Anchor wraps the cell so click sets ?selected_day=…
+    link_open  = f'<a href="?selected_day={ds}" style="text-decoration:none;color:inherit;display:block">' if has_content else ''
+    link_close = '</a>' if has_content else ''
+
     inner = f'<div style="font-size:10px;color:{nc};font-weight:{nw};margin-bottom:3px">{day_num}</div>'
 
     if planned and actuals:
@@ -1273,7 +1279,7 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
         tip = make_tooltip("actual", None, act["miles"], gps, actual=act)
         inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af", col=col)
 
-    return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg};overflow:visible">{inner}</div>'
+    return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg};overflow:visible;cursor:{cursor}">{link_open}{inner}{link_close}</div>'
 
 def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
     today_str = date.today().isoformat()
@@ -1486,6 +1492,129 @@ def main():
 
     st.markdown(f"## {plan['name']} &nbsp;·&nbsp; {goal_time} goal")
     st.caption(f"{plan['weeks']} weeks · race on {race_date.strftime('%B %-d, %Y')}")
+
+    # ── countdown / progress / this week header ──────────────
+    days_to_race  = (race_date - today).days
+    plan_start    = date.fromisoformat(plan_start_str)
+    days_into     = (today - plan_start).days
+    total_days    = (race_date - plan_start).days
+    pct_complete  = max(0, min(100, round(days_into / total_days * 100))) if total_days > 0 else 0
+    cur_week_idx  = max(0, days_into // 7)  # 0-indexed
+    cur_week_num  = min(plan["weeks"], cur_week_idx + 1)
+
+    # Phase label
+    if days_to_race < 0:
+        phase = "post-race"
+    elif cur_week_num <= plan["weeks"] * 0.4:
+        phase = "Endurance build"
+    elif cur_week_num <= plan["weeks"] * 0.75:
+        phase = "Peak phase"
+    elif cur_week_num <= plan["weeks"] * 0.9:
+        phase = "Race-prep"
+    else:
+        phase = "Taper"
+
+    # This week's runs
+    week_mon = today - timedelta(days=today.weekday())
+    week_dates = [(week_mon + timedelta(days=i)).isoformat() for i in range(7)]
+    week_runs = [(ds, planned_map.get(ds)) for ds in week_dates if planned_map.get(ds)]
+    week_planned_mi = sum(r["m"] for _, r in week_runs)
+    next_quality = next((r for ds, r in week_runs if ds >= today_str and r["t"] in ("tempo","vo2","race")), None)
+    next_long    = next((r for ds, r in week_runs if ds >= today_str and r["t"] == "long"), None)
+    today_run    = planned_map.get(today_str)
+    tomorrow_run = planned_map.get((today + timedelta(days=1)).isoformat())
+
+    countdown_label = "DAYS TO RACE" if days_to_race >= 0 else "DAYS SINCE RACE"
+    countdown_val   = abs(days_to_race)
+
+    header_html = f"""
+    <div style="display:grid;grid-template-columns:1fr 1.2fr 1.6fr;gap:14px;margin:1rem 0 1.5rem">
+      <div style="background:linear-gradient(135deg,#FC4C02,#e04400);border-radius:12px;padding:18px 20px;color:#fff">
+        <div style="font-size:10px;letter-spacing:0.08em;opacity:0.85;margin-bottom:4px">{countdown_label}</div>
+        <div style="font-size:42px;font-weight:300;line-height:1">{countdown_val}</div>
+        <div style="font-size:11px;opacity:0.85;margin-top:6px">{race_date.strftime('%a · %b %-d, %Y')}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <div>
+            <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:4px">PLAN PROGRESS</div>
+            <div style="font-size:18px;font-weight:600;color:#374151">Week {cur_week_num} of {plan['weeks']}</div>
+          </div>
+          <div style="font-size:11px;color:#FC4C02;font-weight:600;background:#fff5f0;padding:3px 10px;border-radius:20px">{phase}</div>
+        </div>
+        <div style="background:#f3f4f6;border-radius:8px;height:8px;overflow:hidden;margin-top:10px">
+          <div style="background:linear-gradient(to right,#5DCAA5,#FC4C02);height:100%;width:{pct_complete}%;transition:width 0.4s"></div>
+        </div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:6px">{pct_complete}% complete · {days_into} days in</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px">
+        <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:10px">THIS WEEK</div>"""
+
+    rows = []
+    if today_run:
+        short = WTYPE_SHORT.get(today_run["t"], "Run")
+        rows.append(f'<span style="color:#FC4C02;font-weight:600">Today</span> &nbsp;{short} · {today_run["m"]}mi')
+    elif tomorrow_run:
+        short = WTYPE_SHORT.get(tomorrow_run["t"], "Run")
+        rows.append(f'<span style="color:#374151;font-weight:600">Tomorrow</span> &nbsp;{short} · {tomorrow_run["m"]}mi')
+    else:
+        rows.append('<span style="color:#9ca3af">Rest day today</span>')
+
+    if next_quality:
+        short = WTYPE_SHORT.get(next_quality["t"], "Run")
+        rows.append(f'<span style="color:#9ca3af">Next quality</span> &nbsp;{short} · {next_quality["m"]}mi')
+    if next_long:
+        rows.append(f'<span style="color:#9ca3af">Long run</span> &nbsp;{next_long["m"]}mi')
+    rows.append(f'<span style="color:#9ca3af">Week total</span> &nbsp;{week_planned_mi} mi planned')
+
+    header_html += '<div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#374151">'
+    for r in rows:
+        header_html += f'<div>{r}</div>'
+    header_html += '</div></div></div>'
+
+    st.html(header_html)
+
+    # ── selected-day detail panel ────────────────────────────
+    sel = params.get("selected_day")
+    if sel:
+        try:
+            sel_date = date.fromisoformat(sel)
+            sel_planned = planned_map.get(sel)
+            sel_actual  = act_runs.get(sel, [None])[0] if act_runs.get(sel) else None
+            is_past = sel < today_str
+            in_window = sel >= plan_start_str
+
+            # Determine mode
+            if sel_planned and sel_actual:
+                mode = "both"
+            elif sel_planned and is_past and in_window:
+                mode = "missed"
+            elif sel_planned:
+                mode = "planned"
+            elif sel_actual:
+                mode = "actual"
+            else:
+                mode = None
+
+            if mode:
+                wtype = sel_planned["t"] if sel_planned else None
+                pmiles = sel_planned["m"] if sel_planned else (sel_actual["miles"] if sel_actual else 0)
+                note = sel_planned.get("note") if sel_planned else None
+                tooltip_inner = make_tooltip(mode, wtype, pmiles, gps, actual=sel_actual, note=note)
+
+                dow_label = sel_date.strftime("%A · %b %-d")
+                close_link = "?" if not params else "?"  # clears selected_day
+                panel = f"""
+                <div style="background:#0f0f0f;border-radius:14px;padding:20px;margin-bottom:1.5rem;position:relative">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <div style="color:#fff;font-size:14px;font-weight:600">{dow_label}</div>
+                    <a href="?" style="color:#9ca3af;text-decoration:none;font-size:18px;line-height:1;padding:4px 8px;border-radius:6px;background:#1f1f1f">×</a>
+                  </div>
+                  <div>{tooltip_inner}</div>
+                </div>"""
+                st.html(panel)
+        except (ValueError, TypeError):
+            pass
 
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("Weeks", plan["weeks"])
