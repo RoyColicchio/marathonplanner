@@ -154,26 +154,120 @@ ME_TORNADO = [
 
 ME_SCHEDULES = dict(gale=ME_GALE, tornado=ME_TORNADO)
 
-BASE_18_55 = [
-    dict(w=1,  runs=[dict(d=1,t="easy",m=7), dict(d=3,t="easy",m=8), dict(d=4,t="tempo",m=9), dict(d=6,t="easy",m=5), dict(d=0,t="long",m=13)]),
-    dict(w=2,  runs=[dict(d=1,t="easy",m=8), dict(d=3,t="easy",m=8), dict(d=4,t="vo2",m=9),   dict(d=6,t="easy",m=5), dict(d=0,t="long",m=15)]),
-    dict(w=3,  runs=[dict(d=1,t="easy",m=9), dict(d=2,t="easy",m=6), dict(d=3,t="tempo",m=10),dict(d=5,t="easy",m=5), dict(d=0,t="long",m=17)]),
-    dict(w=4,  runs=[dict(d=1,t="easy",m=7), dict(d=3,t="easy",m=7), dict(d=4,t="easy",m=8),  dict(d=6,t="easy",m=4), dict(d=0,t="long",m=14)]),
-    dict(w=5,  runs=[dict(d=1,t="easy",m=9), dict(d=2,t="easy",m=6), dict(d=3,t="tempo",m=11),dict(d=5,t="easy",m=5), dict(d=0,t="long",m=18)]),
-    dict(w=6,  runs=[dict(d=1,t="easy",m=9), dict(d=2,t="easy",m=6), dict(d=3,t="vo2",m=10),  dict(d=5,t="easy",m=6), dict(d=0,t="long",m=17)]),
-    dict(w=7,  runs=[dict(d=1,t="easy",m=9), dict(d=2,t="easy",m=6), dict(d=3,t="tempo",m=11),dict(d=5,t="easy",m=6), dict(d=0,t="long",m=19)]),
-    dict(w=8,  runs=[dict(d=1,t="easy",m=7), dict(d=3,t="easy",m=8), dict(d=4,t="easy",m=8),  dict(d=6,t="easy",m=5), dict(d=0,t="long",m=15)]),
-    dict(w=9,  runs=[dict(d=1,t="easy",m=10),dict(d=2,t="easy",m=6), dict(d=3,t="vo2",m=11),  dict(d=5,t="easy",m=6), dict(d=0,t="long",m=20)]),
-    dict(w=10, runs=[dict(d=1,t="easy",m=10),dict(d=2,t="easy",m=6), dict(d=3,t="tempo",m=12),dict(d=5,t="easy",m=6), dict(d=0,t="long",m=20)]),
-    dict(w=11, runs=[dict(d=1,t="easy",m=10),dict(d=2,t="easy",m=7), dict(d=3,t="vo2",m=12),  dict(d=5,t="easy",m=7), dict(d=0,t="long",m=20)]),
-    dict(w=12, runs=[dict(d=1,t="easy",m=8), dict(d=3,t="easy",m=9), dict(d=4,t="tempo",m=9), dict(d=6,t="easy",m=5), dict(d=0,t="long",m=16)]),
-    dict(w=13, runs=[dict(d=1,t="easy",m=10),dict(d=2,t="easy",m=7), dict(d=3,t="tempo",m=12),dict(d=5,t="easy",m=7), dict(d=0,t="long",m=20)]),
-    dict(w=14, runs=[dict(d=1,t="easy",m=10),dict(d=2,t="easy",m=7), dict(d=3,t="vo2",m=12),  dict(d=5,t="easy",m=7), dict(d=0,t="long",m=20)]),
-    dict(w=15, runs=[dict(d=1,t="easy",m=10),dict(d=2,t="easy",m=7), dict(d=3,t="tempo",m=13),dict(d=5,t="easy",m=7), dict(d=0,t="long",m=20)]),
-    dict(w=16, runs=[dict(d=1,t="easy",m=8), dict(d=3,t="easy",m=9), dict(d=4,t="easy",m=8),  dict(d=6,t="easy",m=4), dict(d=0,t="long",m=14)]),
-    dict(w=17, runs=[dict(d=1,t="easy",m=8), dict(d=3,t="tempo",m=8),dict(d=4,t="easy",m=6),  dict(d=6,t="easy",m=4), dict(d=0,t="long",m=12)]),
-    dict(w=18, runs=[dict(d=1,t="easy",m=6), dict(d=3,t="easy",m=5), dict(d=4,t="easy",m=4),  dict(d=6,t="easy",m=3)]),
+# Week-by-week template for Pfitz 18-week plans.
+# Each entry: (workout_type, long_run_mi, weekly_total_mi_for_55_plan)
+# - Workout type cycles through tempo/vo2/easy across the plan
+# - long_mi and weekly_total are the actual Pfitz 18/55 prescriptions
+# 70-mpw plans use a separate scaling factor so they ramp realistically
+PFITZ_18_TEMPLATE = [
+    # (workout, long, total_55)   # phase notes
+    ("tempo", 12,  33),  # wk 1  endurance build
+    ("vo2",   13,  37),  # wk 2
+    ("tempo", 15,  42),  # wk 3
+    ("easy",  12,  32),  # wk 4  recovery week (no quality)
+    ("tempo", 16,  44),  # wk 5
+    ("vo2",   15,  46),  # wk 6
+    ("tempo", 17,  48),  # wk 7
+    ("easy",  13,  37),  # wk 8  recovery
+    ("vo2",   18,  50),  # wk 9  LT/endurance phase
+    ("tempo", 18,  52),  # wk 10
+    ("vo2",   20,  55),  # wk 11 PEAK
+    ("tempo", 14,  44),  # wk 12 recovery
+    ("tempo", 20,  55),  # wk 13 race-prep
+    ("vo2",   18,  55),  # wk 14
+    ("tempo", 20,  55),  # wk 15
+    ("easy",  16,  43),  # wk 16 taper begins
+    ("tempo", 14,  39),  # wk 17
+    ("easy",   8,  26),  # wk 18 race week (8mi long is shake-out, race separate)
 ]
+
+# Pfitz 70-plan totals (different from a simple scale of 55)
+# Source: Pfitz 18/70 published progression
+PFITZ_18_TOTAL_70 = [45, 48, 53, 42, 55, 58, 62, 50, 65, 67, 70, 55, 68, 70, 70, 55, 50, 30]
+
+def expand_pfitz_week(workout_type, long_mi, total_mi):
+    """Given a workout type, long run miles, and weekly total, distribute remaining miles
+    across easy days. Returns a list of run dicts (day numbering will be reassigned later).
+    Layout: long run + 1 quality + remaining easy days summing to (total - long - quality_mi).
+    """
+    # Quality session length scales with weekly total
+    if workout_type == "easy":
+        # Recovery week: no quality, use a medium-long instead
+        quality_mi = round(total_mi * 0.18)
+        runs = [
+            dict(d=0, t="long", m=long_mi),
+            dict(d=99, t="easy", m=quality_mi),  # placeholder day, redistributed later
+        ]
+    else:
+        quality_mi = max(7, round(total_mi * 0.18))
+        runs = [
+            dict(d=0, t="long", m=long_mi),
+            dict(d=99, t=workout_type, m=quality_mi),
+        ]
+    remaining = total_mi - long_mi - quality_mi
+    # Distribute remaining across 3 easy days for 5-day weeks (will become 4 for 6-day weeks
+    # via the auto-add-6th-day logic)
+    n_easy_days = 3
+    if n_easy_days > 0 and remaining > 0:
+        per_day = remaining / n_easy_days
+        # Vary slightly: shortest day before quality, medium-long mid-week, easy near rest
+        easy_mileages = [
+            max(3, round(per_day * 0.85)),
+            max(3, round(per_day * 1.15)),
+            max(3, round(per_day * 1.0)),
+        ]
+        # Fix rounding so total matches
+        delta = remaining - sum(easy_mileages)
+        easy_mileages[1] += delta
+        for em in easy_mileages:
+            if em > 0:
+                runs.append(dict(d=99, t="easy", m=em))
+    return runs
+
+# Generate BASE_18_55 from the template
+BASE_18_55 = []
+for i, (wo, long_mi, total) in enumerate(PFITZ_18_TEMPLATE):
+    runs = expand_pfitz_week(wo, long_mi, total)
+    BASE_18_55.append(dict(w=i+1, runs=runs))
+
+# Generate BASE_18_70 — same workout types and long-run progression but higher totals
+# Long runs in 70-plan are a bit longer too
+LONG_RUN_BUMP_70 = {12:13, 13:14, 14:15, 15:16, 16:17, 17:18, 18:19, 20:21}  # +1 to longer runs
+BASE_18_70 = []
+for i, (wo, long_mi, _) in enumerate(PFITZ_18_TEMPLATE):
+    long_70 = LONG_RUN_BUMP_70.get(long_mi, long_mi)
+    runs = expand_pfitz_week(wo, long_70, PFITZ_18_TOTAL_70[i])
+    BASE_18_70.append(dict(w=i+1, runs=runs))
+
+# 12-week Pfitz plans are authored separately — they assume runners have an existing base
+# (~75-80% of peak mileage). Source: Pfitz "Advanced Marathoning" describes 12-week as a
+# compressed program for runners coming off another marathon cycle.
+# Note: exact week-by-week numbers from the book aren't published online; these are
+# best-effort approximations matching the documented structure (build → peak → taper)
+# and the source noting "peak hit at week 5-6, several weeks in 60s" for 12/70.
+
+# (workout, long_mi, total_55, total_70)
+PFITZ_12_TEMPLATE = [
+    ("tempo", 14, 42, 52),  # wk 1  endurance build
+    ("vo2",   16, 46, 58),  # wk 2
+    ("tempo", 17, 48, 62),  # wk 3
+    ("easy",  13, 38, 48),  # wk 4  recovery/cutback
+    ("vo2",   18, 50, 65),  # wk 5  LT/endurance phase
+    ("tempo", 20, 55, 70),  # wk 6  PEAK
+    ("vo2",   18, 52, 67),  # wk 7
+    ("tempo", 20, 55, 70),  # wk 8  PEAK
+    ("easy",  16, 44, 55),  # wk 9  recovery/cutback before race-prep
+    ("tempo", 20, 55, 68),  # wk 10 race-prep peak
+    ("easy",  14, 39, 50),  # wk 11 taper
+    ("easy",   8, 26, 30),  # wk 12 race week
+]
+
+BASE_12_55 = []
+BASE_12_70 = []
+for i, (wo, long_mi, t55, t70) in enumerate(PFITZ_12_TEMPLATE):
+    BASE_12_55.append(dict(w=i+1, runs=expand_pfitz_week(wo, long_mi, t55)))
+    long_70 = LONG_RUN_BUMP_70.get(long_mi, long_mi)
+    BASE_12_70.append(dict(w=i+1, runs=expand_pfitz_week(wo, long_70, t70)))
 
 def redistribute_pfitz_days(week_runs):
     """Reassign day numbers to follow standard Pfitz spacing.
@@ -251,18 +345,31 @@ def build_schedule(plan_key):
     p = PLANS[plan_key]
     if p.get("kind") == "me":
         return build_me_schedule(p)
-    scale = p["peak_mpw"] / 55
-    src = BASE_18_55[6:] if p["weeks"] == 12 else BASE_18_55
+    # Pick the right pre-built base schedule (no scaling — each is authored to its peak mileage)
+    if p["weeks"] == 18 and p["peak_mpw"] == 55:   src = BASE_18_55
+    elif p["weeks"] == 18 and p["peak_mpw"] == 70: src = BASE_18_70
+    elif p["weeks"] == 12 and p["peak_mpw"] == 55: src = BASE_12_55
+    elif p["weeks"] == 12 and p["peak_mpw"] == 70: src = BASE_12_70
+    else:
+        # Fallback to 18/55 scaled if a non-standard plan slips through
+        scale = p["peak_mpw"] / 55
+        src = [dict(w=wk["w"], runs=[dict(**r, m=round(r["m"]*scale)) for r in wk["runs"]])
+               for wk in BASE_18_55]
     weeks = []
     is_high_volume = p["peak_mpw"] >= 70  # 70+ mpw plans run 6 days/week
     for i, wk in enumerate(src):
-        runs = [dict(d=r["d"], t=r["t"], m=round(r["m"]*scale)) for r in wk["runs"]]
+        runs = [dict(d=r["d"], t=r["t"], m=r["m"]) for r in wk["runs"]]
         if is_high_volume:
-            # Add a 6th run if not present. Recovery run is ~10% of weekly volume, capped 3-6mi
+            # Add a 6th easy run for high-volume plans; mileage already targets the right total
+            # so this 6th run takes a small slice from existing easies (recompute distribution)
             week_total = sum(r["m"] for r in runs)
             if len(runs) < 6:
-                rec_mi = max(3, min(6, round(week_total * 0.10)))
-                # Use a placeholder day; redistribute_pfitz_days will reassign
+                rec_mi = max(3, min(6, round(week_total * 0.08)))
+                # Reduce the largest easy run to make room
+                easies = [r for r in runs if r["t"] == "easy"]
+                if easies:
+                    biggest = max(easies, key=lambda r: r["m"])
+                    biggest["m"] = max(3, biggest["m"] - rec_mi)
                 runs.append(dict(d=99, t="easy", m=rec_mi))
         # Reassign days so rest is on Mon (and Fri for 5-day weeks), quality is mid-week,
         # and easies are spread across the rest of the week.
@@ -881,19 +988,34 @@ def workout_segments(wtype, total_miles, gps, note=None):
         wu = min(2.0, round(total_miles * 0.18, 1))
         cd = min(2.0, round(total_miles * 0.18, 1))
         interval_block = round(total_miles - wu - cd, 1)
-        hard_m = round(interval_block * 0.60, 1)
-        rec_m  = round(interval_block * 0.40, 1)
-        # Estimate rep count based on total hard miles
-        if hard_m <= 3.0:
-            rep_str = "5×1000m or 4×1200m"
-        elif hard_m <= 4.5:
-            rep_str = "5×1200m or 6×1000m"
+        # Estimate rep count and rep length to size the workout realistically.
+        # Pfitz VO2 workouts are typically 3K-5K total at hard pace.
+        # Each rep is 600-1600m hard with ~400m jog recovery.
+        if interval_block <= 3.5:
+            n_reps = 5; rep_m_per = 1000  # 5×1000m
+            rep_str = "5 × 1000m"
+        elif interval_block <= 5.0:
+            n_reps = 6; rep_m_per = 1000  # 6×1000m
+            rep_str = "6 × 1000m or 5 × 1200m"
+        elif interval_block <= 6.5:
+            n_reps = 6; rep_m_per = 1200  # 6×1200m
+            rep_str = "6 × 1200m"
         else:
-            rep_str = "6×1200m or 8×1000m"
+            n_reps = 8; rep_m_per = 1200
+            rep_str = "8 × 1200m"
+        # Hard mileage = reps × distance per rep (in miles)
+        hard_m = round(n_reps * rep_m_per / 1609.34, 1)
+        # Recovery = (reps - 1) × 400m jog
+        rec_m  = round((n_reps - 1) * 400 / 1609.34, 1)
+        # Adjust WU/CD so total = WU + hard + rec + CD ≈ total_miles
+        actual_subtotal = hard_m + rec_m + wu + cd
+        diff = total_miles - actual_subtotal
+        if abs(diff) > 0.3:
+            cd = max(1.0, round(cd + diff, 1))
         return [
-            ("Warmup", f"{wu} mi", easy_p, "Easy jog — get loose, strides optional"),
+            ("Warmup", f"{wu} mi", easy_p, "Easy jog — get loose, add 4-6 strides at the end"),
             (f"Intervals — work ({rep_str})", f"{hard_m} mi", vo2_p, "5K race effort. Hard but controlled — not an all-out sprint"),
-            ("Intervals — recovery jogs", f"{rec_m} mi", rec_p, "~400m easy jog between each rep. Full recovery before next interval"),
+            (f"Recovery jogs ({n_reps - 1} × 400m)", f"{rec_m} mi", rec_p, f"~400m easy jog between each rep ({n_reps - 1} jogs total). Full recovery before next interval"),
             ("Cooldown", f"{cd} mi", easy_p, "Easy jog home — shake out the legs"),
         ]
 
