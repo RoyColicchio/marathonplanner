@@ -949,7 +949,7 @@ def total_miles_placeholder_unused(): return 0  # avoid NameError in fallback br
 def workout_segments(wtype, total_miles, gps, note=None):
     easy_p  = fmt_range(gps + 60, gps + 90)   # 60–90 sec/mi slower than MP
     long_p  = fmt_range(gps + 45, gps + 75)   # 45–75 sec/mi slower than MP
-    tempo_p = fmt_range(gps + 10, gps + 20)   # ~15 sec/mi slower than MP (LT)
+    tempo_p = fmt_range(gps - 25, gps - 15)   # 15K to HM race pace (Pfitz LT)
     vo2_p   = fmt_range(gps - 70, gps - 50)   # ~60 sec/mi faster than MP
     mp_p    = fmt_pace(gps)
     rec_p   = fmt_range(gps + 80, gps + 105)  # very easy recovery jog
@@ -1112,7 +1112,7 @@ def make_tooltip(mode, wtype, planned_miles, gps, actual=None, note=None):
             dist_verdict = (f"{dist_diff:.1f} mi short", "#e8a825")
 
         # Pace delta vs target pace for this workout type
-        target_spm = gps + {"easy":75,"long":60,"tempo":15,"vo2":-60,"race":0}.get(wtype, 75)
+        target_spm = gps + {"easy":75,"long":60,"tempo":-20,"vo2":-60,"race":0}.get(wtype, 75)
         pace_diff  = actual["pace"] - target_spm  # positive = slower than target
         if abs(pace_diff) < 15:
             pace_verdict = ("✓ On pace", "#5DCAA5")
