@@ -175,6 +175,78 @@ BASE_18_55 = [
     dict(w=18, runs=[dict(d=1,t="easy",m=6), dict(d=3,t="easy",m=5), dict(d=4,t="easy",m=4),  dict(d=6,t="easy",m=3)]),
 ]
 
+def redistribute_pfitz_days(week_runs):
+    """Reassign day numbers to follow standard Pfitz spacing.
+    Day convention: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.
+
+    Standard Pfitz weekly pattern (rest on Mon, optional 2nd rest spaced for recovery):
+      5 runs/week:  Mon=rest, Tue=easy/quality, Wed=quality/easy, Thu=easy, Fri=rest, Sat=easy, Sun=long
+      6 runs/week:  Mon=rest, Tue=quality, Wed=easy, Thu=quality/easy, Fri=easy, Sat=easy, Sun=long
+
+    The race day (long run) always stays on Sunday. Quality work is spaced apart.
+    """
+    # Separate the long run (always Sunday) from everything else
+    long_runs = [r for r in week_runs if r["t"] == "long"]
+    other     = [r for r in week_runs if r["t"] != "long"]
+
+    # Identify quality vs easy among the others
+    quality_types = {"tempo", "vo2", "race"}
+    qualities = [r for r in other if r["t"] in quality_types]
+    easies    = [r for r in other if r["t"] not in quality_types]
+
+    n_runs = len(other) + len(long_runs)
+    new_runs = []
+
+    if n_runs == 5:
+        # Pattern: Tue, Wed, Thu, Sat, Sun. Rest on Mon, Fri.
+        # Place quality on Wed (best mid-week), then fill Tue/Thu/Sat with easies
+        slot_days = [2, 3, 4, 6]  # Tue, Wed, Thu, Sat (long takes Sun=0)
+    elif n_runs == 6:
+        # Pattern: Tue, Wed, Thu, Fri, Sat, Sun. Rest on Mon only.
+        slot_days = [2, 3, 4, 5, 6]  # Tue..Sat (long takes Sun=0)
+    else:
+        # 4 runs (taper) — keep simple: Tue, Thu, Sat, Sun
+        slot_days = [2, 4, 6][:max(0, n_runs - 1)] if n_runs <= 4 else [2, 3, 4, 5, 6][:n_runs-1]
+
+    # Place qualities first (preferring mid-week: Wed > Thu > Tue > Fri > Sat)
+    quality_priority = [3, 4, 2, 5, 6]
+    available = list(slot_days)
+    placed = []
+    for q in qualities:
+        chosen = None
+        for d in quality_priority:
+            if d in available:
+                chosen = d
+                break
+        if chosen is None and available:
+            chosen = available[0]
+        if chosen is not None:
+            placed.append(dict(d=chosen, t=q["t"], m=q["m"], **({"note":q["note"]} if "note" in q else {})))
+            available.remove(chosen)
+
+    # Fill remaining slots with easy runs (smallest mileage on Tue/Sat near rest days)
+    easies_sorted = sorted(easies, key=lambda r: r["m"])
+    for e in easies_sorted:
+        if not available:
+            break
+        # Prefer placing smallest easies adjacent to rest days (Tue or Sat)
+        # available is sorted ascending; prefer ends if multiple choices
+        if 2 in available and (e["m"] == easies_sorted[0]["m"] or 6 not in available):
+            chosen = 2
+        elif 6 in available:
+            chosen = 6
+        else:
+            chosen = available[0]
+        placed.append(dict(d=chosen, t=e["t"], m=e["m"], **({"note":e["note"]} if "note" in e else {})))
+        available.remove(chosen)
+
+    # Add long run on Sunday (d=0)
+    for lr in long_runs:
+        placed.append(dict(d=0, t=lr["t"], m=lr["m"], **({"note":lr["note"]} if "note" in lr else {})))
+
+    return sorted(placed, key=lambda r: r["d"] if r["d"] != 0 else 7)
+
+
 def build_schedule(plan_key):
     p = PLANS[plan_key]
     if p.get("kind") == "me":
@@ -186,15 +258,15 @@ def build_schedule(plan_key):
     for i, wk in enumerate(src):
         runs = [dict(d=r["d"], t=r["t"], m=round(r["m"]*scale)) for r in wk["runs"]]
         if is_high_volume:
-            # Add Saturday (d=6) recovery run if not already present.
-            # Recovery run mileage scales with the week's total: roughly 4-5mi at peak.
-            has_saturday = any(r["d"] == 6 for r in runs)
-            if not has_saturday:
-                week_total = sum(r["m"] for r in runs)
-                # Recovery run is ~10% of weekly volume, capped 3-6mi
+            # Add a 6th run if not present. Recovery run is ~10% of weekly volume, capped 3-6mi
+            week_total = sum(r["m"] for r in runs)
+            if len(runs) < 6:
                 rec_mi = max(3, min(6, round(week_total * 0.10)))
-                runs.append(dict(d=6, t="easy", m=rec_mi))
-                runs.sort(key=lambda r: r["d"])
+                # Use a placeholder day; redistribute_pfitz_days will reassign
+                runs.append(dict(d=99, t="easy", m=rec_mi))
+        # Reassign days so rest is on Mon (and Fri for 5-day weeks), quality is mid-week,
+        # and easies are spread across the rest of the week.
+        runs = redistribute_pfitz_days(runs)
         weeks.append(dict(w=i+1, runs=runs))
     return weeks
 
@@ -369,11 +441,23 @@ def build_planned_map(plan_key, race_date_str):
     schedule = build_schedule(plan_key)
     p = PLANS[plan_key]
     race_date = date.fromisoformat(race_date_str)
-    plan_start = race_date - timedelta(weeks=p["weeks"])
+
+    # The schedule uses d=0 for Sunday, d=1..6 for Mon..Sat (Sun-first convention).
+    # We display weeks Mon-Sun. plan_start = Monday of the first week of the plan.
+    # Last week ends on race_date (a Sunday in the typical case). So:
+    #   plan_start = Monday of race week - (weeks-1) weeks
+    # "Monday of race week" = race_date - race_date.weekday()
+    race_week_mon = race_date - timedelta(days=race_date.weekday())
+    plan_start = race_week_mon - timedelta(weeks=p["weeks"]-1)
+
+    # Helper: convert schedule's Sun-first day number (0=Sun..6=Sat) to Mon-first offset (0=Mon..6=Sun)
+    def day_offset(d):
+        return 6 if d == 0 else d - 1
+
     planned = {}
     for wi, wk in enumerate(schedule):
         for run in wk["runs"]:
-            d = plan_start + timedelta(days=wi*7+run["d"])
+            d = plan_start + timedelta(days=wi*7 + day_offset(run["d"]))
             ds = d.isoformat()
             if ds != race_date_str and d < race_date:
                 planned[ds] = run
