@@ -1642,10 +1642,68 @@ def main():
     today_run    = planned_map.get(today_str)
     tomorrow_run = planned_map.get((today + timedelta(days=1)).isoformat())
 
+    # ── race time predictor ─────────────────────────────────
+    # Use recent LT/VO2 runs to predict finish time via Riegel
+    # Collect recent quality runs from the last 8 weeks
+    eight_wks_ago = (today - timedelta(weeks=8)).isoformat()
+    recent_tempos = []
+    recent_long_paces = []
+    for ds, runs in act_runs.items():
+        if ds < eight_wks_ago: continue
+        plan_entry = planned_map.get(ds)
+        for r in runs:
+            if plan_entry and plan_entry["t"] in ("tempo","vo2","me_primary","me_secondary"):
+                recent_tempos.append(r["pace"])  # sec/mi
+            elif plan_entry and plan_entry["t"] in ("long","me_weekend") and r["miles"] >= 12:
+                recent_long_paces.append(r["pace"])
+
+    predicted_label = None
+    predicted_mins  = None
+    pred_detail     = None
+    if recent_tempos:
+        avg_quality_pace = sum(recent_tempos) / len(recent_tempos)
+        # Riegel: predict marathon time from quality pace
+        # Assume quality sessions are run at ~15K effort (9.32 mi)
+        pred_marathon_secs = avg_quality_pace * 9.32 * (26.2 / 9.32) ** 1.06
+        predicted_mins = pred_marathon_secs / 60
+        predicted_label = f"{int(predicted_mins//60)}:{int(predicted_mins%60):02d}:{int((predicted_mins%1)*60):02d}"
+        pred_detail = f"from {len(recent_tempos)} quality run{'s' if len(recent_tempos)>1 else ''}"
+    elif recent_long_paces:
+        avg_long = sum(recent_long_paces) / len(recent_long_paces)
+        # Long run conversion: marathon ≈ long run pace × 1.08 (rough rule of thumb)
+        pred_pace = avg_long * 1.08
+        pred_marathon_secs = pred_pace * 26.2
+        predicted_mins = pred_marathon_secs / 60
+        predicted_label = f"{int(predicted_mins//60)}:{int(predicted_mins%60):02d}:{int((predicted_mins%1)*60):02d}"
+        pred_detail = f"from {len(recent_long_paces)} long run{'s' if len(recent_long_paces)>1 else ''}"
+
+    goal_mins = None
+    if ":" in goal_time:
+        parts = goal_time.split(":")
+        try:
+            goal_mins = int(parts[0])*60 + int(parts[1]) + (int(parts[2])/60 if len(parts)>2 else 0)
+        except: pass
+
+    if predicted_label and goal_mins:
+        delta_mins = predicted_mins - goal_mins
+        if abs(delta_mins) < 1:
+            pred_vs_goal = "On pace for goal"
+            pred_color   = "#065f46"
+        elif delta_mins < 0:
+            pred_vs_goal = f"{abs(delta_mins):.0f} min ahead of goal"
+            pred_color   = "#065f46"
+        else:
+            pred_vs_goal = f"{abs(delta_mins):.0f} min behind goal"
+            pred_color   = "#991b1b"
+    else:
+        pred_vs_goal = None
+        pred_color   = "#9ca3af"
+
+    # ── header cards ───────────────────────────────────────
     countdown_label = "DAYS TO RACE" if days_to_race >= 0 else "DAYS SINCE RACE"
     countdown_val   = abs(days_to_race)
 
-    # Phase subtitle: "12 days until Peak phase" or "race week"
+    # Phase subtitle
     if days_to_race < 0:
         phase_sub = f"{days_into} days in"
     elif next_phase and days_left_in_phase is not None:
@@ -1656,30 +1714,43 @@ def main():
     else:
         phase_sub = f"{days_into} days in"
 
+    # Predictor card content
+    if predicted_label:
+        pred_card = f"""
+        <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:4px">PREDICTED FINISH</div>
+        <div style="font-size:24px;font-weight:600;color:#374151;line-height:1.1">{predicted_label}</div>
+        <div style="font-size:11px;color:{pred_color};margin-top:5px;font-weight:600">{pred_vs_goal or ''}</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:3px">{pred_detail}</div>"""
+    else:
+        pred_card = """
+        <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:4px">PREDICTED FINISH</div>
+        <div style="font-size:14px;color:#9ca3af;margin-top:6px">Not enough data yet</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:4px">Complete quality or long runs to see prediction</div>"""
+
     header_html = f"""
-    <div style="display:grid;grid-template-columns:1fr 1.2fr 1.6fr;gap:14px;margin:1rem 0 1.5rem">
-      <div style="background:linear-gradient(135deg,#FC4C02,#e04400);border-radius:12px;padding:18px 20px;color:#fff">
+    <div style="display:grid;grid-template-columns:0.8fr 1.1fr 1.5fr 1fr;gap:12px;margin:1rem 0 1.5rem">
+      <div style="background:linear-gradient(135deg,#FC4C02,#e04400);border-radius:12px;padding:16px 18px;color:#fff">
         <div style="font-size:10px;letter-spacing:0.08em;opacity:0.85;margin-bottom:4px">{countdown_label}</div>
-        <div style="font-size:42px;font-weight:300;line-height:1">{countdown_val}</div>
+        <div style="font-size:38px;font-weight:300;line-height:1">{countdown_val}</div>
         <div style="font-size:11px;opacity:0.85;margin-top:6px">{race_date.strftime('%a · %b %-d, %Y')}</div>
       </div>
-      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
           <div>
             <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:4px">PLAN PROGRESS</div>
-            <div style="font-size:18px;font-weight:600;color:#374151">Week {cur_week_num} of {plan['weeks']}</div>
+            <div style="font-size:17px;font-weight:600;color:#374151">Week {cur_week_num} of {plan['weeks']}</div>
           </div>
           <div style="text-align:right">
             <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af">PHASE</div>
-            <div style="font-size:13px;color:#FC4C02;font-weight:600">{phase}</div>
+            <div style="font-size:12px;color:#FC4C02;font-weight:600">{phase}</div>
           </div>
         </div>
-        <div style="background:#f3f4f6;border-radius:8px;height:8px;overflow:hidden;margin-top:8px">
+        <div style="background:#f3f4f6;border-radius:8px;height:7px;overflow:hidden;margin-top:6px">
           <div style="background:linear-gradient(to right,#5DCAA5,#FC4C02);height:100%;width:{pct_complete}%;transition:width 0.4s"></div>
         </div>
-        <div style="font-size:11px;color:#9ca3af;margin-top:6px">{pct_complete}% complete · {phase_sub}</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:5px">{phase_sub}</div>
       </div>
-      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px">
         <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:10px">THIS WEEK</div>"""
 
     rows = []
@@ -1691,7 +1762,6 @@ def main():
         rows.append(f'<span style="color:#374151;font-weight:600">Tomorrow</span> &nbsp;{short} · {tomorrow_run["m"]}mi')
     else:
         rows.append('<span style="color:#9ca3af">Rest day today</span>')
-
     if next_quality:
         short = WTYPE_SHORT.get(next_quality["t"], "Run")
         rows.append(f'<span style="color:#9ca3af">Next quality</span> &nbsp;{short} · {next_quality["m"]}mi')
@@ -1699,10 +1769,15 @@ def main():
         rows.append(f'<span style="color:#9ca3af">Long run</span> &nbsp;{next_long["m"]}mi')
     rows.append(f'<span style="color:#9ca3af">Week total</span> &nbsp;{week_planned_mi} mi planned')
 
-    header_html += '<div style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#374151">'
+    header_html += '<div style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:#374151">'
     for r in rows:
         header_html += f'<div>{r}</div>'
-    header_html += '</div></div></div>'
+    header_html += f"""</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px">
+        {pred_card}
+      </div>
+    </div>"""
 
     st.html(header_html)
 
@@ -1751,19 +1826,18 @@ def main():
             ss["week_offset"] = 0
             st.rerun()
 
-    # Legend
+    # Legend + color key
     leg = """
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:12px 0 16px;font-size:11px;color:#6b7280">
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:120px;height:14px;border-radius:4px;background:linear-gradient(to right,#e05757,#e8a825,#5DCAA5)"></div>
-        <span>On target &rarr; Missed</span>
-      </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:12px 0 16px;font-size:11px;color:#6b7280">
       <div style="display:flex;align-items:center;gap:6px">
-        <span style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:4px;font-weight:600">Upcoming</span>
+        <div style="width:100px;height:12px;border-radius:3px;background:linear-gradient(to right,#e05757,#e8a825,#5DCAA5)"></div>
+        <span>On target → Missed</span>
       </div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-weight:600">Unplanned run</span>
-      </div>
+      <span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-weight:600">Easy</span>
+      <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-weight:600">Long</span>
+      <span style="background:#fed7aa;color:#7c2d12;padding:2px 8px;border-radius:4px;font-weight:600">Tempo</span>
+      <span style="background:#fecaca;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600">VO2</span>
+      <span style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:4px;font-weight:600">Unplanned</span>
     </div>"""
     st.html(leg)
 
@@ -1779,6 +1853,81 @@ def main():
         we = ws + timedelta(days=6)
         cal_html += render_week(ws, effective_map, act_runs, plan_start_str, gps, ws <= today <= we)
     st.html(cal_html)
+
+    # ── fitness trend chart ──────────────────────────────────
+    # Build weekly actual vs planned mileage over the past 12 weeks + future 4
+    trend_weeks = all_weeks[max(0, cur_idx - 11) : cur_idx + 5]
+    if trend_weeks:
+        trend_planned = []
+        trend_actual  = []
+        trend_labels  = []
+        for ws in trend_weeks:
+            week_ds = [(ws + timedelta(days=j)).isoformat() for j in range(7)]
+            p_mi = sum(effective_map[ds]["m"] for ds in week_ds if effective_map.get(ds) and effective_map[ds]["t"] != "race")
+            a_mi = round(sum(r["miles"] for ds in week_ds for r in act_runs.get(ds, [])), 1)
+            trend_planned.append(p_mi)
+            trend_actual.append(a_mi)
+            trend_labels.append((ws + timedelta(days=3)).strftime("%-m/%-d"))  # midweek label
+
+        max_mi = max(max(trend_planned or [1]), max(trend_actual or [1]), 1)
+        n = len(trend_weeks)
+        W, H = 700, 200
+        pad_l, pad_r, pad_t, pad_b = 45, 20, 20, 36
+        chart_w = W - pad_l - pad_r
+        chart_h = H - pad_t - pad_b
+        bar_w = max(6, chart_w // n - 6)
+        bar_gap = chart_w // n
+
+        def y(mi): return pad_t + chart_h - int(mi / max_mi * chart_h)
+
+        bars_planned = ""
+        bars_actual  = ""
+        labels_html  = ""
+        points       = []
+
+        for i, (p, a, lbl) in enumerate(zip(trend_planned, trend_actual, trend_labels)):
+            x_center = pad_l + i * bar_gap + bar_gap // 2
+            is_cur = trend_weeks[i] <= today <= trend_weeks[i] + timedelta(days=6)
+
+            # Planned bar (light)
+            ph = max(1, int(p / max_mi * chart_h))
+            bars_planned += f'<rect x="{x_center - bar_w//2 - 2}" y="{pad_t + chart_h - ph}" width="{bar_w}" height="{ph}" fill="#e5e7eb" rx="2"/>'
+
+            # Actual bar (colored)
+            if a > 0:
+                ah = max(1, int(a / max_mi * chart_h))
+                color = "#FC4C02" if is_cur else "#5DCAA5"
+                bars_actual += f'<rect x="{x_center - bar_w//2 + 2}" y="{pad_t + chart_h - ah}" width="{bar_w}" height="{ah}" fill="{color}" rx="2" opacity="0.85"/>'
+                points.append((x_center, y(a)))
+
+            # X labels (every other week to avoid overlap)
+            if i % 2 == 0 or n <= 8:
+                fw = "600" if is_cur else "400"
+                labels_html += f'<text x="{x_center}" y="{H - 6}" text-anchor="middle" font-size="9" fill="{"#FC4C02" if is_cur else "#9ca3af"}" font-weight="{fw}">{lbl}</text>'
+
+        # Trend line through actuals
+        line_pts = " ".join(f"{x},{y}" for x, y in points)
+        trend_line = f'<polyline points="{line_pts}" fill="none" stroke="#5DCAA5" stroke-width="1.5" opacity="0.6"/>' if len(points) > 1 else ""
+
+        # Y-axis grid lines
+        grid = ""
+        for tick in [0.25, 0.5, 0.75, 1.0]:
+            ty = int(pad_t + chart_h * (1 - tick))
+            mi_val = int(max_mi * tick)
+            grid += f'<line x1="{pad_l}" y1="{ty}" x2="{W - pad_r}" y2="{ty}" stroke="#f3f4f6" stroke-width="1"/>'
+            grid += f'<text x="{pad_l - 5}" y="{ty + 4}" text-anchor="end" font-size="9" fill="#9ca3af">{mi_val}</text>'
+
+        svg = f"""<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;font-family:system-ui,sans-serif">
+          {grid}{bars_planned}{bars_actual}{trend_line}{labels_html}
+          <text x="{pad_l}" y="{pad_t - 6}" font-size="10" fill="#9ca3af" font-weight="600">WEEKLY MILEAGE — planned vs actual</text>
+          <rect x="{W-130}" y="4" width="10" height="10" fill="#e5e7eb" rx="2"/>
+          <text x="{W-116}" y="13" font-size="9" fill="#9ca3af">Planned</text>
+          <rect x="{W-70}" y="4" width="10" height="10" fill="#5DCAA5" rx="2" opacity="0.85"/>
+          <text x="{W-56}" y="13" font-size="9" fill="#9ca3af">Actual</text>
+        </svg>"""
+
+        st.markdown("---")
+        st.html(svg)
 
     # ── swap UI ───────────────────────────────────────────────
     # Show swap controls for weeks that have at least 2 future planned days
