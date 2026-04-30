@@ -994,34 +994,44 @@ def workout_segments(wtype, total_miles, gps, note=None):
         wu = min(2.0, round(total_miles * 0.18, 1))
         cd = min(2.0, round(total_miles * 0.18, 1))
         interval_block = round(total_miles - wu - cd, 1)
-        # Estimate rep count and rep length to size the workout realistically.
-        # Pfitz VO2 workouts are typically 3K-5K total at hard pace.
-        # Each rep is 600-1600m hard with ~400m jog recovery.
         if interval_block <= 3.5:
-            n_reps = 5; rep_m_per = 1000  # 5×1000m
+            n_reps = 5; rep_m_per = 1000
             rep_str = "5 × 1000m"
         elif interval_block <= 5.0:
-            n_reps = 6; rep_m_per = 1000  # 6×1000m
+            n_reps = 6; rep_m_per = 1000
             rep_str = "6 × 1000m or 5 × 1200m"
         elif interval_block <= 6.5:
-            n_reps = 6; rep_m_per = 1200  # 6×1200m
+            n_reps = 6; rep_m_per = 1200
             rep_str = "6 × 1200m"
         else:
             n_reps = 8; rep_m_per = 1200
             rep_str = "8 × 1200m"
-        # Hard mileage = reps × distance per rep (in miles)
         hard_m = round(n_reps * rep_m_per / 1609.34, 1)
-        # Recovery = (reps - 1) × 400m jog
-        rec_m  = round((n_reps - 1) * 400 / 1609.34, 1)
-        # Adjust WU/CD so total = WU + hard + rec + CD ≈ total_miles
+
+        # Per Pfitz: recovery jog duration ≈ equal to interval duration (not fixed 400m).
+        # Recovery pace = very easy, 90-120 sec/mi slower than MP (slower than easy runs).
+        # For a rep of rep_m_per meters at VO2 pace (gps - 60 sec/mi):
+        vo2_pace_spm = gps - 60  # approx center of VO2 range
+        rep_time_secs = (rep_m_per / 1609.34) * vo2_pace_spm
+        # Recovery pace: genuinely conversational — slower than easy runs
+        rec_pace_spm = gps + 100  # ~100 sec/mi slower than MP
+        rec_dist_per = round(rep_time_secs / rec_pace_spm, 2)  # miles of recovery per rep
+        rec_m = round((n_reps - 1) * rec_dist_per, 1)
+        rec_time_str = f"{int(rep_time_secs // 60)}:{int(rep_time_secs % 60):02d}"
+        rec_pace_fmt = fmt_pace(rec_pace_spm)
+
         actual_subtotal = hard_m + rec_m + wu + cd
         diff = total_miles - actual_subtotal
         if abs(diff) > 0.3:
             cd = max(1.0, round(cd + diff, 1))
+
         return [
             ("Warmup", f"{wu} mi", easy_p, "Easy jog — get loose, add 4-6 strides at the end"),
-            (f"Intervals — work ({rep_str})", f"{hard_m} mi", vo2_p, "5K race effort. Hard but controlled — not an all-out sprint"),
-            (f"Recovery jogs ({n_reps - 1} × 400m)", f"{rec_m} mi", rec_p, f"~400m easy jog between each rep ({n_reps - 1} jogs total). Full recovery before next interval"),
+            (f"Intervals ({rep_str})", f"{hard_m} mi", vo2_p, "5K race effort. Hard but controlled — not an all-out sprint"),
+            (f"Recovery jogs ({n_reps - 1} × ~{rec_time_str})", f"{rec_m} mi",
+             "jog / walk",
+             f"Jog or walk for ≈ the same duration as the rep (~{rec_time_str} each). "
+             f"No pace target — go as slow as you need. Don't start the next rep until breathing is fully under control."),
             ("Cooldown", f"{cd} mi", easy_p, "Easy jog home — shake out the legs"),
         ]
 
