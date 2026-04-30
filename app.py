@@ -1256,9 +1256,22 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
     nw       = "600" if is_today else "400"
     day_num  = int(ds.split("-")[2])
 
+    # Color palette per workout type — bg, text color
+    TYPE_COLORS = {
+        "easy":         ("#d1fae5", "#065f46"),  # light green
+        "long":         ("#dbeafe", "#1e40af"),  # blue
+        "tempo":        ("#fed7aa", "#7c2d12"),  # warm orange (LT)
+        "vo2":          ("#fecaca", "#991b1b"),  # hot red-orange (VO2 max)
+        "race":         ("#FC4C02", "#ffffff"),  # solid Strava orange
+        "me_primary":   ("#fecaca", "#991b1b"),  # ME primary = hard workout
+        "me_secondary": ("#fed7aa", "#7c2d12"),  # ME secondary = LT-ish
+        "me_weekend":   ("#dbeafe", "#1e40af"),  # ME weekend long
+    }
+
     inner = f'<div style="font-size:10px;color:{nc};font-weight:{nw};margin-bottom:3px">{day_num}</div>'
 
     if planned and actuals:
+        # Completed run with plan — show completion gradient (performance signal)
         act = actuals[0]
         dist_pct = (act["miles"] / planned["m"] * 100) if planned["m"] else 100
         color = completion_color(dist_pct)
@@ -1266,15 +1279,19 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
         short = WTYPE_SHORT.get(planned["t"], "Run")
         inner += pill_html(f"{short} · {act['miles']:.1f}mi", color, tip, col=col)
     elif planned and is_past and in_win:
+        # Missed planned run — red regardless of type
         tip = make_tooltip("missed", planned["t"], planned["m"], gps, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
         inner += pill_html(f"{short} · missed", "#e05757", tip, col=col)
     elif planned and not is_past:
+        # Upcoming planned — color by workout type
         tip = make_tooltip("planned", planned["t"], planned["m"], gps, note=planned.get("note"))
         short = WTYPE_SHORT.get(planned["t"], "Run")
         lbl = "Race day" if planned["t"] == "race" else f"{short} · {planned['m']}mi"
-        inner += pill_html(lbl, "#e5e7eb", tip, fg="#374151", col=col)
+        bg_c, fg_c = TYPE_COLORS.get(planned["t"], ("#e5e7eb", "#374151"))
+        inner += pill_html(lbl, bg_c, tip, fg=fg_c, col=col)
     elif actuals and not planned:
+        # Unplanned run — light blue
         act = actuals[0]
         tip = make_tooltip("actual", None, act["miles"], gps, actual=act)
         inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af", col=col)
@@ -1590,17 +1607,30 @@ def main():
     cur_week_idx  = max(0, days_into // 7)  # 0-indexed
     cur_week_num  = min(plan["weeks"], cur_week_idx + 1)
 
-    # Phase label
+    # Phase boundaries — week numbers (1-indexed) at which each phase ends (inclusive)
+    weeks_total = plan["weeks"]
+    phase_defs = [
+        ("Endurance build", round(weeks_total * 0.40)),
+        ("Peak phase",      round(weeks_total * 0.75)),
+        ("Race-prep",       round(weeks_total * 0.90)),
+        ("Taper",           weeks_total),
+    ]
     if days_to_race < 0:
-        phase = "post-race"
-    elif cur_week_num <= plan["weeks"] * 0.4:
-        phase = "Endurance build"
-    elif cur_week_num <= plan["weeks"] * 0.75:
-        phase = "Peak phase"
-    elif cur_week_num <= plan["weeks"] * 0.9:
-        phase = "Race-prep"
+        phase = "Post-race"
+        next_phase = None
+        days_left_in_phase = None
     else:
-        phase = "Taper"
+        phase = phase_defs[-1][0]
+        next_phase = None
+        days_left_in_phase = None
+        for i, (name, end_wk) in enumerate(phase_defs):
+            if cur_week_num <= end_wk:
+                phase = name
+                next_phase = phase_defs[i+1][0] if i+1 < len(phase_defs) else "Race day"
+                # Days remaining in this phase = days until end of end_wk
+                phase_end_date = plan_start + timedelta(days=end_wk*7 - 1)
+                days_left_in_phase = max(0, (phase_end_date - today).days)
+                break
 
     # This week's runs
     week_mon = today - timedelta(days=today.weekday())
@@ -1615,6 +1645,17 @@ def main():
     countdown_label = "DAYS TO RACE" if days_to_race >= 0 else "DAYS SINCE RACE"
     countdown_val   = abs(days_to_race)
 
+    # Phase subtitle: "12 days until Peak phase" or "race week"
+    if days_to_race < 0:
+        phase_sub = f"{days_into} days in"
+    elif next_phase and days_left_in_phase is not None:
+        if next_phase == "Race day":
+            phase_sub = f"{days_left_in_phase} days to race"
+        else:
+            phase_sub = f"{days_left_in_phase} day{'s' if days_left_in_phase != 1 else ''} until {next_phase}"
+    else:
+        phase_sub = f"{days_into} days in"
+
     header_html = f"""
     <div style="display:grid;grid-template-columns:1fr 1.2fr 1.6fr;gap:14px;margin:1rem 0 1.5rem">
       <div style="background:linear-gradient(135deg,#FC4C02,#e04400);border-radius:12px;padding:18px 20px;color:#fff">
@@ -1623,17 +1664,20 @@ def main():
         <div style="font-size:11px;opacity:0.85;margin-top:6px">{race_date.strftime('%a · %b %-d, %Y')}</div>
       </div>
       <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
           <div>
             <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:4px">PLAN PROGRESS</div>
             <div style="font-size:18px;font-weight:600;color:#374151">Week {cur_week_num} of {plan['weeks']}</div>
           </div>
-          <div style="font-size:11px;color:#FC4C02;font-weight:600;background:#fff5f0;padding:3px 10px;border-radius:20px">{phase}</div>
+          <div style="text-align:right">
+            <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af">PHASE</div>
+            <div style="font-size:13px;color:#FC4C02;font-weight:600">{phase}</div>
+          </div>
         </div>
-        <div style="background:#f3f4f6;border-radius:8px;height:8px;overflow:hidden;margin-top:10px">
+        <div style="background:#f3f4f6;border-radius:8px;height:8px;overflow:hidden;margin-top:8px">
           <div style="background:linear-gradient(to right,#5DCAA5,#FC4C02);height:100%;width:{pct_complete}%;transition:width 0.4s"></div>
         </div>
-        <div style="font-size:11px;color:#9ca3af;margin-top:6px">{pct_complete}% complete · {days_into} days in</div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:6px">{pct_complete}% complete · {phase_sub}</div>
       </div>
       <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px">
         <div style="font-size:10px;letter-spacing:0.08em;color:#9ca3af;margin-bottom:10px">THIS WEEK</div>"""
