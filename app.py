@@ -21,6 +21,7 @@ PERSIST_KEYS = [
     "access_token", "refresh_token", "token_expires_at",
     "athlete",
     "goal_time", "race_date", "selected_plan",
+    "long_dow", "quality_dow", "rest_dow",
     "swaps",
 ]
 
@@ -269,79 +270,84 @@ for i, (wo, long_mi, t55, t70) in enumerate(PFITZ_12_TEMPLATE):
     long_70 = LONG_RUN_BUMP_70.get(long_mi, long_mi)
     BASE_12_70.append(dict(w=i+1, runs=expand_pfitz_week(wo, long_70, t70)))
 
-def redistribute_pfitz_days(week_runs):
-    """Reassign day numbers to follow standard Pfitz spacing.
+def redistribute_pfitz_days(week_runs, long_day=0, quality_day=3, rest_day=1):
+    """Reassign day numbers based on user-configured preferences.
     Day convention: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.
 
-    Standard Pfitz weekly pattern (rest on Mon, optional 2nd rest spaced for recovery):
-      5 runs/week:  Mon=rest, Tue=easy/quality, Wed=quality/easy, Thu=easy, Fri=rest, Sat=easy, Sun=long
-      6 runs/week:  Mon=rest, Tue=quality, Wed=easy, Thu=quality/easy, Fri=easy, Sat=easy, Sun=long
-
-    The race day (long run) always stays on Sunday. Quality work is spaced apart.
+    Defaults: long=Sun, quality=Wed, rest=Mon (standard Pfitz).
+    For 5-day weeks (55-mpw plans), a 2nd rest is placed to maximize spacing.
+    For 6-day weeks (70-mpw plans), only the user-selected rest day is used.
     """
-    # Separate the long run (always Sunday) from everything else
     long_runs = [r for r in week_runs if r["t"] == "long"]
     other     = [r for r in week_runs if r["t"] != "long"]
-
-    # Identify quality vs easy among the others
     quality_types = {"tempo", "vo2", "race"}
     qualities = [r for r in other if r["t"] in quality_types]
     easies    = [r for r in other if r["t"] not in quality_types]
 
     n_runs = len(other) + len(long_runs)
-    new_runs = []
 
-    if n_runs == 5:
-        # Pattern: Tue, Wed, Thu, Sat, Sun. Rest on Mon, Fri.
-        # Place quality on Wed (best mid-week), then fill Tue/Thu/Sat with easies
-        slot_days = [2, 3, 4, 6]  # Tue, Wed, Thu, Sat (long takes Sun=0)
-    elif n_runs == 6:
-        # Pattern: Tue, Wed, Thu, Fri, Sat, Sun. Rest on Mon only.
-        slot_days = [2, 3, 4, 5, 6]  # Tue..Sat (long takes Sun=0)
-    else:
-        # 4 runs (taper) — keep simple: Tue, Thu, Sat, Sun
-        slot_days = [2, 4, 6][:max(0, n_runs - 1)] if n_runs <= 4 else [2, 3, 4, 5, 6][:n_runs-1]
+    # All weekdays minus long_day and rest_day
+    all_days = [0, 1, 2, 3, 4, 5, 6]
+    available = [d for d in all_days if d not in {long_day, rest_day}]
 
-    # Place qualities first (preferring mid-week: Wed > Thu > Tue > Fri > Sat)
-    quality_priority = [3, 4, 2, 5, 6]
-    available = list(slot_days)
+    # For 5-day weeks, add a second rest day spaced to maximize gap from long_day and rest_day
+    if n_runs == 5 and len(available) > 4:
+        # Find the day that maximizes minimum distance from long_day and rest_day
+        def min_dist(d):
+            def cyclic(a, b): return min((a-b) % 7, (b-a) % 7)
+            return min(cyclic(d, long_day), cyclic(d, rest_day), cyclic(d, quality_day))
+        # Pick the day with greatest minimum distance from both rest and long
+        # (excluding quality_day so we don't override the user's quality preference)
+        candidates = [d for d in available if d != quality_day]
+        if candidates:
+            second_rest = max(candidates, key=lambda d: min(
+                ((d - long_day) % 7, (long_day - d) % 7),
+                ((d - rest_day) % 7, (rest_day - d) % 7)
+            )[0])
+            available = [d for d in available if d != second_rest]
+
+    # Trim available to match run count (excluding long run, which goes on long_day)
+    needed = n_runs - len(long_runs)  # how many non-long slots we need
+    while len(available) > needed:
+        # Drop the day adjacent to quality_day or long_day (least useful for an easy run)
+        # Just drop from the end
+        available.pop()
+
     placed = []
-    for q in qualities:
-        chosen = None
-        for d in quality_priority:
-            if d in available:
-                chosen = d
+    # Place qualities — first one goes on user's quality_day, additional ones spaced out
+    quality_slots = [quality_day]
+    if len(qualities) > 1:
+        # For multiple qualities, add a second slot far from the first
+        for d in [(quality_day + 3) % 7, (quality_day + 4) % 7, (quality_day + 2) % 7]:
+            if d in available and d != long_day and d != rest_day:
+                quality_slots.append(d)
                 break
-        if chosen is None and available:
-            chosen = available[0]
-        if chosen is not None:
-            placed.append(dict(d=chosen, t=q["t"], m=q["m"], **({"note":q["note"]} if "note" in q else {})))
+    for i, q in enumerate(qualities):
+        chosen = quality_slots[i] if i < len(quality_slots) else (available[0] if available else quality_day)
+        placed.append(dict(d=chosen, t=q["t"], m=q["m"], **({"note":q["note"]} if "note" in q else {})))
+        if chosen in available:
             available.remove(chosen)
 
-    # Fill remaining slots with easy runs (smallest mileage on Tue/Sat near rest days)
+    # Fill remaining with easies
     easies_sorted = sorted(easies, key=lambda r: r["m"])
     for e in easies_sorted:
         if not available:
             break
-        # Prefer placing smallest easies adjacent to rest days (Tue or Sat)
-        # available is sorted ascending; prefer ends if multiple choices
-        if 2 in available and (e["m"] == easies_sorted[0]["m"] or 6 not in available):
-            chosen = 2
-        elif 6 in available:
-            chosen = 6
-        else:
-            chosen = available[0]
+        chosen = available[0]
         placed.append(dict(d=chosen, t=e["t"], m=e["m"], **({"note":e["note"]} if "note" in e else {})))
         available.remove(chosen)
 
-    # Add long run on Sunday (d=0)
+    # Add long run
     for lr in long_runs:
-        placed.append(dict(d=0, t=lr["t"], m=lr["m"], **({"note":lr["note"]} if "note" in lr else {})))
+        placed.append(dict(d=long_day, t=lr["t"], m=lr["m"], **({"note":lr["note"]} if "note" in lr else {})))
 
-    return sorted(placed, key=lambda r: r["d"] if r["d"] != 0 else 7)
+    # Sort by display order (Mon → Sun)
+    def display_order(d):
+        return 7 if d == 0 else d
+    return sorted(placed, key=lambda r: display_order(r["d"]))
 
 
-def build_schedule(plan_key):
+def build_schedule(plan_key, long_day=0, quality_day=3, rest_day=1):
     p = PLANS[plan_key]
     if p.get("kind") == "me":
         return build_me_schedule(p)
@@ -373,7 +379,7 @@ def build_schedule(plan_key):
                 runs.append(dict(d=99, t="easy", m=rec_mi))
         # Reassign days so rest is on Mon (and Fri for 5-day weeks), quality is mid-week,
         # and easies are spread across the rest of the week.
-        runs = redistribute_pfitz_days(runs)
+        runs = redistribute_pfitz_days(runs, long_day=long_day, quality_day=quality_day, rest_day=rest_day)
         weeks.append(dict(w=i+1, runs=runs))
     return weeks
 
@@ -544,8 +550,8 @@ def fmt_time(secs):
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
-def build_planned_map(plan_key, race_date_str):
-    schedule = build_schedule(plan_key)
+def build_planned_map(plan_key, race_date_str, long_day=0, quality_day=3, rest_day=1):
+    schedule = build_schedule(plan_key, long_day=long_day, quality_day=quality_day, rest_day=rest_day)
     p = PLANS[plan_key]
     race_date = date.fromisoformat(race_date_str)
 
@@ -1250,12 +1256,6 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
     nw       = "600" if is_today else "400"
     day_num  = int(ds.split("-")[2])
 
-    has_content = bool(planned or actuals)
-    cursor = "pointer" if has_content else "default"
-    # Anchor wraps the cell so click sets ?selected_day=…
-    link_open  = f'<a href="?selected_day={ds}" style="text-decoration:none;color:inherit;display:block">' if has_content else ''
-    link_close = '</a>' if has_content else ''
-
     inner = f'<div style="font-size:10px;color:{nc};font-weight:{nw};margin-bottom:3px">{day_num}</div>'
 
     if planned and actuals:
@@ -1279,7 +1279,7 @@ def day_cell(ds, planned, actuals, today_str, plan_start_str, gps, col=0):
         tip = make_tooltip("actual", None, act["miles"], gps, actual=act)
         inner += pill_html(f"Run · {act['miles']:.1f}mi", "#dbeafe", tip, fg="#1e40af", col=col)
 
-    return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg};overflow:visible;cursor:{cursor}">{link_open}{inner}{link_close}</div>'
+    return f'<div style="min-height:60px;border-radius:7px;padding:5px 6px;border:{border};background:{bg};overflow:visible">{inner}</div>'
 
 def render_week(ws, planned_map, act_runs, plan_start_str, gps, is_current):
     today_str = date.today().isoformat()
@@ -1458,16 +1458,98 @@ def main():
                             format_func=lambda k: f"{PLANS[k]['name']} — {PLANS[k]['desc']}",
                             index=list(PLANS.keys()).index(ss["selected_plan"]),
                             label_visibility="collapsed")
+
+        # ── Schedule day preferences ──
+        is_me = PLANS[plan_key].get("kind") == "me"
+        if not is_me:
+            st.divider()
+            st.markdown("### Schedule")
+            st.caption("Pick which day each type of run lands on.")
+            DOW_OPTS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+            # Internal index mapping: schedule uses 0=Sun..6=Sat, but display Mon-first
+            DOW_TO_INT = {"Mon":1,"Tue":2,"Wed":3,"Thu":4,"Fri":5,"Sat":6,"Sun":0}
+            INT_TO_DOW = {v:k for k,v in DOW_TO_INT.items()}
+
+            # Default: long=Sun matches race day if race is Sunday, otherwise let user pick
+            default_long_dow    = INT_TO_DOW.get(race_date.isoweekday() % 7, "Sun")
+            default_quality_dow = ss.get("quality_dow", "Wed")
+            default_rest_dow    = ss.get("rest_dow", "Mon")
+
+            long_dow = st.selectbox(
+                "Long run day",
+                DOW_OPTS,
+                index=DOW_OPTS.index(ss.get("long_dow", default_long_dow)),
+                help="Should match your race day for race-week alignment."
+            )
+            quality_dow = st.selectbox(
+                "Quality workout day",
+                DOW_OPTS,
+                index=DOW_OPTS.index(default_quality_dow),
+                help="Best practice: 3+ days before/after long run for full recovery."
+            )
+            rest_dow = st.selectbox(
+                "Rest day",
+                DOW_OPTS,
+                index=DOW_OPTS.index(default_rest_dow),
+                help="Best practice: day after long run, OR day before quality workout."
+            )
+
+            # Validation warnings (best-practice advice)
+            warnings = []
+            def cyclic_gap(a, b):
+                ai = DOW_TO_INT[a]
+                bi = DOW_TO_INT[b]
+                return min((ai - bi) % 7, (bi - ai) % 7)
+
+            if long_dow == quality_dow:
+                warnings.append("Quality and long run can't be on the same day.")
+            elif cyclic_gap(long_dow, quality_dow) < 2:
+                warnings.append(f"Quality on {quality_dow} is only {cyclic_gap(long_dow, quality_dow)} day(s) from long run on {long_dow}. Aim for 3+ days for recovery.")
+
+            if rest_dow == quality_dow:
+                warnings.append("Rest and quality workout can't be on the same day.")
+            if rest_dow == long_dow:
+                warnings.append("Rest can't be on long run day.")
+
+            if cyclic_gap(rest_dow, quality_dow) > 0 and cyclic_gap(rest_dow, quality_dow) < 1.5:
+                # Rest right before quality is fine, this is just informational
+                pass
+
+            for w in warnings:
+                st.warning(w)
+
+            # Only commit selections to session state if no blocking conflicts
+            blocking = any("can't be" in w for w in warnings)
+            if not blocking:
+                ss["long_dow"] = long_dow
+                ss["quality_dow"] = quality_dow
+                ss["rest_dow"] = rest_dow
+            long_day_int    = DOW_TO_INT[ss.get("long_dow", default_long_dow)]
+            quality_day_int = DOW_TO_INT[ss.get("quality_dow", default_quality_dow)]
+            rest_day_int    = DOW_TO_INT[ss.get("rest_dow", default_rest_dow)]
+        else:
+            long_day_int = quality_day_int = rest_day_int = None  # ME plans handle their own layout
+
         # Track previous values to detect changes worth persisting
         prev_plan      = ss.get("selected_plan")
         prev_goal_time = ss.get("goal_time")
         prev_race_date = ss.get("race_date")
+        prev_long      = ss.get("_last_long")
+        prev_quality   = ss.get("_last_quality")
+        prev_rest      = ss.get("_last_rest")
 
         ss["selected_plan"] = plan_key
         ss["goal_time"] = goal_time
         ss["race_date"] = race_date
 
-        if (prev_plan != plan_key) or (prev_goal_time != goal_time) or (prev_race_date != race_date):
+        changed = (prev_plan != plan_key) or (prev_goal_time != goal_time) or (prev_race_date != race_date)
+        if not is_me:
+            ss["_last_long"]    = ss.get("long_dow")
+            ss["_last_quality"] = ss.get("quality_dow")
+            ss["_last_rest"]    = ss.get("rest_dow")
+            changed = changed or (prev_long != ss["_last_long"]) or (prev_quality != ss["_last_quality"]) or (prev_rest != ss["_last_rest"])
+
+        if changed:
             persist_session()
 
         st.divider()
@@ -1483,7 +1565,13 @@ def main():
     today_str = today.isoformat()
     gps = goal_pace_secs(goal_time)
 
-    planned_map, plan_start_str = build_planned_map(plan_key, race_date_str)
+    if PLANS[plan_key].get("kind") == "me":
+        planned_map, plan_start_str = build_planned_map(plan_key, race_date_str)
+    else:
+        planned_map, plan_start_str = build_planned_map(
+            plan_key, race_date_str,
+            long_day=long_day_int, quality_day=quality_day_int, rest_day=rest_day_int
+        )
     plan_start = date.fromisoformat(plan_start_str)
 
     miles_ahead = sum(r["m"] for ds,r in planned_map.items() if ds >= today_str)
@@ -1573,48 +1661,6 @@ def main():
     header_html += '</div></div></div>'
 
     st.html(header_html)
-
-    # ── selected-day detail panel ────────────────────────────
-    sel = params.get("selected_day")
-    if sel:
-        try:
-            sel_date = date.fromisoformat(sel)
-            sel_planned = planned_map.get(sel)
-            sel_actual  = act_runs.get(sel, [None])[0] if act_runs.get(sel) else None
-            is_past = sel < today_str
-            in_window = sel >= plan_start_str
-
-            # Determine mode
-            if sel_planned and sel_actual:
-                mode = "both"
-            elif sel_planned and is_past and in_window:
-                mode = "missed"
-            elif sel_planned:
-                mode = "planned"
-            elif sel_actual:
-                mode = "actual"
-            else:
-                mode = None
-
-            if mode:
-                wtype = sel_planned["t"] if sel_planned else None
-                pmiles = sel_planned["m"] if sel_planned else (sel_actual["miles"] if sel_actual else 0)
-                note = sel_planned.get("note") if sel_planned else None
-                tooltip_inner = make_tooltip(mode, wtype, pmiles, gps, actual=sel_actual, note=note)
-
-                dow_label = sel_date.strftime("%A · %b %-d")
-                close_link = "?" if not params else "?"  # clears selected_day
-                panel = f"""
-                <div style="background:#0f0f0f;border-radius:14px;padding:20px;margin-bottom:1.5rem;position:relative">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                    <div style="color:#fff;font-size:14px;font-weight:600">{dow_label}</div>
-                    <a href="?" style="color:#9ca3af;text-decoration:none;font-size:18px;line-height:1;padding:4px 8px;border-radius:6px;background:#1f1f1f">×</a>
-                  </div>
-                  <div>{tooltip_inner}</div>
-                </div>"""
-                st.html(panel)
-        except (ValueError, TypeError):
-            pass
 
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("Weeks", plan["weeks"])
