@@ -21,7 +21,7 @@ PERSIST_KEYS = [
     "access_token", "refresh_token", "token_expires_at",
     "athlete",
     "goal_time", "race_date", "selected_plan",
-    "long_dow", "quality_dow", "rest_dow",
+    "long_dow", "quality_dow", "rest_dows",
     "swaps",
 ]
 
@@ -1490,7 +1490,6 @@ def main():
             # Default: long=Sun matches race day if race is Sunday, otherwise let user pick
             default_long_dow    = INT_TO_DOW.get(race_date.isoweekday() % 7, "Sun")
             default_quality_dow = ss.get("quality_dow", "Wed")
-            default_rest_dow    = ss.get("rest_dow", "Mon")
 
             long_dow = st.selectbox(
                 "Long run day",
@@ -1504,14 +1503,35 @@ def main():
                 index=DOW_OPTS.index(default_quality_dow),
                 help="Best practice: 3+ days before/after long run for full recovery."
             )
-            rest_dow = st.selectbox(
-                "Rest day",
-                DOW_OPTS,
-                index=DOW_OPTS.index(default_rest_dow),
-                help="Best practice: day after long run, OR day before quality workout."
-            )
+            is_high_vol = PLANS[plan_key].get("peak_mpw", 55) >= 70
+            n_rest_days = 1 if is_high_vol else 2
 
-            # Validation warnings (best-practice advice)
+            # Default rest days
+            default_rest = ss.get("rest_dows", ["Mon", "Fri"] if not is_high_vol else ["Mon"])
+            if isinstance(default_rest, str): default_rest = [default_rest]  # migrate old single value
+
+            if n_rest_days == 1:
+                rest_dows_sel = [st.selectbox(
+                    "Rest day",
+                    DOW_OPTS,
+                    index=DOW_OPTS.index(default_rest[0] if default_rest else "Mon"),
+                    help="One rest day for 70-mpw plans. Best practice: day after long run."
+                )]
+            else:
+                st.caption("55-mpw plans have 2 rest days per week.")
+                rest_dows_sel = st.multiselect(
+                    "Rest days (pick 2)",
+                    DOW_OPTS,
+                    default=[d for d in default_rest if d in DOW_OPTS][:2] or ["Mon","Fri"],
+                    max_selections=2,
+                    help="Best practice: spread them out. Mon + Fri or Mon + Thu work well."
+                )
+                if len(rest_dows_sel) < 2:
+                    st.warning("Pick exactly 2 rest days for this plan.")
+
+            rest_dow = rest_dows_sel[0] if rest_dows_sel else "Mon"  # primary rest day for validation
+
+            # Validation
             warnings = []
             def cyclic_gap(a, b):
                 ai = DOW_TO_INT[a]
@@ -1523,27 +1543,30 @@ def main():
             elif cyclic_gap(long_dow, quality_dow) < 2:
                 warnings.append(f"Quality on {quality_dow} is only {cyclic_gap(long_dow, quality_dow)} day(s) from long run on {long_dow}. Aim for 3+ days for recovery.")
 
-            if rest_dow == quality_dow:
-                warnings.append("Rest and quality workout can't be on the same day.")
-            if rest_dow == long_dow:
-                warnings.append("Rest can't be on long run day.")
+            for rd in rest_dows_sel:
+                if rd == quality_dow:
+                    warnings.append(f"Rest on {rd} conflicts with quality workout day.")
+                if rd == long_dow:
+                    warnings.append(f"Rest on {rd} conflicts with long run day.")
 
-            if cyclic_gap(rest_dow, quality_dow) > 0 and cyclic_gap(rest_dow, quality_dow) < 1.5:
-                # Rest right before quality is fine, this is just informational
-                pass
+            if n_rest_days == 2 and len(rest_dows_sel) == 2:
+                gap = cyclic_gap(rest_dows_sel[0], rest_dows_sel[1])
+                if gap < 2:
+                    warnings.append(f"Rest days {rest_dows_sel[0]} and {rest_dows_sel[1]} are only {gap} day(s) apart. Spread them out for better recovery.")
 
             for w in warnings:
                 st.warning(w)
 
-            # Only commit selections to session state if no blocking conflicts
-            blocking = any("can't be" in w for w in warnings)
-            if not blocking:
-                ss["long_dow"] = long_dow
+            blocking = any("conflicts" in w or "can't be" in w for w in warnings)
+            if not blocking and (n_rest_days == 1 or len(rest_dows_sel) == 2):
+                ss["long_dow"]   = long_dow
                 ss["quality_dow"] = quality_dow
-                ss["rest_dow"] = rest_dow
+                ss["rest_dows"]  = rest_dows_sel
+
             long_day_int    = DOW_TO_INT[ss.get("long_dow", default_long_dow)]
             quality_day_int = DOW_TO_INT[ss.get("quality_dow", default_quality_dow)]
-            rest_day_int    = DOW_TO_INT[ss.get("rest_dow", default_rest_dow)]
+            saved_rests     = ss.get("rest_dows", ["Mon"])
+            rest_day_int    = DOW_TO_INT[saved_rests[0]] if saved_rests else 1
         else:
             long_day_int = quality_day_int = rest_day_int = None  # ME plans handle their own layout
 
@@ -1563,7 +1586,7 @@ def main():
         if not is_me:
             ss["_last_long"]    = ss.get("long_dow")
             ss["_last_quality"] = ss.get("quality_dow")
-            ss["_last_rest"]    = ss.get("rest_dow")
+            ss["_last_rest"]    = str(ss.get("rest_dows"))
             changed = changed or (prev_long != ss["_last_long"]) or (prev_quality != ss["_last_quality"]) or (prev_rest != ss["_last_rest"])
 
         if changed:
@@ -1855,79 +1878,84 @@ def main():
     st.html(cal_html)
 
     # ── fitness trend chart ──────────────────────────────────
-    # Build weekly actual vs planned mileage over the past 12 weeks + future 4
-    trend_weeks = all_weeks[max(0, cur_idx - 11) : cur_idx + 5]
-    if trend_weeks:
-        trend_planned = []
-        trend_actual  = []
-        trend_labels  = []
-        for ws in trend_weeks:
-            week_ds = [(ws + timedelta(days=j)).isoformat() for j in range(7)]
-            p_mi = sum(effective_map[ds]["m"] for ds in week_ds if effective_map.get(ds) and effective_map[ds]["t"] != "race")
-            a_mi = round(sum(r["miles"] for ds in week_ds for r in act_runs.get(ds, [])), 1)
-            trend_planned.append(p_mi)
-            trend_actual.append(a_mi)
-            trend_labels.append((ws + timedelta(days=3)).strftime("%-m/%-d"))  # midweek label
+    # Anchor to today so chart always shows regardless of plan position
+    chart_anchor = today - timedelta(weeks=9)
+    chart_anchor -= timedelta(days=chart_anchor.weekday())
+    trend_weeks = []
+    w = chart_anchor
+    for _ in range(12):
+        trend_weeks.append(w)
+        w += timedelta(weeks=1)
 
-        max_mi = max(max(trend_planned or [1]), max(trend_actual or [1]), 1)
-        n = len(trend_weeks)
-        W, H = 700, 200
-        pad_l, pad_r, pad_t, pad_b = 45, 20, 20, 36
-        chart_w = W - pad_l - pad_r
-        chart_h = H - pad_t - pad_b
-        bar_w = max(6, chart_w // n - 6)
-        bar_gap = chart_w // n
+    trend_planned, trend_actual, trend_labels = [], [], []
+    for ws in trend_weeks:
+        week_ds = [(ws + timedelta(days=j)).isoformat() for j in range(7)]
+        p_mi = round(sum(effective_map[ds]["m"] for ds in week_ds
+                   if effective_map.get(ds) and effective_map[ds].get("t") != "race"), 1)
+        a_mi = round(sum(r["miles"] for ds in week_ds for r in act_runs.get(ds, [])), 1)
+        trend_planned.append(p_mi)
+        trend_actual.append(a_mi)
+        trend_labels.append((ws + timedelta(days=3)).strftime("%-m/%-d"))
 
-        def y(mi): return pad_t + chart_h - int(mi / max_mi * chart_h)
+    max_mi = max(trend_planned + trend_actual + [1])
+    n = len(trend_weeks)
+    W, H = 700, 200
+    pad_l, pad_r, pad_t, pad_b = 45, 20, 24, 36
+    chart_w = W - pad_l - pad_r
+    chart_h = H - pad_t - pad_b
+    bar_gap = chart_w // n
+    bar_w   = max(5, bar_gap - 8)
 
-        bars_planned = ""
-        bars_actual  = ""
-        labels_html  = ""
-        points       = []
+    def yc(mi): return pad_t + chart_h - int(mi / max_mi * chart_h)
 
-        for i, (p, a, lbl) in enumerate(zip(trend_planned, trend_actual, trend_labels)):
-            x_center = pad_l + i * bar_gap + bar_gap // 2
-            is_cur = trend_weeks[i] <= today <= trend_weeks[i] + timedelta(days=6)
+    bars_planned = bars_actual = labels_html = trend_line_svg = ""
+    points = []
 
-            # Planned bar (light)
-            ph = max(1, int(p / max_mi * chart_h))
-            bars_planned += f'<rect x="{x_center - bar_w//2 - 2}" y="{pad_t + chart_h - ph}" width="{bar_w}" height="{ph}" fill="#e5e7eb" rx="2"/>'
+    for i, (p, a, lbl) in enumerate(zip(trend_planned, trend_actual, trend_labels)):
+        x_center = pad_l + i * bar_gap + bar_gap // 2
+        ws_i = trend_weeks[i]
+        is_cur = ws_i <= today <= ws_i + timedelta(days=6)
+        is_future = ws_i > today
 
-            # Actual bar (colored)
-            if a > 0:
-                ah = max(1, int(a / max_mi * chart_h))
-                color = "#FC4C02" if is_cur else "#5DCAA5"
-                bars_actual += f'<rect x="{x_center - bar_w//2 + 2}" y="{pad_t + chart_h - ah}" width="{bar_w}" height="{ah}" fill="{color}" rx="2" opacity="0.85"/>'
-                points.append((x_center, y(a)))
+        if p > 0:
+            ph = max(2, int(p / max_mi * chart_h))
+            bg_fill = "#fff5f0" if is_cur else "#f3f4f6"
+            bg_stroke = "#FC4C02" if is_cur else "#e5e7eb"
+            bars_planned += f'<rect x="{x_center - bar_w//2}" y="{pad_t + chart_h - ph}" width="{bar_w}" height="{ph}" fill="{bg_fill}" stroke="{bg_stroke}" stroke-width="1" rx="2"/>'
 
-            # X labels (every other week to avoid overlap)
-            if i % 2 == 0 or n <= 8:
-                fw = "600" if is_cur else "400"
-                labels_html += f'<text x="{x_center}" y="{H - 6}" text-anchor="middle" font-size="9" fill="{"#FC4C02" if is_cur else "#9ca3af"}" font-weight="{fw}">{lbl}</text>'
+        if a > 0 and not is_future:
+            ah = max(2, int(a / max_mi * chart_h))
+            fill = "#FC4C02" if is_cur else "#5DCAA5"
+            bars_actual += f'<rect x="{x_center - bar_w//2 + 1}" y="{pad_t + chart_h - ah}" width="{bar_w - 2}" height="{ah}" fill="{fill}" rx="2" opacity="0.9"/>'
+            points.append((x_center, yc(a)))
 
-        # Trend line through actuals
-        line_pts = " ".join(f"{x},{y}" for x, y in points)
-        trend_line = f'<polyline points="{line_pts}" fill="none" stroke="#5DCAA5" stroke-width="1.5" opacity="0.6"/>' if len(points) > 1 else ""
+        if i % 2 == 0 or n <= 8:
+            fw = "600" if is_cur else "400"
+            fc = "#FC4C02" if is_cur else "#9ca3af"
+            labels_html += f'<text x="{x_center}" y="{H - 5}" text-anchor="middle" font-size="9" fill="{fc}" font-weight="{fw}">{lbl}</text>'
 
-        # Y-axis grid lines
-        grid = ""
-        for tick in [0.25, 0.5, 0.75, 1.0]:
-            ty = int(pad_t + chart_h * (1 - tick))
-            mi_val = int(max_mi * tick)
-            grid += f'<line x1="{pad_l}" y1="{ty}" x2="{W - pad_r}" y2="{ty}" stroke="#f3f4f6" stroke-width="1"/>'
-            grid += f'<text x="{pad_l - 5}" y="{ty + 4}" text-anchor="end" font-size="9" fill="#9ca3af">{mi_val}</text>'
+    if len(points) > 1:
+        pts = " ".join(f"{px},{py}" for px, py in points)
+        trend_line_svg = f'<polyline points="{pts}" fill="none" stroke="#5DCAA5" stroke-width="1.5" stroke-linejoin="round" opacity="0.5"/>'
 
-        svg = f"""<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;font-family:system-ui,sans-serif">
-          {grid}{bars_planned}{bars_actual}{trend_line}{labels_html}
-          <text x="{pad_l}" y="{pad_t - 6}" font-size="10" fill="#9ca3af" font-weight="600">WEEKLY MILEAGE — planned vs actual</text>
-          <rect x="{W-130}" y="4" width="10" height="10" fill="#e5e7eb" rx="2"/>
-          <text x="{W-116}" y="13" font-size="9" fill="#9ca3af">Planned</text>
-          <rect x="{W-70}" y="4" width="10" height="10" fill="#5DCAA5" rx="2" opacity="0.85"/>
-          <text x="{W-56}" y="13" font-size="9" fill="#9ca3af">Actual</text>
-        </svg>"""
+    grid = ""
+    for frac in [0.25, 0.5, 0.75, 1.0]:
+        ty = int(pad_t + chart_h * (1 - frac))
+        mi_val = int(max_mi * frac)
+        grid += f'<line x1="{pad_l}" y1="{ty}" x2="{W - pad_r}" y2="{ty}" stroke="#f3f4f6" stroke-width="1"/>'
+        grid += f'<text x="{pad_l - 5}" y="{ty + 4}" text-anchor="end" font-size="9" fill="#d1d5db">{mi_val}</text>'
 
-        st.markdown("---")
-        st.html(svg)
+    svg = (f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;font-family:system-ui,sans-serif">'
+           + grid + bars_planned + bars_actual + trend_line_svg + labels_html
+           + f'<text x="{pad_l}" y="{pad_t - 8}" font-size="10" fill="#9ca3af" font-weight="600" letter-spacing="0.05em">WEEKLY MILEAGE — planned vs actual</text>'
+           + f'<rect x="{W-135}" y="4" width="9" height="9" fill="#f3f4f6" stroke="#e5e7eb" stroke-width="1" rx="1"/>'
+           + f'<text x="{W-122}" y="12" font-size="9" fill="#9ca3af">Planned</text>'
+           + f'<rect x="{W-72}" y="4" width="9" height="9" fill="#5DCAA5" rx="1"/>'
+           + f'<text x="{W-59}" y="12" font-size="9" fill="#9ca3af">Actual</text>'
+           + '</svg>')
+
+    st.markdown("---")
+    st.html(svg)
 
     # ── swap UI ───────────────────────────────────────────────
     # Show swap controls for weeks that have at least 2 future planned days
